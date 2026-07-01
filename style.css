@@ -86,6 +86,7 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .result__list li:last-child{border-bottom:none}
 .result__num{color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums}
 .result__warn{margin-top:12px; padding:10px 12px; background:#fdf3f3; color:var(--low); border-radius:8px; font-size:.9rem; font-weight:600}
+.result__hint{margin-top:12px; font-size:.88rem; color:var(--accent-light,#1a4070); font-weight:600}
 
 /* Stock list */
 .stock-hint{color:var(--muted); font-size:.9rem; margin:0 0 14px}

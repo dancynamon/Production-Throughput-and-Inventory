@@ -104,9 +104,11 @@
     api(payload).then(function (data) {
       if (!data.ok) throw new Error(data.error || 'Submit failed');
       showDayResult(data);
-      document.querySelectorAll('#stageInputs [data-stage]').forEach(function (i) { i.value = ''; });
+      // Reset for the next product (keep employee + date so they can log another).
+      el('product').selectedIndex = 0;
       el('notes').value = '';
-      loadToday();
+      buildStageInputs();   // back to "pick a product" until they choose the next
+      loadToday();          // Today's totals now includes what they just logged
     }).catch(function (err) { toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Submit My Day'; });
   });
@@ -131,6 +133,7 @@
     if (data.warnings && data.warnings.length) {
       html += '<div class="result__warn">⚠ ' + data.warnings.map(escapeHtml).join('<br>⚠ ') + '</div>';
     }
+    html += '<div class="result__hint">Pick another product above to keep logging today →</div>';
     el('dayResult').innerHTML = html; el('dayResult').hidden = false;
   }
 

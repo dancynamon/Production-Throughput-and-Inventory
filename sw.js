@@ -2,7 +2,7 @@
  * Caches the app shell so it opens instantly and works even on a flaky
  * shop-floor connection. API calls (JSONP <script> loads) are never cached —
  * they always go to the network so stock numbers stay live. */
-var CACHE = 'aquamentor-prod-v5';
+var CACHE = 'aquamentor-prod-v6';
 var SHELL = [
   './',
   './index.html',
