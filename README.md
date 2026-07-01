@@ -119,8 +119,12 @@ This folder is already in your repo. To publish it:
 
 Everything lives in the Google Sheet. Just edit the cells:
 
-- **Products tab** — add a row to track more variants (Exos, Standard, Yellow…).
-  `ProductID` must be unique. Set `Active = NO` to hide one from the app.
+- **Products tab** — add a row to track more products. `ProductID` must be
+  unique; set `Active = NO` to hide one. The **Line** column puts a product on a
+  process: **Tube** (Cut→…→Boxed), **Shape** (CNC→Clean→Box, for foam mats &
+  kickboards, deducting 4# foam by area), or **Chair** (Cut→Assemble→Box, for
+  lifeguard chairs, deducting lumber + a hardware kit). The Log-My-Day form
+  shows only the stages for the picked product's line.
 - **RawMaterials tab** — `OnHand` = current stock, `ReorderPoint` = low-warning
   level. Blank `OnHand` shows as "not counted." **Status** fills in
   automatically. Do a physical count and type real numbers in.

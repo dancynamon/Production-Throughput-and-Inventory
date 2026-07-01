@@ -135,6 +135,19 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .ov-starved td{background:#fdf6ee}
 .ov-flag{font-size:.68rem; font-weight:700; color:#b26a00; background:#ffe9c7; padding:1px 5px; border-radius:10px}
 
+/* Today's totals (employee landing) */
+.today-prod{padding:12px 14px; border-bottom:1px solid var(--border-light)}
+.today-prod:last-child{border-bottom:none}
+.today-prod__name{font-weight:700; color:var(--navy); margin-bottom:8px}
+.today-prod__total{font-weight:600; font-size:.8rem; color:var(--muted)}
+.today-chips{display:flex; flex-wrap:wrap; gap:6px}
+.today-chip{background:var(--bg-alt,#eeedea); border:1px solid var(--border); border-radius:16px;
+  padding:4px 10px; font-size:.85rem; color:var(--ink)}
+.today-chip b{color:var(--navy)}
+
+/* Manager unlock button */
+#mgrBtn{font-size:1.05rem}
+
 /* Setup banner */
 .setup-banner{
   position:fixed; left:12px; right:12px; bottom:12px; z-index:20;

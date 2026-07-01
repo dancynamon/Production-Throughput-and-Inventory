@@ -17,13 +17,14 @@
 <header class="topbar">
   <div class="topbar__logo">AQ</div>
   <div class="topbar__title">Aquamentor Production</div>
+  <button id="mgrBtn" class="topbar__refresh" aria-label="Manager access" title="Manager access">🔒</button>
   <button id="refreshBtn" class="topbar__refresh" aria-label="Refresh">⟳</button>
 </header>
 
 <nav class="tabs">
   <button class="tab tab--active" data-screen="day">Log My Day</button>
-  <button class="tab" data-screen="overview">Overview</button>
-  <button class="tab" data-screen="receive">Receive</button>
+  <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
+  <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
 </nav>
 
 <main>
@@ -43,6 +44,11 @@
       <button type="submit" id="dayBtn" class="btn-primary">Submit My Day</button>
     </form>
     <div id="dayResult" class="result" hidden></div>
+
+    <div id="todayCard" class="ov-card" hidden>
+      <div class="ov-card__head">Today's totals <span class="ov-card__meta" id="todayMeta"></span></div>
+      <div id="todayBody"></div>
+    </div>
   </section>
 
   <!-- ============ OVERVIEW ============ -->

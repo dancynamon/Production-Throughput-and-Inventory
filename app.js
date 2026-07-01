@@ -8,7 +8,8 @@
 
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
   var el = function (id) { return document.getElementById(id); };
-  var STAGES = [];   // filled from config
+  var LINES = {};    // line -> [stage names], from config
+  var PLINE = {};    // productId -> line, from config
 
   /* ---- JSONP ------------------------------------------------------------- */
   var seq = 0;
@@ -48,7 +49,9 @@
     if (!API) { el('setupBanner').hidden = false; return; }
     api({ action: 'config' }).then(function (data) {
       if (!data.ok) throw new Error(data.error || 'Could not load config');
-      STAGES = data.stages || [];
+      LINES = data.lines || {};
+      PLINE = {};
+      (data.products || []).forEach(function (p) { PLINE[p.id] = p.line || 'Tube'; });
       var emp = data.employees.map(function (n) { return { value: n, label: n }; });
       fillSelect(el('employee'), emp, 'Select your name');
       fillSelect(el('recvEmployee'), emp, 'Select your name');
@@ -57,18 +60,23 @@
         return { value: m.id, label: m.name + (m.unit ? ' (' + m.unit + ')' : '') };
       }), 'Select a material');
       buildStageInputs();
+      loadToday();
     }).catch(function (err) { toast('⚠ ' + err.message); });
   }
 
   function buildStageInputs() {
     var wrap = el('stageInputs');
-    if (!STAGES.length) { wrap.innerHTML = '<div class="muted">No stages configured.</div>'; return; }
-    wrap.innerHTML = STAGES.map(function (s) {
+    var pid = el('product').value;
+    if (!pid) { wrap.innerHTML = '<div class="muted">Pick a product to see its stages.</div>'; return; }
+    var stages = LINES[PLINE[pid]] || [];
+    if (!stages.length) { wrap.innerHTML = '<div class="muted">No stages set for this product.</div>'; return; }
+    wrap.innerHTML = stages.map(function (s) {
       return '<label class="stage-row"><span class="stage-row__name">' + escapeHtml(s) + '</span>'
            + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
            + 'data-stage="' + escapeHtml(s) + '" placeholder="0"></label>';
     }).join('');
   }
+  el('product').addEventListener('change', buildStageInputs);
 
   /* ---- Submit the day ---------------------------------------------------- */
   el('dayForm').addEventListener('submit', function (e) {
@@ -98,6 +106,7 @@
       showDayResult(data);
       document.querySelectorAll('#stageInputs [data-stage]').forEach(function (i) { i.value = ''; });
       el('notes').value = '';
+      loadToday();
     }).catch(function (err) { toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Submit My Day'; });
   });
@@ -176,16 +185,66 @@
       .then(function () { btn.disabled = false; btn.textContent = 'Add to Stock'; });
   });
 
+  /* ---- Today's totals (employee landing) --------------------------------- */
+  function loadToday() {
+    var date = el('workDate').value;
+    if (!API || !date) return;
+    api({ action: 'today', workDate: date }).then(function (d) {
+      if (!d.ok) return;
+      var card = el('todayCard'), body = el('todayBody');
+      el('todayMeta').textContent = d.workDate;
+      if (!d.products || !d.products.length) {
+        body.innerHTML = '<div class="muted" style="padding:12px">Nothing logged yet today.</div>';
+      } else {
+        body.innerHTML = d.products.map(function (pr) {
+          var chips = pr.rows.filter(function (r) { return r.qty > 0; }).map(function (r) {
+            return '<span class="today-chip">' + escapeHtml(r.stage) + ' <b>' + r.qty + '</b></span>';
+          }).join('');
+          return '<div class="today-prod"><div class="today-prod__name">' + escapeHtml(pr.name)
+               + ' <span class="today-prod__total">' + pr.total + ' total</span></div>'
+               + '<div class="today-chips">' + (chips || '<span class="muted">—</span>') + '</div></div>';
+        }).join('');
+      }
+      card.hidden = false;
+    }).catch(function () {});
+  }
+  el('workDate').addEventListener('change', loadToday);
+
+  /* ---- Role (employee vs manager) ---------------------------------------- */
+  function applyRole() {
+    var mgr = localStorage.getItem('aq_role') === 'mgr';
+    document.querySelectorAll('.tab[data-mgr]').forEach(function (t) { t.style.display = mgr ? '' : 'none'; });
+    el('mgrBtn').textContent = mgr ? '🔓' : '🔒';
+    el('mgrBtn').title = mgr ? 'Manager mode (tap to lock)' : 'Manager access';
+    if (!mgr) {  // if an employee somehow lands on a manager screen, bounce to Log My Day
+      var active = document.querySelector('.screen--active');
+      if (active && active.id !== 'screen-day') selectScreen('day');
+    }
+  }
+  el('mgrBtn').addEventListener('click', function () {
+    if (localStorage.getItem('aq_role') === 'mgr') {
+      localStorage.removeItem('aq_role'); applyRole(); toast('Locked — employee view'); return;
+    }
+    var pin = window.prompt('Manager PIN:');
+    if (pin == null) return;
+    api({ action: 'auth', pin: pin }).then(function (d) {
+      if (d && d.ok) { localStorage.setItem('aq_role', 'mgr'); applyRole(); toast('Manager access unlocked'); }
+      else toast('Wrong PIN');
+    }).catch(function (err) { toast('⚠ ' + err.message); });
+  });
+
   /* ---- Tabs -------------------------------------------------------------- */
+  function selectScreen(name) {
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('tab--active'); });
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('screen--active'); });
+    var tab = document.querySelector('.tab[data-screen="' + name + '"]');
+    if (tab) tab.classList.add('tab--active');
+    el('screen-' + name).classList.add('screen--active');
+    if (name === 'overview') loadOverview();
+    if (name === 'day') loadToday();
+  }
   document.querySelectorAll('.tab').forEach(function (tab) {
-    tab.addEventListener('click', function () {
-      document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('tab--active'); });
-      document.querySelectorAll('.screen').forEach(function (s) { s.classList.remove('screen--active'); });
-      tab.classList.add('tab--active');
-      var name = tab.getAttribute('data-screen');
-      el('screen-' + name).classList.add('screen--active');
-      if (name === 'overview') loadOverview();
-    });
+    tab.addEventListener('click', function () { selectScreen(tab.getAttribute('data-screen')); });
   });
 
   el('refreshBtn').addEventListener('click', function () {
@@ -207,5 +266,6 @@
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
+  applyRole();
   loadConfig();
 })();
