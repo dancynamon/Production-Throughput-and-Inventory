@@ -62,11 +62,23 @@ Stage-based production tracking for XRT rescue tubes, built on free tools:
    ink from the COGS build), the 9-stage pipeline, and the seeded recipe.
 
 > There's also an **"Aquamentor" menu** in the spreadsheet (reload the sheet if
-> you don't see it) with *Build/reset all tabs* and *Rebuild overview / next-day
-> goals*.
+> you don't see it) with *Rebuild overview / next-day goals*. The destructive
+> *Build/reset all tabs* action is deliberately **not** on the menu — `setup()`
+> wipes every tab back to seed data, so it can only be run on purpose from the
+> Apps Script editor, and never on a sheet that already holds live data.
+
+> **Migrating into an existing sheet** (tabs already present with real data):
+> skip step 5 entirely — do **not** run `setup()`. Just paste the code, save,
+> set the Script Properties (next section), and deploy.
 
 ### Part 2 — Deploy the backend (5 min)
 
+0. **Set the PINs first** (they live in Script Properties, never in this repo):
+   In the Apps Script editor open **Project Settings (⚙) → Script Properties →
+   Add script property** and create two entries:
+   - `MANAGER_PIN` — what the owners type to unlock Overview/Receive.
+   - `SHOP_PIN` — the shared shop code employees enter once on their phone;
+     every submit/receive write is rejected without it.
 1. Back in the Apps Script editor, click **Deploy → New deployment**.
 2. Click the ⚙ gear next to "Select type" → choose **Web app**.
 3. Set:
@@ -108,10 +120,10 @@ This folder is already in your repo. To publish it:
 3. Your app will be at `https://<you>.github.io/<repo>/inventory/`.
 
 > **Note:** `config.js` contains only your Apps Script URL, which is safe to
-> expose (the script only accepts the actions it defines). But **anyone with
-> the URL can post production entries**, so keep the hosted URL internal. For
-> a small shop that's usually fine; if you want a gate, add a shared PIN check
-> in `submitProduction()` in `Code.gs`.
+> expose (the script only accepts the actions it defines). All writes
+> (`submitDay`, `receive`) additionally require the shared `SHOP_PIN` (a Script
+> Property, asked once per device), so someone who merely finds the URL can
+> read stock levels but can't post entries. Still keep the hosted URL internal.
 
 ---
 
@@ -195,6 +207,8 @@ at ~250 tubes/box (≈310 for the 40″).
 | Phone shows a "paste your URL" banner | `config.js` `API_URL` is still empty. |
 | Dropdowns show "—" or a timeout | Re-check Part 2: deployment access must be **Anyone**; re-copy the `/exec` URL. |
 | Changed `Code.gs`, no effect | Re-deploy: **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. |
+| "Server is missing SHOP_PIN" | Add the `SHOP_PIN` Script Property (Part 2, step 0). |
+| "Wrong shop PIN" keeps appearing | The phone re-prompts on the next submit; type the current `SHOP_PIN`. Managers can change it any time in Script Properties. |
 | Stock went negative | Your `OnHand` counts were low, or a BOM qty is too high. Correct the numbers in the Sheet. |
 | Employee can't see a new product | It needs `Active = YES` in Products; then tap ⟳ on the phone. |
 
@@ -202,7 +216,6 @@ at ~250 tubes/box (≈310 for the 40″).
 
 ## Extending later (optional ideas)
 
-- Add a **PIN field** to the phone form and check it in `submitProduction()`.
 - Chart production over time with a Google Sheet chart on the Dashboard.
 - Add an "undo last entry" action for quick correction of a mis-typed quantity.
 - If you truly need offline scanning/barcodes, the same Sheet + Apps Script can

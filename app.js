@@ -78,6 +78,22 @@
   }
   el('product').addEventListener('change', buildStageInputs);
 
+  /* ---- Shop PIN ----------------------------------------------------------- */
+  // Every write (Submit My Day, Receive) must carry the shared shop PIN. It's
+  // asked once and remembered on the device; a "wrong PIN" reply clears it so
+  // the next attempt re-prompts.
+  function shopPin() {
+    var pin = (localStorage.getItem('aq_shop_pin') || '').trim();
+    if (!pin) {
+      pin = (window.prompt('Shop PIN (ask a manager):') || '').trim();
+      if (pin) localStorage.setItem('aq_shop_pin', pin);
+    }
+    return pin;
+  }
+  function forgetShopPinIfRejected(err) {
+    if (/pin/i.test(String(err && err.message || ''))) localStorage.removeItem('aq_shop_pin');
+  }
+
   /* ---- Submit the day ---------------------------------------------------- */
   el('dayForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -98,6 +114,8 @@
     if (!payload.employee)  { toast('Pick who you are'); return; }
     if (!payload.productId) { toast('Pick a product'); return; }
     if (total <= 0)         { toast('Enter at least one stage count'); return; }
+    payload.pin = shopPin();
+    if (!payload.pin)       { toast('Shop PIN required to submit'); return; }
 
     var btn = el('dayBtn'); btn.disabled = true; btn.textContent = 'Submitting…';
     el('dayResult').hidden = true;
@@ -109,7 +127,7 @@
       el('notes').value = '';
       buildStageInputs();   // back to "pick a product" until they choose the next
       loadToday();          // Today's totals now includes what they just logged
-    }).catch(function (err) { toast('⚠ ' + err.message); })
+    }).catch(function (err) { forgetShopPinIfRejected(err); toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Submit My Day'; });
   });
 
@@ -175,6 +193,8 @@
     if (!payload.employee)          { toast('Pick who you are'); return; }
     if (!payload.materialId)        { toast('Pick a material'); return; }
     if (!(Number(payload.qty) > 0)) { toast('Enter a quantity'); return; }
+    payload.pin = shopPin();
+    if (!payload.pin)               { toast('Shop PIN required'); return; }
     var btn = el('recvBtn'); btn.disabled = true; btn.textContent = 'Adding…'; el('recvResult').hidden = true;
     api(payload).then(function (data) {
       if (!data.ok) throw new Error(data.error || 'Receive failed');
@@ -184,7 +204,7 @@
         + '<span class="result__num">now ' + fmt(m.onHand) + ' ' + escapeHtml(m.unit || '') + '</span></li></div>';
       el('recvResult').hidden = false; el('recvForm').reset();
       loadConfig();
-    }).catch(function (err) { toast('⚠ ' + err.message); })
+    }).catch(function (err) { forgetShopPinIfRejected(err); toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Add to Stock'; });
   });
 

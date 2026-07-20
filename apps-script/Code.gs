@@ -13,7 +13,9 @@
  *      your throughput rates + daily targets, SUGGESTS next-day goals per stage
  *      — the feed for your manufacturing state machine.
  *
- *  Run setup() once (Extensions > Apps Script > Run) to build every tab.
+ *  setup() rebuilds EVERY tab from seed data — only run it on a brand-new,
+ *  empty spreadsheet. It is intentionally NOT on the menu: on the LIVE sheet
+ *  it would wipe real StageLog/ReceivingLog/RawMaterials data.
  *  See README.md for click-by-click deployment.
  * ========================================================================== */
 
@@ -29,10 +31,24 @@ var TAB = {
   overview:  'Overview'
 };
 
-// Manager PIN — the three owners type this to unlock the full site (Overview,
-// Receive). Employees never see it; it lives here on the server, not in the
-// public app code. CHANGE THIS to your own code.
-var MANAGER_PIN = '2468';
+// PINs live in Script Properties, NOT in this file (this repo is public).
+// Apps Script editor: Project Settings (⚙) → Script Properties → add:
+//   MANAGER_PIN — the owners type this to unlock the full site (Overview,
+//                 Receive). Employees never see it.
+//   SHOP_PIN    — shared shop code every employee enters once on their phone;
+//                 required on every submitDay/receive write.
+function getSecret_(key) {
+  return String(PropertiesService.getScriptProperties().getProperty(key) || '').trim();
+}
+
+// Returns an error result if the shop PIN is missing or wrong; null when OK.
+// Called at the top of every write action, before anything touches the sheet.
+function requireShopPin_(p) {
+  var pin = getSecret_('SHOP_PIN');
+  if (!pin) return { ok: false, error: 'Server is missing SHOP_PIN — set it in Script Properties.' };
+  if (String(p.pin || '').trim() !== pin) return { ok: false, error: 'Wrong shop PIN.' };
+  return null;
+}
 
 // Each product belongs to a LINE with its own ordered stages. [stage, ideal/hr,
 // floor/hr]. Tube rates come from your Throughput sheet; Shape/Chair rates 0 =
@@ -261,7 +277,8 @@ function doGet(e) {
     else if (action === 'today')     result = getToday(p);
     else if (action === 'submitDay') result = submitDay(p);
     else if (action === 'receive')   result = receiveStock(p);
-    else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
+    else if (action === 'auth')      result = { ok: getSecret_('MANAGER_PIN') !== '' &&
+                                                    String(p.pin || '').trim() === getSecret_('MANAGER_PIN') };
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -327,6 +344,9 @@ function getToday(p) {
  * way for each (stage, qty).
  */
 function submitDay(p) {
+  var pinErr = requireShopPin_(p);
+  if (pinErr) return pinErr;
+
   var workDate  = String(p.workDate || '').trim();
   var employee  = String(p.employee || '').trim();
   var productId = String(p.productId || '').trim();
@@ -400,6 +420,9 @@ function submitDay(p) {
 }
 
 function receiveStock(p) {
+  var pinErr = requireShopPin_(p);
+  if (pinErr) return pinErr;
+
   var employee   = String(p.employee || '').trim();
   var materialId = String(p.materialId || '').trim();
   var qty        = Number(p.qty);
@@ -502,8 +525,9 @@ function rebuildOverview() {
  *  Menu
  * ========================================================================== */
 function onOpen() {
+  // setup() is deliberately NOT on this menu — it would wipe the LIVE tabs.
+  // If a fresh rebuild is ever truly wanted, run setup() from the editor.
   SpreadsheetApp.getUi().createMenu('Aquamentor')
-    .addItem('Build / reset all tabs (setup)', 'setup')
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addToUi();
 }
