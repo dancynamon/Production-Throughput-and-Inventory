@@ -108,10 +108,13 @@ This folder is already in your repo. To publish it:
 3. Your app will be at `https://<you>.github.io/<repo>/inventory/`.
 
 > **Note:** `config.js` contains only your Apps Script URL, which is safe to
-> expose (the script only accepts the actions it defines). But **anyone with
-> the URL can post production entries**, so keep the hosted URL internal. For
-> a small shop that's usually fine; if you want a gate, add a shared PIN check
-> in `submitProduction()` in `Code.gs`.
+> expose (the script only accepts the actions it defines). All writes
+> (`submitDay` / `receive`) additionally require the shared **SHOP_PIN**, and
+> manager screens require **MANAGER_PIN**. Both PINs are stored in the Apps
+> Script project's **Script Properties** (Project Settings ⚙ → Script
+> Properties), never in this repo. The phone app asks for the shop PIN once
+> and remembers it on the device; rotate the PIN by changing the Script
+> Property — stale devices re-prompt automatically.
 
 ---
 
@@ -202,7 +205,6 @@ at ~250 tubes/box (≈310 for the 40″).
 
 ## Extending later (optional ideas)
 
-- Add a **PIN field** to the phone form and check it in `submitProduction()`.
 - Chart production over time with a Google Sheet chart on the Dashboard.
 - Add an "undo last entry" action for quick correction of a mis-typed quantity.
 - If you truly need offline scanning/barcodes, the same Sheet + Apps Script can

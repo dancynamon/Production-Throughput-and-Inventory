@@ -13,7 +13,8 @@
  *      your throughput rates + daily targets, SUGGESTS next-day goals per stage
  *      — the feed for your manufacturing state machine.
  *
- *  Run setup() once (Extensions > Apps Script > Run) to build every tab.
+ *  setup() builds every tab on a FRESH spreadsheet only — on the LIVE
+ *  consolidated sheet it is locked behind Script Property ALLOW_SETUP=YES.
  *  See README.md for click-by-click deployment.
  * ========================================================================== */
 
@@ -29,10 +30,29 @@ var TAB = {
   overview:  'Overview'
 };
 
-// Manager PIN — the three owners type this to unlock the full site (Overview,
-// Receive). Employees never see it; it lives here on the server, not in the
-// public app code. CHANGE THIS to your own code.
-var MANAGER_PIN = '2468';
+// PINs live in Script Properties (Apps Script editor: Project Settings ⚙ →
+// Script Properties), NEVER in this file — this repo is public.
+//   MANAGER_PIN — owners type this in the app to unlock Overview + Receive.
+//   SHOP_PIN    — shared floor PIN; required before ANY write
+//                 (submitDay / receive). Unset = all writes rejected.
+function getPin_(name) {
+  return String(PropertiesService.getScriptProperties().getProperty(name) || '').trim();
+}
+
+function checkManagerPin_(p) {
+  var pin = getPin_('MANAGER_PIN');
+  if (!pin) return { ok: false, error: 'MANAGER_PIN is not set in Script Properties.' };
+  return { ok: String(p.pin || '') === pin };
+}
+
+/* Returns null when the request may write, else the error response to send.
+ * badPin:true tells the app to forget its stored PIN and re-prompt. */
+function requireShopPin_(p) {
+  var pin = getPin_('SHOP_PIN');
+  if (!pin) return { ok: false, error: 'Writes are locked: SHOP_PIN is not set in Script Properties.' };
+  if (String(p.pin || '') !== pin) return { ok: false, error: 'Wrong shop PIN.', badPin: true };
+  return null;
+}
 
 // Each product belongs to a LINE with its own ordered stages. [stage, ideal/hr,
 // floor/hr]. Tube rates come from your Throughput sheet; Shape/Chair rates 0 =
@@ -61,6 +81,14 @@ function productLineMap() {
  *  1. SETUP
  * ========================================================================== */
 function setup() {
+  // This script is bound to the consolidated LIVE spreadsheet, where the app
+  // tabs already hold real production data alongside John's scheduling tabs —
+  // setup() would CLEAR and re-seed all nine app tabs. Locked behind an
+  // explicit Script Property so it can't be run by accident.
+  if (PropertiesService.getScriptProperties().getProperty('ALLOW_SETUP') !== 'YES') {
+    throw new Error('setup() is disabled on this spreadsheet (it clears and re-seeds all app tabs). ' +
+      'To run it anyway, set Script Property ALLOW_SETUP = YES first, then remove it after.');
+  }
   var ss = SpreadsheetApp.getActiveSpreadsheet();
 
   // ---- Products (Line groups them into a process: Tube / Shape / Chair) -----
@@ -261,7 +289,7 @@ function doGet(e) {
     else if (action === 'today')     result = getToday(p);
     else if (action === 'submitDay') result = submitDay(p);
     else if (action === 'receive')   result = receiveStock(p);
-    else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
+    else if (action === 'auth')      result = checkManagerPin_(p);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -327,6 +355,8 @@ function getToday(p) {
  * way for each (stage, qty).
  */
 function submitDay(p) {
+  var pinErr = requireShopPin_(p);
+  if (pinErr) return pinErr;
   var workDate  = String(p.workDate || '').trim();
   var employee  = String(p.employee || '').trim();
   var productId = String(p.productId || '').trim();
@@ -400,6 +430,8 @@ function submitDay(p) {
 }
 
 function receiveStock(p) {
+  var pinErr = requireShopPin_(p);
+  if (pinErr) return pinErr;
   var employee   = String(p.employee || '').trim();
   var materialId = String(p.materialId || '').trim();
   var qty        = Number(p.qty);
@@ -503,7 +535,6 @@ function rebuildOverview() {
  * ========================================================================== */
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Aquamentor')
-    .addItem('Build / reset all tabs (setup)', 'setup')
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addToUi();
 }

@@ -78,6 +78,21 @@
   }
   el('product').addEventListener('change', buildStageInputs);
 
+  /* ---- Shop PIN (required by the server for any write) -------------------- */
+  function shopPin() {
+    var pin = localStorage.getItem('aq_shop_pin');
+    if (!pin) {
+      pin = window.prompt('Shop PIN (ask a manager):');
+      if (pin == null || !pin.trim()) return null;
+      pin = pin.trim();
+      localStorage.setItem('aq_shop_pin', pin);
+    }
+    return pin;
+  }
+  function forgetShopPinIfBad(data) {
+    if (data && data.badPin) localStorage.removeItem('aq_shop_pin');
+  }
+
   /* ---- Submit the day ---------------------------------------------------- */
   el('dayForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -98,11 +113,14 @@
     if (!payload.employee)  { toast('Pick who you are'); return; }
     if (!payload.productId) { toast('Pick a product'); return; }
     if (total <= 0)         { toast('Enter at least one stage count'); return; }
+    var pin = shopPin();
+    if (pin == null) { toast('Shop PIN needed to submit'); return; }
+    payload.pin = pin;
 
     var btn = el('dayBtn'); btn.disabled = true; btn.textContent = 'Submitting…';
     el('dayResult').hidden = true;
     api(payload).then(function (data) {
-      if (!data.ok) throw new Error(data.error || 'Submit failed');
+      if (!data.ok) { forgetShopPinIfBad(data); throw new Error(data.error || 'Submit failed'); }
       showDayResult(data);
       // Reset for the next product (keep employee + date so they can log another).
       el('product').selectedIndex = 0;
@@ -175,9 +193,12 @@
     if (!payload.employee)          { toast('Pick who you are'); return; }
     if (!payload.materialId)        { toast('Pick a material'); return; }
     if (!(Number(payload.qty) > 0)) { toast('Enter a quantity'); return; }
+    var pin = shopPin();
+    if (pin == null) { toast('Shop PIN needed to add stock'); return; }
+    payload.pin = pin;
     var btn = el('recvBtn'); btn.disabled = true; btn.textContent = 'Adding…'; el('recvResult').hidden = true;
     api(payload).then(function (data) {
-      if (!data.ok) throw new Error(data.error || 'Receive failed');
+      if (!data.ok) { forgetShopPinIfBad(data); throw new Error(data.error || 'Receive failed'); }
       var m = data.material || {};
       el('recvResult').innerHTML = '<div class="result__ok">✓ ' + escapeHtml(data.message) + '</div>'
         + '<div class="result__list"><li><span>' + escapeHtml(m.name || '') + '</span>'

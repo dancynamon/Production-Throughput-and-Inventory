@@ -35,16 +35,19 @@ const STAGES = ['Cut','Glued','Meshed','Patched','Paint 1','Paint 2','Printed','
     const url = new URL(route.request().url());
     const action = url.searchParams.get('action'); const cb = url.searchParams.get('callback');
     let data;
+    const goodPin = url.searchParams.get('pin') === '1111';
     if (action === 'config') data = { ok:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
       employees:['Maria','James'],
       products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube'},{id:'SHP24',name:'Shape 24x24',line:'Shape'}],
       materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards'}] };
+    else if (action === 'submitDay' && !goodPin) data = { ok:false, error:'Wrong shop PIN.', badPin:true };
     else if (action === 'submitDay') data = { ok:true, message:'Logged 202 tube-stages for XRT-50 Rescue Tube on 2026-07-01',
       logged:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}],
       consumed:[{name:'1" Red PP Webbing',used:89,onHand:7,unit:'Yards'}], warnings:['1" Red PP Webbing is low (7 Yards)'] };
     else if (action === 'overview') data = { ok:true, stages:STAGES, materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards',onHand:7,counted:true,reorderPoint:1000,low:true}],
       products:[{productId:'XRT50',name:'XRT-50 Rescue Tube',dailyTarget:60,finished:40,
         stages:STAGES.map((s,i)=>({stage:s,completed:i===0?112:(i===1?90:40),waiting:i===0?null:20,suggest:i===0?60:20,starved:i>0}))}] };
+    else if (action === 'receive' && !goodPin) data = { ok:false, error:'Wrong shop PIN.', badPin:true };
     else if (action === 'receive') data = { ok:true, message:'Received 200 Yards of 1" Red PP Webbing', material:{name:'1" Red PP Webbing',unit:'Yards',onHand:207} };
     else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468' };
     else data = { ok:false, error:'bad action' };
@@ -52,6 +55,8 @@ const STAGES = ['Cut','Glued','Meshed','Patched','Paint 1','Paint 2','Printed','
   });
 
   await page.goto(`http://localhost:${port}/index.html`, { waitUntil:'networkidle' });
+  // Shop PIN prompt fires on first submit; manager unlock reuses the same stub.
+  await page.evaluate(() => { window.prompt = () => '1111'; });
   await page.waitForFunction(() => document.querySelectorAll('#product option').length > 1, { timeout:5000 });
   await page.selectOption('#employee','Maria'); await page.selectOption('#product','XRT50');
   await page.waitForFunction(() => document.querySelectorAll('#stageInputs [data-stage]').length > 0, { timeout:5000 });
