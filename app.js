@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.0.1';
+  var APP_VERSION = '2.1.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -91,8 +91,14 @@
   }
 
   function renderBuildInfo() {
+    // Both numbers, always, each labelled. The app and the backend deploy
+    // separately and drift constantly — showing one unlabelled "v2.0.1" just
+    // invites reading it as whichever half you last touched.
     el('buildToggle').textContent =
-      'v' + APP_VERSION + (buildFacts.sheet ? ' · ' + buildFacts.sheet : '') + '  ⓘ';
+      'app ' + APP_VERSION
+      + ' · backend ' + (buildFacts.backend || 'not reported')
+      + (buildFacts.sheet ? ' · ' + buildFacts.sheet : '')
+      + '  ⓘ';
 
     var rows = [
       ['App version',     APP_VERSION],
