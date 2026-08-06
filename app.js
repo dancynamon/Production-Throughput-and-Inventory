@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '1.2.0';
+  var APP_VERSION = '2.0.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -63,7 +63,7 @@
       renderBuildInfo();
       LINES = data.lines || {};
       PLINE = {};
-      (data.products || []).forEach(function (p) { PLINE[p.id] = p.line || 'Tube'; });
+      (data.products || []).forEach(function (p) { PLINE[p.id] = p.line || 'Blank'; });
       var emp = data.employees.map(function (n) { return { value: n, label: n }; });
       fillSelect(el('employee'), emp, 'Select your name');
       fillSelect(el('recvEmployee'), emp, 'Select your name');
@@ -204,12 +204,15 @@
       var html = '';
       (data.products || []).forEach(function (pr) {
         html += '<div class="ov-card"><div class="ov-card__head">' + escapeHtml(pr.name)
-             + '<span class="ov-card__meta">target ' + pr.dailyTarget + '/day · finished ' + pr.finished + '</span></div>'
-             + '<table class="ov-table"><thead><tr><th>Stage</th><th>Done</th><th>WIP</th><th>Next day</th></tr></thead><tbody>';
+             + '<span class="ov-card__meta">'
+             + (pr.feedsFrom ? 'from ' + escapeHtml(pr.feedsFrom) + ' · ' : '')
+             + 'finished ' + pr.finished + '</span></div>'
+             + '<table class="ov-table"><thead><tr><th>Stage</th><th>Done</th><th>WIP</th><th>Target</th><th>Next day</th></tr></thead><tbody>';
         pr.stages.forEach(function (s) {
           html += '<tr' + (s.starved ? ' class="ov-starved"' : '') + '><td>' + escapeHtml(s.stage) + '</td>'
                + '<td>' + fmt(s.completed) + '</td>'
                + '<td>' + (s.waiting === null ? '—' : fmt(s.waiting)) + '</td>'
+               + '<td>' + fmt(s.target) + '</td>'
                + '<td class="ov-goal">' + fmt(s.suggest) + (s.starved ? ' <span class="ov-flag">↑short</span>' : '') + '</td></tr>';
         });
         html += '</tbody></table></div>';

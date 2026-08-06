@@ -38,7 +38,7 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '1.1.0';
+var BACKEND_VERSION = '2.0.0';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -48,12 +48,30 @@ var DEFAULT_EMPLOYEES = [
   ['Joe', 'YES'], ['Max', 'YES'], ['Francis', 'YES']
 ];
 
-// Each product belongs to a LINE with its own ordered stages. [stage, ideal/hr,
-// floor/hr]. Tube rates come from your Throughput sheet; Shape/Chair rates 0 =
-// paced by daily target, not an hourly line rate.
+// Each product belongs to a LINE with its own ordered stages, as
+// [stage, ideal/hr, floor/hr]. The two rate figures are carried for reference
+// only — nothing reads them. Next-day goals come from the per-stage targets on
+// the Planning tab and the WIP actually waiting, not from an hourly rate.
+//
+// The tube pipeline DIVERGES. A blank off the CNC is a size and nothing more —
+// a 50" blank can still become either variant. The commit happens at Meshed:
+// a tube that gets meshed is an Exotube, one that doesn't is a Standard. So
+// the shared head (Cut, Glued) is its own line, and each variant picks up
+// where the blank leaves off. The variant IS the presence of the Meshed stage;
+// there is no separate variant field to keep in sync.
+//
+//   Blank    Cut → Glued ─┬─ TubeExo  Meshed → Patched → … → Boxed
+//                         └─ TubeStd           Patched → … → Boxed
+//
 var LINES = {
-  Tube: [
-    ['Cut', 30, 30], ['Glued', 30, 15], ['Meshed', 30, 20], ['Patched', 15, 15],
+  Blank: [ ['Cut', 30, 30], ['Glued', 30, 15] ],
+  TubeExo: [
+    ['Meshed', 30, 20], ['Patched', 15, 15],
+    ['Paint 1', 25, 18], ['Paint 2', 25, 18], ['Printed', 45, 64],
+    ['Straps Attached', 25, 20], ['Boxed', 30, 20]
+  ],
+  TubeStd: [
+    ['Patched', 15, 15],
     ['Paint 1', 25, 18], ['Paint 2', 25, 18], ['Printed', 45, 64],
     ['Straps Attached', 25, 20], ['Boxed', 30, 20]
   ],
@@ -61,14 +79,166 @@ var LINES = {
   Chair: [ ['Cut', 0, 0], ['Assemble', 0, 0], ['Box', 0, 0] ]
 };
 function stagesForLine(line) {
-  return (LINES[line] || LINES.Tube).map(function (s) { return s[0]; });
+  return (LINES[line] || LINES.Blank).map(function (s) { return s[0]; });
 }
-function stageNames() { return stagesForLine('Tube'); }
-// ProductID -> line (defaults to Tube if the Line column is blank).
+function stageNames() { return stagesForLine('Blank'); }
+// ProductID -> line (defaults to Blank if the Line column is empty).
 function productLineMap() {
   var m = {};
-  readObjects(TAB.products).forEach(function (r) { m[r.ProductID] = r.Line || 'Tube'; });
+  readObjects(TAB.products).forEach(function (r) { m[r.ProductID] = r.Line || 'Blank'; });
   return m;
+}
+// ProductID -> the blank it draws from ('' for products that start their own
+// pipeline). Variants sharing a feeder compete for the same pool of blanks.
+function productFeedMap() {
+  var m = {};
+  readObjects(TAB.products).forEach(function (r) {
+    m[r.ProductID] = String(r.FeedsFrom == null ? '' : r.FeedsFrom).trim();
+  });
+  return m;
+}
+
+/* ============================================================================
+ *  Seed data — shared by setup() and migrateToVariantLines()
+ * ========================================================================== */
+
+// One entry per tube size. Everything that differs between a 50" and a 40"
+// lives here; everything that differs between Exo and Standard is the Meshed
+// stage alone. Per-end consumables (patch, CA, accelerant) and the hardware /
+// box counts do not scale with length, so they are not in this table.
+var TUBE_SIZES = [
+  { blank: 'BLANK50', exo: 'XRT50EXO', std: 'XRT50STD', label: '50"',
+    foam: 0.1333, adhesive: 0.1522, mesh: 0.004,  paint: 0.0769,
+    web1red: 1.78,  web1blk: 2.44,  web2blk: 1.58 },
+  // 40" is length-scaled ×0.8 on foam / adhesive / paint / webbing.
+  // Mesh is ~310 tubes per box rather than ~250.
+  { blank: 'BLANK40', exo: 'XRT40EXO', std: 'XRT40STD', label: '40"',
+    foam: 0.1067, adhesive: 0.1218, mesh: 0.0032, paint: 0.0615,
+    web1red: 1.424, web1blk: 1.952, web2blk: 1.264 }
+];
+
+var PRODUCT_HEADERS = ['ProductID', 'ProductName', 'Line', 'Unit', 'Active', 'FeedsFrom'];
+
+var PRODUCT_ROWS = (function () {
+  var rows = [];
+  TUBE_SIZES.forEach(function (s) {
+    rows.push([s.blank, s.label + ' Blank (uncommitted)',   'Blank',   'each', 'YES', '']);
+    rows.push([s.exo,   'XRT-' + s.label.replace('"', '') + ' Exotube (meshed)',
+                                                            'TubeExo', 'each', 'YES', s.blank]);
+    rows.push([s.std,   'XRT-' + s.label.replace('"', '') + ' Standard (unmeshed)',
+                                                            'TubeStd', 'each', 'YES', s.blank]);
+  });
+  return rows.concat([
+    // Foam-mat shapes (size buckets) — CNC → Clean → Box, foam by area
+    ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES', ''],
+    ['SHP24',   'Shape 24x24',        'Shape', 'each', 'YES', ''],
+    ['SHP36',   'Shape 36x36',        'Shape', 'each', 'YES', ''],
+    ['SHP4824', 'Shape 48x24',        'Shape', 'each', 'YES', ''],
+    ['SHP48',   'Shape 48x48',        'Shape', 'each', 'YES', ''],
+    ['SHP7236', 'Shape 72x36',        'Shape', 'each', 'YES', ''],
+    // Kickboards
+    ['KB914',   'Kickboard 9x14',     'Shape', 'each', 'YES', ''],
+    ['KB1116',  'Kickboard 11x16.5',  'Shape', 'each', 'YES', ''],
+    ['KB1220',  'Kickboard 11.8x20',  'Shape', 'each', 'YES', ''],
+    // Lifeguard chairs — Cut → Assemble → Box; lumber + hardware
+    ['LGC30',   'Lifeguard Chair 30"','Chair', 'each', 'YES', ''],
+    ['LGC40',   'Lifeguard Chair 40"','Chair', 'each', 'YES', ''],
+    ['LGC50',   'Lifeguard Chair 50"','Chair', 'each', 'YES', ''],
+    ['LGC60',   'Lifeguard Chair 60"','Chair', 'each', 'YES', ''],
+    ['LGC72',   'Lifeguard Chair 72"','Chair', 'each', 'YES', '']
+  ]);
+})();
+
+/* Tube BOM rows. Cut and Glued belong to the blank; everything from Patched on
+ * is identical for both variants, so it is generated once per variant rather
+ * than transcribed twice — that is the only way the two stay in step when a
+ * quantity is corrected. The Meshed row exists for Exotubes only, which is
+ * exactly why a Standard never deducts mesh. */
+function tubeBomRows() {
+  var rows = [];
+  TUBE_SIZES.forEach(function (s) {
+    rows.push([s.blank, 'Cut',   'M034', s.foam]);
+    rows.push([s.blank, 'Glued', 'M035', s.adhesive]);
+
+    [s.exo, s.std].forEach(function (pid) {
+      if (pid === s.exo) rows.push([pid, 'Meshed', 'M002', s.mesh]);  // boxes
+      rows.push(
+        [pid, 'Patched',         'M003', 0.000103],   // rolls (2 patches/tube)
+        [pid, 'Patched',         'M004', 0.012571],   // CA glue lb (44lb/3500)
+        [pid, 'Patched',         'M005', 0.001429],   // accelerant gal (5gal/3500)
+        [pid, 'Paint 1',         'M036', s.paint],
+        [pid, 'Paint 2',         'M036', s.paint],
+        [pid, 'Printed',         'M037', 0.007],      // ink — ESTIMATE
+        [pid, 'Straps Attached', 'M014', s.web1red],
+        [pid, 'Straps Attached', 'M015', s.web1blk],
+        [pid, 'Straps Attached', 'M019', s.web2blk],
+        [pid, 'Straps Attached', 'M023', 1],
+        [pid, 'Straps Attached', 'M024', 1],
+        [pid, 'Boxed',           'M031', 0.002],
+        [pid, 'Boxed',           'M033', 0.0833]
+      );
+    });
+  });
+  return rows;
+}
+
+var BOM_HEADERS = ['ProductID', 'Stage', 'MaterialID', 'QtyPerUnit'];
+
+// Shapes, kickboards and chairs don't branch, so their recipes are flat.
+var NON_TUBE_BOM_ROWS = [
+  // ---- Shapes & kickboards: 4# foam by area (sq ft) at CNC ----
+  ['SHP16',   'CNC', 'M038', 1.78],   // 16x16 = 256 in²
+  ['SHP24',   'CNC', 'M038', 4.0],    // 24x24 = 576
+  ['SHP36',   'CNC', 'M038', 9.0],    // 36x36 = 1296
+  ['SHP4824', 'CNC', 'M038', 8.0],    // 48x24 = 1152
+  ['SHP48',   'CNC', 'M038', 16.0],   // 48x48 = 2304
+  ['SHP7236', 'CNC', 'M038', 18.0],   // 72x36 = 2592
+  ['KB914',   'CNC', 'M038', 0.88],   // 9x14   = 126
+  ['KB1116',  'CNC', 'M038', 1.26],   // 11x16.5= 181.5
+  ['KB1220',  'CNC', 'M038', 1.64],   // 11.8x20= 236
+
+  // ---- Lifeguard chairs: lumber (boards) at Cut, hardware kit at Assemble ----
+  ['LGC30', 'Cut', 'M039', 3.25],  ['LGC30', 'Cut', 'M040', 1.5],   ['LGC30', 'Cut', 'M041', 2.5],  ['LGC30', 'Cut', 'M042', 0.25], ['LGC30', 'Assemble', 'M043', 1],
+  ['LGC40', 'Cut', 'M039', 5.25],  ['LGC40', 'Cut', 'M040', 3.75],  ['LGC40', 'Cut', 'M041', 2.875],['LGC40', 'Cut', 'M042', 0.25], ['LGC40', 'Assemble', 'M043', 1],
+  ['LGC50', 'Cut', 'M039', 5.25],  ['LGC50', 'Cut', 'M040', 3.0],   ['LGC50', 'Cut', 'M041', 6.0],  ['LGC50', 'Cut', 'M042', 0.25], ['LGC50', 'Assemble', 'M043', 1],
+  ['LGC60', 'Cut', 'M039', 5.25],  ['LGC60', 'Cut', 'M040', 3.0],   ['LGC60', 'Cut', 'M041', 11.0], ['LGC60', 'Cut', 'M042', 0.25], ['LGC60', 'Assemble', 'M043', 1],
+  ['LGC72', 'Cut', 'M039', 5.25],  ['LGC72', 'Cut', 'M040', 3.0],   ['LGC72', 'Cut', 'M041', 11.0], ['LGC72', 'Cut', 'M042', 0.25], ['LGC72', 'Assemble', 'M043', 1]
+];
+
+var STAGES_HEADERS = ['Line', 'Order', 'Stage', 'IdealRate_perHr', 'FloorRate_perHr'];
+
+function stagesTabRows() {
+  var rows = [];
+  Object.keys(LINES).forEach(function (line) {
+    LINES[line].forEach(function (s, i) { rows.push([line, i + 1, s[0], s[1], s[2]]); });
+  });
+  return rows;
+}
+
+var PLANNING_HEADERS = ['ProductID', 'ProductName', 'Stage', 'DailyTarget'];
+
+/* One row per (product, stage) — targets are set per stage, since Cut and
+ * Paint do not run at the same rate. Seeded so the numbers are at least
+ * self-consistent: a size's blank target equals the sum of its two variants.
+ * These are placeholders; tune them on the Planning tab. */
+function planningRows() {
+  var seedTarget = {};
+  TUBE_SIZES.forEach(function (s) {
+    var perSize = s.blank === 'BLANK50' ? 60 : 40;
+    seedTarget[s.blank] = perSize;
+    seedTarget[s.exo]   = Math.round(perSize / 2);
+    seedTarget[s.std]   = perSize - Math.round(perSize / 2);
+  });
+
+  var rows = [];
+  readObjects(TAB.products)
+    .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .forEach(function (r) {
+      stagesForLine(r.Line || 'Blank').forEach(function (stage) {
+        rows.push([r.ProductID, r.ProductName, stage, seedTarget[r.ProductID] || 0]);
+      });
+    });
+  return rows;
 }
 
 /* ============================================================================
@@ -93,36 +263,10 @@ function setup() {
   }
 
   // ---- Products (Line groups them into a process: Tube / Shape / Chair) -----
-  seed(TAB.products,
-    ['ProductID', 'ProductName', 'Line', 'Unit', 'Active'],
-    [
-      ['XRT50',   'XRT-50 Rescue Tube', 'Tube',  'each', 'YES'],
-      ['XRT40',   'XRT-40 Rescue Tube', 'Tube',  'each', 'YES'],
-      // Foam-mat shapes (size buckets) — CNC → Clean → Box, foam by area
-      ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES'],
-      ['SHP24',   'Shape 24x24',        'Shape', 'each', 'YES'],
-      ['SHP36',   'Shape 36x36',        'Shape', 'each', 'YES'],
-      ['SHP4824', 'Shape 48x24',        'Shape', 'each', 'YES'],
-      ['SHP48',   'Shape 48x48',        'Shape', 'each', 'YES'],
-      ['SHP7236', 'Shape 72x36',        'Shape', 'each', 'YES'],
-      // Kickboards
-      ['KB914',   'Kickboard 9x14',     'Shape', 'each', 'YES'],
-      ['KB1116',  'Kickboard 11x16.5',  'Shape', 'each', 'YES'],
-      ['KB1220',  'Kickboard 11.8x20',  'Shape', 'each', 'YES'],
-      // Lifeguard chairs — Cut → Assemble → Box; lumber + hardware
-      ['LGC30',   'Lifeguard Chair 30"','Chair', 'each', 'YES'],
-      ['LGC40',   'Lifeguard Chair 40"','Chair', 'each', 'YES'],
-      ['LGC50',   'Lifeguard Chair 50"','Chair', 'each', 'YES'],
-      ['LGC60',   'Lifeguard Chair 60"','Chair', 'each', 'YES'],
-      ['LGC72',   'Lifeguard Chair 72"','Chair', 'each', 'YES']
-    ]);
+  seed(TAB.products, PRODUCT_HEADERS, PRODUCT_ROWS);
 
   // ---- Stages (per line, in order, with rates) -----------------------------
-  var stageRows = [];
-  Object.keys(LINES).forEach(function (line) {
-    LINES[line].forEach(function (s, i) { stageRows.push([line, i + 1, s[0], s[1], s[2]]); });
-  });
-  seed(TAB.stages, ['Line', 'Order', 'Stage', 'IdealRate_perHr', 'FloorRate_perHr'], stageRows);
+  seed(TAB.stages, STAGES_HEADERS, stagesTabRows());
 
   // ---- RawMaterials --------------------------------------------------------
   // M001–M033 from your "Raw Material Inventory" sheet (3/1/2023 counts; blank
@@ -188,63 +332,7 @@ function setup() {
   //   (44 lb + 5 gal ≈ 3,500 tubes); ink 0.007 unit/tube (ESTIMATE, refine).
   // XRT-40 = XRT-50 ×0.8 for length-based materials; patch/CA/accelerant are
   // per-end so identical to 50"; hardware/box identical.
-  seed(TAB.bom,
-    ['ProductID', 'Stage', 'MaterialID', 'QtyPerUnit'],
-    [
-      // XRT-50
-      ['XRT50', 'Cut',             'M034', 0.1333],
-      ['XRT50', 'Glued',           'M035', 0.1522],
-      ['XRT50', 'Meshed',          'M002', 0.004],    // boxes (250 tubes/box)
-      ['XRT50', 'Patched',         'M003', 0.000103],  // rolls  (2 patches/tube)
-      ['XRT50', 'Patched',         'M004', 0.012571],  // CA glue lb  (44lb/3500)
-      ['XRT50', 'Patched',         'M005', 0.001429],  // accelerant gal (5gal/3500)
-      ['XRT50', 'Paint 1',         'M036', 0.0769],
-      ['XRT50', 'Paint 2',         'M036', 0.0769],
-      ['XRT50', 'Printed',         'M037', 0.007],      // ink — ESTIMATE
-      ['XRT50', 'Straps Attached', 'M014', 1.78],
-      ['XRT50', 'Straps Attached', 'M015', 2.44],
-      ['XRT50', 'Straps Attached', 'M019', 1.58],
-      ['XRT50', 'Straps Attached', 'M023', 1],
-      ['XRT50', 'Straps Attached', 'M024', 1],
-      ['XRT50', 'Boxed',           'M031', 0.002],
-      ['XRT50', 'Boxed',           'M033', 0.0833],
-      // XRT-40 — length-based ×0.8 (foam/mesh/paint/webbing); patch & CA are
-      // per-end so same as 50"; hardware/box same.  (all confirm)
-      ['XRT40', 'Cut',             'M034', 0.1067],
-      ['XRT40', 'Glued',           'M035', 0.1218],
-      ['XRT40', 'Meshed',          'M002', 0.0032],   // boxes (~310 tubes/box)
-      ['XRT40', 'Patched',         'M003', 0.000103],
-      ['XRT40', 'Patched',         'M004', 0.012571],
-      ['XRT40', 'Patched',         'M005', 0.001429],
-      ['XRT40', 'Paint 1',         'M036', 0.0615],
-      ['XRT40', 'Paint 2',         'M036', 0.0615],
-      ['XRT40', 'Printed',         'M037', 0.007],
-      ['XRT40', 'Straps Attached', 'M014', 1.424],
-      ['XRT40', 'Straps Attached', 'M015', 1.952],
-      ['XRT40', 'Straps Attached', 'M019', 1.264],
-      ['XRT40', 'Straps Attached', 'M023', 1],
-      ['XRT40', 'Straps Attached', 'M024', 1],
-      ['XRT40', 'Boxed',           'M031', 0.002],
-      ['XRT40', 'Boxed',           'M033', 0.0833],
-
-      // ---- Shapes & kickboards: 4# foam by area (sq ft) at CNC ----
-      ['SHP16',   'CNC', 'M038', 1.78],   // 16x16 = 256 in²
-      ['SHP24',   'CNC', 'M038', 4.0],    // 24x24 = 576
-      ['SHP36',   'CNC', 'M038', 9.0],    // 36x36 = 1296
-      ['SHP4824', 'CNC', 'M038', 8.0],    // 48x24 = 1152
-      ['SHP48',   'CNC', 'M038', 16.0],   // 48x48 = 2304
-      ['SHP7236', 'CNC', 'M038', 18.0],   // 72x36 = 2592
-      ['KB914',   'CNC', 'M038', 0.88],   // 9x14   = 126
-      ['KB1116',  'CNC', 'M038', 1.26],   // 11x16.5= 181.5
-      ['KB1220',  'CNC', 'M038', 1.64],   // 11.8x20= 236
-
-      // ---- Lifeguard chairs: lumber (boards) at Cut, hardware kit at Assemble ----
-      ['LGC30', 'Cut', 'M039', 3.25],  ['LGC30', 'Cut', 'M040', 1.5],   ['LGC30', 'Cut', 'M041', 2.5],  ['LGC30', 'Cut', 'M042', 0.25], ['LGC30', 'Assemble', 'M043', 1],
-      ['LGC40', 'Cut', 'M039', 5.25],  ['LGC40', 'Cut', 'M040', 3.75],  ['LGC40', 'Cut', 'M041', 2.875],['LGC40', 'Cut', 'M042', 0.25], ['LGC40', 'Assemble', 'M043', 1],
-      ['LGC50', 'Cut', 'M039', 5.25],  ['LGC50', 'Cut', 'M040', 3.0],   ['LGC50', 'Cut', 'M041', 6.0],  ['LGC50', 'Cut', 'M042', 0.25], ['LGC50', 'Assemble', 'M043', 1],
-      ['LGC60', 'Cut', 'M039', 5.25],  ['LGC60', 'Cut', 'M040', 3.0],   ['LGC60', 'Cut', 'M041', 11.0], ['LGC60', 'Cut', 'M042', 0.25], ['LGC60', 'Assemble', 'M043', 1],
-      ['LGC72', 'Cut', 'M039', 5.25],  ['LGC72', 'Cut', 'M040', 3.0],   ['LGC72', 'Cut', 'M041', 11.0], ['LGC72', 'Cut', 'M042', 0.25], ['LGC72', 'Assemble', 'M043', 1]
-    ]);
+  seed(TAB.bom, BOM_HEADERS, tubeBomRows().concat(NON_TUBE_BOM_ROWS));
 
   // ---- StageLog: filled by the phone app (start with headers) --------------
   seed(TAB.stagelog,
@@ -259,12 +347,8 @@ function setup() {
   // ---- Employees -----------------------------------------------------------
   seed(TAB.employees, ['Name', 'Active'], DEFAULT_EMPLOYEES);
 
-  // ---- Planning: your daily build target per product (drives next-day goals)-
-  seed(TAB.planning, ['ProductID', 'ProductName', 'DailyTarget'],
-    readObjects(TAB.products).map(function (r) {
-      var def = r.ProductID === 'XRT50' ? 60 : (r.ProductID === 'XRT40' ? 40 : 0);
-      return [r.ProductID, r.ProductName, def];
-    }));
+  // ---- Planning: daily build target per (product, STAGE) -------------------
+  seed(TAB.planning, PLANNING_HEADERS, planningRows());
 
   rebuildOverview();
 
@@ -304,6 +388,55 @@ function resetAllTabs() {
   setup();
 }
 
+/* One-time migration from the old single "Tube" line to Blank → Exo/Standard.
+ * setup() deliberately never overwrites an existing tab, so a sheet built
+ * before the split will not pick the new layout up on its own — this is the
+ * explicit path. It rewrites only the four structural tabs and leaves
+ * RawMaterials, Employees, StageLog and ReceivingLog alone. */
+function migrateToVariantLines() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+
+  var logged = readObjects(TAB.stagelog).length;
+  var historyNote = logged
+    ? '\n\nWARNING: StageLog holds ' + logged + ' row(s) recorded against the OLD '
+      + 'product IDs (XRT50 / XRT40). Those rows are NOT rewritten, so they will '
+      + 'no longer match any product and will drop out of the Overview. Export '
+      + 'StageLog first if you need that history.'
+    : '\n\nStageLog is empty, so no production history is affected.';
+
+  var answer = ui.alert(
+    'Migrate to Blank → Exotube / Standard?',
+    'Products, Stages, BOM and Planning will be REPLACED with the variant-aware '
+      + 'layout:\n\n'
+      + '   BLANK50 / BLANK40      Cut → Glued\n'
+      + '   XRT50EXO / XRT40EXO    Meshed → Patched → … → Boxed\n'
+      + '   XRT50STD / XRT40STD    Patched → … → Boxed\n\n'
+      + 'Planning also changes shape: one row per product AND STAGE, so targets '
+      + 'are set per stage.\n\n'
+      + 'RawMaterials (your on-hand counts), Employees, StageLog and ReceivingLog '
+      + 'are left untouched.'
+      + historyNote
+      + '\n\nContinue?',
+    ui.ButtonSet.YES_NO);
+
+  if (answer !== ui.Button.YES) {
+    SpreadsheetApp.getActive().toast('Cancelled — nothing was changed.', 'Aquamentor', 5);
+    return;
+  }
+
+  // Products first: planningRows() reads it back to know each product's stages.
+  writeTab(ss, TAB.products, PRODUCT_HEADERS, PRODUCT_ROWS);
+  writeTab(ss, TAB.stages,   STAGES_HEADERS,  stagesTabRows());
+  writeTab(ss, TAB.bom,      BOM_HEADERS,     tubeBomRows().concat(NON_TUBE_BOM_ROWS));
+  writeTab(ss, TAB.planning, PLANNING_HEADERS, planningRows());
+
+  rebuildOverview();
+  SpreadsheetApp.getActive().toast(
+    'Migrated to Blank → Exo/Standard. Counts, roster and logs untouched.',
+    'Aquamentor', 8);
+}
+
 /* ============================================================================
  *  2. API (JSONP)
  *    ?action=config
@@ -334,7 +467,7 @@ function doGet(e) {
 function getConfig() {
   var products = readObjects(TAB.products)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
-    .map(function (r) { return { id: r.ProductID, name: r.ProductName, line: r.Line || 'Tube' }; });
+    .map(function (r) { return { id: r.ProductID, name: r.ProductName, line: r.Line || 'Blank' }; });
   var employees = readObjects(TAB.employees)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
     .map(function (r) { return r.Name; });
@@ -378,7 +511,7 @@ function getToday(p) {
     byProduct[pid].stages[r.Stage] = (byProduct[pid].stages[r.Stage] || 0) + (Number(r.Qty) || 0);
   });
   var products = Object.keys(byProduct).map(function (pid) {
-    var stages = stagesForLine(lineMap[pid] || 'Tube');
+    var stages = stagesForLine(lineMap[pid] || 'Blank');
     return {
       productId: pid, name: byProduct[pid].name,
       rows: stages.map(function (s) { return { stage: s, qty: byProduct[pid].stages[s] || 0 }; }),
@@ -405,7 +538,7 @@ function submitDay(p) {
   if (!employee)  return { ok: false, error: 'Please pick who you are.' };
   if (!productId) return { ok: false, error: 'Please pick a product.' };
 
-  var valid = stagesForLine(productLineMap()[productId] || 'Tube');
+  var valid = stagesForLine(productLineMap()[productId] || 'Blank');
   var total = 0;
   for (var k in counts) { if (valid.indexOf(k) >= 0 && Number(counts[k]) > 0) total += Number(counts[k]); }
   if (total <= 0) return { ok: false, error: 'Enter at least one stage count.' };
@@ -502,8 +635,16 @@ function receiveStock(p) {
  * ========================================================================== */
 function computeOverview() {
   var lineMap = productLineMap();
+  var feedMap = productFeedMap();
+
+  // targets[productId][stage] — set per stage, because Cut and Paint do not
+  // run at the same rate.
   var targets = {};
-  readObjects(TAB.planning).forEach(function (r) { targets[r.ProductID] = Number(r.DailyTarget) || 0; });
+  readObjects(TAB.planning).forEach(function (r) {
+    if (!r.ProductID) return;
+    targets[r.ProductID] = targets[r.ProductID] || {};
+    targets[r.ProductID][r.Stage] = Number(r.DailyTarget) || 0;
+  });
 
   // completed[productId][stage] = sum of StageLog Qty
   var completed = {};
@@ -512,27 +653,60 @@ function computeOverview() {
     completed[pid] = completed[pid] || {};
     completed[pid][st] = (completed[pid][st] || 0) + (Number(r.Qty) || 0);
   });
+  function done(pid, stage) { return (completed[pid] || {})[stage] || 0; }
+  function target(pid, stage) { return (targets[pid] || {})[stage] || 0; }
 
   var products = readObjects(TAB.products)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; });
 
-  var out = products.map(function (pr) {
-    var pid = pr.ProductID, done = completed[pid] || {}, target = targets[pid] || 0;
-    var stages = stagesForLine(lineMap[pid] || pr.Line || 'Tube');
-    var rows = stages.map(function (st, idx) {
-      var doneHere = done[st] || 0;
-      var upstream = idx === 0 ? null : (done[stages[idx - 1]] || 0);
-      var waiting  = idx === 0 ? null : Math.max(0, upstream - doneHere);   // WIP between prev and this
-      // Suggested next-day: first stage aims at the daily target; later stages
-      // clear the WIP waiting for them, capped at the target.
-      var suggest  = idx === 0 ? target : Math.min(target, waiting);
-      var starved  = idx > 0 && waiting < target;
-      return { stage: st, completed: doneHere, waiting: waiting, suggest: suggest, starved: starved };
-    });
-    return { productId: pid, name: pr.ProductName, dailyTarget: target,
-             finished: done[stages[stages.length - 1]] || 0, stages: rows };
+  // feeder -> every product drawing from it. Variants of the same size compete
+  // for one pool of blanks, so each one's availability depends on what its
+  // siblings have already pulled out.
+  var drawnFrom = {};
+  products.forEach(function (r) {
+    var f = feedMap[r.ProductID];
+    if (f) { drawnFrom[f] = drawnFrom[f] || []; drawnFrom[f].push(r.ProductID); }
   });
-  return out;
+
+  /* Blanks still uncommitted to a variant: everything the feeder finished at
+   * its last stage, less what each variant has already taken at its first. */
+  function poolFrom(feeder) {
+    var feederStages = stagesForLine(lineMap[feeder] || 'Blank');
+    var pool = done(feeder, feederStages[feederStages.length - 1]);
+    (drawnFrom[feeder] || []).forEach(function (sib) {
+      pool -= done(sib, stagesForLine(lineMap[sib] || 'Blank')[0]);
+    });
+    return Math.max(0, pool);
+  }
+
+  return products.map(function (pr) {
+    var pid = pr.ProductID;
+    var stages = stagesForLine(lineMap[pid] || pr.Line || 'Blank');
+    var feeder = feedMap[pid];
+
+    var rows = stages.map(function (st, idx) {
+      var doneHere = done(pid, st);
+      var want = target(pid, st);
+      var waiting;
+
+      if (idx > 0) {
+        waiting = Math.max(0, done(pid, stages[idx - 1]) - doneHere);  // WIP from the stage before
+      } else if (feeder) {
+        waiting = poolFrom(feeder);          // first stage of a variant: the shared blank pool
+      } else {
+        waiting = null;                      // true head of a pipeline — nothing upstream of it
+      }
+
+      // Aim at this stage's own target, capped by what is actually available.
+      var suggest = waiting === null ? want : Math.min(want, waiting);
+      var starved = waiting !== null && waiting < want;
+      return { stage: st, completed: doneHere, waiting: waiting,
+               target: want, suggest: suggest, starved: starved };
+    });
+
+    return { productId: pid, name: pr.ProductName, feedsFrom: feeder || null,
+             finished: done(pid, stages[stages.length - 1]), stages: rows };
+  });
 }
 
 function getOverview() {
@@ -547,21 +721,22 @@ function rebuildOverview() {
   var data = computeOverview();
   var row = 3;
   data.forEach(function (pr) {
-    sh.getRange(row, 1).setValue(pr.name + '   (daily target ' + pr.dailyTarget + ', finished ' + pr.finished + ')')
+    sh.getRange(row, 1).setValue(pr.name + '   (finished ' + pr.finished + ')'
+        + (pr.feedsFrom ? '   — from ' + pr.feedsFrom : ''))
       .setFontWeight('bold').setFontColor('#0c1f3f');
     row++;
-    sh.getRange(row, 1, 1, 5).setValues([['Stage', 'Completed', 'WIP waiting', 'Suggested next day', 'Note']])
+    sh.getRange(row, 1, 1, 6).setValues([['Stage', 'Completed', 'WIP waiting', 'Target', 'Suggested next day', 'Note']])
       .setFontWeight('bold').setBackground('#0c1f3f').setFontColor('#fff');
     row++;
     pr.stages.forEach(function (s) {
-      sh.getRange(row, 1, 1, 5).setValues([[
-        s.stage, s.completed, s.waiting === null ? '' : s.waiting, s.suggest,
+      sh.getRange(row, 1, 1, 6).setValues([[
+        s.stage, s.completed, s.waiting === null ? '' : s.waiting, s.target, s.suggest,
         s.starved ? 'upstream short' : '']]);
       row++;
     });
     row++;
   });
-  for (var c = 1; c <= 5; c++) sh.autoResizeColumn(c);
+  for (var c = 1; c <= 6; c++) sh.autoResizeColumn(c);
   SpreadsheetApp.getActive().toast('Overview rebuilt.', 'Aquamentor', 3);
 }
 
@@ -573,6 +748,7 @@ function onOpen() {
     .addItem('Set up / repair missing tabs', 'setup')
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addSeparator()
+    .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
     .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
     .addToUi();
 }

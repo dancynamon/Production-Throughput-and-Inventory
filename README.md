@@ -195,21 +195,63 @@ Everything lives in the Google Sheet. Just edit the cells:
 
 - **Products tab** — add a row to track more products. `ProductID` must be
   unique; set `Active = NO` to hide one. The **Line** column puts a product on a
-  process: **Tube** (Cut→…→Boxed), **Shape** (CNC→Clean→Box, for foam mats &
-  kickboards, deducting 4# foam by area), or **Chair** (Cut→Assemble→Box, for
-  lifeguard chairs, deducting lumber + a hardware kit). The Log-My-Day form
-  shows only the stages for the picked product's line.
+  process: **Blank** (Cut→Glued), **TubeExo** (Meshed→…→Boxed), **TubeStd**
+  (Patched→…→Boxed), **Shape** (CNC→Clean→Box, for foam mats & kickboards,
+  deducting 4# foam by area), or **Chair** (Cut→Assemble→Box, deducting lumber
+  + a hardware kit). **FeedsFrom** names the blank a product draws from. The
+  Log-My-Day form shows only the stages for the picked product's line.
 - **RawMaterials tab** — `OnHand` = current stock, `ReorderPoint` = low-warning
   level. Blank `OnHand` shows as "not counted." **Status** fills in
   automatically. Do a physical count and type real numbers in.
-- **Stages tab** — the 9 pipeline stages and their throughput rates (tubes/hr).
+- **Stages tab** — a readable dump of each line's stages. **Reference only —
+  nothing reads it.** The real definition is `LINES` in `Code.gs`. Editing this
+  tab changes nothing; the rate columns are carried for reference and are not
+  read either.
 - **BOM tab** — the stage-aware recipe: `(ProductID, Stage, MaterialID,
-  QtyPerUnit)`. Example: `XRT50, Straps Attached, M014, 1.78` = a 50″ tube uses
-  1.78 yd of 1″ red webbing, deducted when "Straps Attached" is logged. Add a
-  row per material a stage consumes.
-- **Planning tab** — set **DailyTarget** per product; it drives the suggested
-  next-day goals.
+  QtyPerUnit)`. Example: `XRT50EXO, Straps Attached, M014, 1.78` = a 50″ tube
+  uses 1.78 yd of 1″ red webbing, deducted when "Straps Attached" is logged.
+  Add a row per material a stage consumes.
+- **Planning tab** — set **DailyTarget** per product **and stage**. Cut and
+  Paint don't run at the same rate, so each stage carries its own goal.
 - **Employees tab** — names shown in the app.
+
+### The tube pipeline branches
+
+A blank off the CNC is a *size* and nothing more — a 50″ blank can still become
+either variant. The commit happens at **Meshed**: a tube that gets meshed is an
+Exotube, one that doesn't is a Standard.
+
+```
+BLANK50   Cut → Glued ─┬─ XRT50EXO   Meshed → Patched → … → Boxed
+                       └─ XRT50STD            Patched → … → Boxed
+```
+
+So the shared head is its own product (`BLANK50` / `BLANK40`) and each variant
+picks up where the blank leaves off. **The variant is the presence of the Meshed
+stage** — there's no separate variant column to keep in sync, and a Standard
+never deducts mesh because it has no `Meshed` BOM row.
+
+Your guys cutting 50″ blanks pick **50" Blank** and log Cut and Glued. Nobody
+decides Exo vs Standard until a tube reaches mesh, which is when the decision
+actually gets made on the floor.
+
+Both variants draw from one pool of glued blanks, so what each can start depends
+on what the other already took:
+
+```
+available to XRT50EXO at Meshed
+  = glued BLANK50  −  XRT50EXO already Meshed  −  XRT50STD already Patched
+```
+
+That arithmetic is pinned by `apps-script/test-overview.js` — run
+`node apps-script/test-overview.js` after touching `computeOverview()`.
+
+> **Migrating an existing sheet.** `setup()` never overwrites an existing tab,
+> so a sheet built before the split won't pick this up on its own. Run
+> **Aquamentor → Migrate to Blank → Exo/Standard**. It rewrites Products,
+> Stages, BOM and Planning, leaves RawMaterials, Employees and both logs alone,
+> and warns you first if `StageLog` holds rows under the old `XRT50`/`XRT40`
+> IDs (those would be orphaned by the rename).
 
 After editing Products/Employees, tap ⟳ in the app to refresh.
 
