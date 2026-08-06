@@ -7,6 +7,14 @@
   'use strict';
 
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
+
+  // Shown in the footer so you can tell at a glance what a given phone is
+  // actually running. BUMP THIS whenever you change index.html / app.js /
+  // style.css / config.js, and bump CACHE in sw.js to the same number —
+  // otherwise the service worker keeps serving the old shell and this number
+  // is how you'll notice.
+  var APP_VERSION = '1.1.0';
+
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
   var PLINE = {};    // productId -> line, from config
@@ -46,9 +54,13 @@
 
   /* ---- Config: dropdowns + stage inputs ---------------------------------- */
   function loadConfig() {
-    if (!API) { el('setupBanner').hidden = false; return; }
+    if (!API) { el('setupBanner').hidden = false; renderBuildInfo(); return; }
     api({ action: 'config' }).then(function (data) {
       if (!data.ok) throw new Error(data.error || 'Could not load config');
+      buildFacts.backend = data.backendVersion || null;
+      buildFacts.sheet   = data.sheetName || null;
+      buildFacts.sheetId = data.sheetId || null;
+      renderBuildInfo();
       LINES = data.lines || {};
       PLINE = {};
       (data.products || []).forEach(function (p) { PLINE[p.id] = p.line || 'Tube'; });
@@ -61,8 +73,55 @@
       }), 'Select a material');
       buildStageInputs();
       loadToday();
-    }).catch(function (err) { toast('⚠ ' + err.message); });
+    }).catch(function (err) { renderBuildInfo(); toast('⚠ ' + err.message); });
   }
+
+  /* ---- Build info -------------------------------------------------------- */
+  /* A muted line at the bottom of every screen: tap it for the full picture.
+   * Everything here is a debugging aid — which shell this device cached, which
+   * Apps Script deployment it talks to, and which spreadsheet that deployment
+   * is bound to. `backend`, `sheet` and `sheetId` arrive from ?action=config,
+   * so they stay blank until the Apps Script side is redeployed. */
+  var buildFacts = { backend: null, sheet: null, sheetId: null };
+
+  function apiLabel() {
+    if (!API) return 'not set';
+    var m = API.match(/\/macros\/s\/([^/]+)/);
+    return m ? 'deployment …' + m[1].slice(-8) : API;
+  }
+
+  function renderBuildInfo() {
+    el('buildToggle').textContent =
+      'v' + APP_VERSION + (buildFacts.sheet ? ' · ' + buildFacts.sheet : '') + '  ⓘ';
+
+    var rows = [
+      ['App version',     APP_VERSION],
+      ['Backend version', buildFacts.backend || 'not reported — redeploy Apps Script'],
+      ['Sheet',           buildFacts.sheet   || '—'],
+      ['Sheet ID',        buildFacts.sheetId || '—'],
+      ['API',             apiLabel()],
+      ['Cached shell',    'checking…'],
+      ['Loaded',          new Date().toLocaleString()]
+    ];
+    el('buildDetails').innerHTML = rows.map(function (r, i) {
+      return '<div class="buildinfo__row"><span>' + escapeHtml(r[0]) + '</span>'
+           + '<code' + (i === 5 ? ' id="buildCache"' : '') + '>' + escapeHtml(r[1]) + '</code></div>';
+    }).join('');
+
+    var cacheCell = el('buildCache');
+    if (!cacheCell) return;
+    if (!window.caches || !caches.keys) { cacheCell.textContent = 'unavailable'; return; }
+    caches.keys().then(function (keys) {
+      var mine = keys.filter(function (k) { return k.indexOf('aquamentor') === 0; });
+      cacheCell.textContent = mine.length ? mine.join(', ') : 'none (network)';
+    }).catch(function () { cacheCell.textContent = 'unavailable'; });
+  }
+
+  el('buildToggle').addEventListener('click', function () {
+    var details = el('buildDetails'), isOpen = !details.hidden;
+    details.hidden = isOpen;
+    el('buildToggle').setAttribute('aria-expanded', String(!isOpen));
+  });
 
   function buildStageInputs() {
     var wrap = el('stageInputs');
@@ -270,5 +329,6 @@
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
   applyRole();
+  renderBuildInfo();   // show the app version immediately; the rest fills in from ?action=config
   loadConfig();
 })();

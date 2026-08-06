@@ -2,7 +2,10 @@
  * Caches the app shell so it opens instantly and works even on a flaky
  * shop-floor connection. API calls (JSONP <script> loads) are never cached —
  * they always go to the network so stock numbers stay live. */
-var CACHE = 'aquamentor-prod-v6';
+/* Bump this whenever any file in SHELL changes, and keep the number in step
+ * with APP_VERSION in app.js — otherwise installed phones keep serving the old
+ * shell and the footer version is how you'd find out. */
+var CACHE = 'aquamentor-prod-v7';
 var SHELL = [
   './',
   './index.html',

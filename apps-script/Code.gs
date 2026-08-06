@@ -34,6 +34,12 @@ var TAB = {
 // public app code. CHANGE THIS to your own code.
 var MANAGER_PIN = '2468';
 
+// Reported to the app and shown in its footer, so you can tell which backend a
+// phone is actually talking to. Bump this when you change this file, and
+// remember it only reaches the app after Deploy > Manage deployments >
+// Edit > New version.
+var BACKEND_VERSION = '1.1.0';
+
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
 // the Employees block in setup()), so add and remove people there, not here.
@@ -336,8 +342,13 @@ function getConfig() {
     .map(function (m) { return { id: m.MaterialID, name: m.MaterialName, unit: m.Unit }; });
   var lines = {};
   Object.keys(LINES).forEach(function (k) { lines[k] = stagesForLine(k); });
+  // Identity of the backend and the spreadsheet it is bound to — the app shows
+  // these in its footer so "which sheet am I writing to?" is answerable on the
+  // shop floor rather than by reading code.
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
   return { ok: true, products: products, employees: employees, materials: materials,
-           lines: lines, stages: stageNames() };
+           lines: lines, stages: stageNames(),
+           backendVersion: BACKEND_VERSION, sheetName: ss.getName(), sheetId: ss.getId() };
 }
 
 function getStock() {

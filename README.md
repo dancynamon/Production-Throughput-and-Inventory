@@ -219,6 +219,41 @@ at ~250 tubes/box (≈310 for the 40″).
 
 ---
 
+## Knowing what you're running
+
+Every screen has a muted line at the bottom — `v1.1.0 · Aquamentor Production`.
+Tap it to expand:
+
+| Field | What it tells you |
+|---|---|
+| **App version** | Which front-end this device has. `APP_VERSION` in `app.js`. |
+| **Backend version** | Which `Code.gs` the *deployed* web app is running. `BACKEND_VERSION`. |
+| **Sheet** / **Sheet ID** | Which spreadsheet that backend is actually bound to. |
+| **API** | The tail of the Apps Script deployment ID this device is calling. |
+| **Cached shell** | The service-worker cache this device is serving from. |
+| **Loaded** | When this page last actually loaded. |
+
+Two mismatches are worth knowing how to read:
+
+- **Cached shell says `v6` but you shipped `v7`** — that device is serving stale
+  files. It'll correct itself on the next load; force it with DevTools →
+  Application → Service Workers → Unregister.
+- **Backend version says "not reported — redeploy Apps Script"** — the code in
+  the editor was saved but never deployed, so the web app is still serving an
+  older version. See below.
+
+### Bumping versions
+
+When you change a **shell file** (`index.html`, `app.js`, `style.css`,
+`config.js`): bump `APP_VERSION` in `app.js` *and* `CACHE` in `sw.js` together.
+Miss the `CACHE` bump and installed phones keep the old shell indefinitely — the
+footer is how you'd catch it.
+
+When you change **`Code.gs`**: bump `BACKEND_VERSION`. Menu items and anything
+run from the editor pick up a plain **Save**, but the web app serves a pinned
+version — for `doGet` and everything it calls, you need **Deploy → Manage
+deployments → ✏️ Edit → Version: New version → Deploy**.
+
 ## Troubleshooting
 
 | Symptom | Fix |

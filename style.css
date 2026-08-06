@@ -163,3 +163,31 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
   background:#111; color:#fff; padding:12px 18px; border-radius:24px;
   font-size:.92rem; max-width:90%; box-shadow:0 8px 30px rgba(0,0,0,.3);
 }
+
+/* ---- Build info ---------------------------------------------------------- */
+/* Deliberately quiet: a debugging aid, not part of the daily flow. */
+.buildinfo{
+  max-width:640px; margin:8px auto 28px; padding:0 16px;
+  text-align:center;
+}
+.buildinfo__summary{
+  background:none; border:0; padding:6px 10px; cursor:pointer;
+  font:inherit; font-size:12px; color:var(--muted);
+  border-radius:var(--radius);
+}
+.buildinfo__summary:hover{ background:rgba(0,0,0,.04); color:var(--ink) }
+.buildinfo__details{
+  margin-top:6px; padding:10px 12px; text-align:left;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); font-size:12px;
+}
+.buildinfo__row{
+  display:flex; gap:12px; justify-content:space-between; align-items:baseline;
+  padding:4px 0; border-bottom:1px solid var(--border);
+}
+.buildinfo__row:last-child{ border-bottom:0 }
+.buildinfo__row span{ color:var(--muted); white-space:nowrap }
+.buildinfo__row code{
+  font-size:11px; color:var(--ink); text-align:right;
+  word-break:break-all;
+}
