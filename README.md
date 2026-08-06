@@ -146,6 +146,49 @@ serves it as-is. No build step.
 
 ---
 
+## Keeping it private
+
+The app is on the public internet. Anyone with the URL can reach it, and
+`Log My Day` has no gate of its own. Three layers, weakest to strongest:
+
+### 1. Stay out of search engines (in the repo, already done)
+
+- **`robots.txt`** — `Disallow: /` for all crawlers.
+- **`_headers`** — `X-Robots-Tag: noindex, nofollow, noarchive, nosnippet` on
+  every asset, plus `Referrer-Policy: no-referrer` so the app's hostname isn't
+  leaked to Google in the `Referer` of each API call.
+- **`<meta name="robots">`** in `index.html`.
+
+All three are *requests*. Compliant crawlers honour them; nothing else does.
+This solves "someone googles us and finds it", not "someone has the link".
+
+### 2. Don't advertise the hostname
+
+Any subdomain of `aquamentor.com` appears in public **Certificate Transparency**
+logs, which are scraped to enumerate subdomains. So `production.aquamentor.com`
+is discoverable by anyone looking at your domain — not via search, but findable.
+Putting the app on an unrelated domain you own says nothing about the company.
+
+### 3. Cloudflare Access — the actual control
+
+Free for a small team. It sits in front of the hostname at the edge, so an
+unauthenticated visitor never reaches the app at all.
+
+Zero Trust → Access → Applications → Add a self-hosted app → your hostname →
+add a policy. Either allow a Google Workspace domain (`@aquamentor.com`), or
+use email one-time PIN with a long session so staff re-authenticate rarely.
+
+This is the layer that matters. With Access on, it stops mattering who finds
+the hostname, and it closes the ungated `Log My Day` without touching `Code.gs`.
+
+### Custom domain
+
+Worker → **Settings → Domains & Routes → Add → Custom domain** →
+`production.aquamentor.com`. The DNS record is created for you when the domain
+is already on the same Cloudflare account, and the certificate is issued
+automatically. Nothing in this repo needs to change — `config.js` points at
+Apps Script, not at the app's own hostname.
+
 ## How to make it *yours*
 
 Everything lives in the Google Sheet. Just edit the cells:

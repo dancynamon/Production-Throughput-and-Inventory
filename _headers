@@ -1,0 +1,13 @@
+# Cloudflare static-asset headers.
+#
+# X-Robots-Tag  — the header form of noindex. Unlike robots.txt it also covers
+#                 responses a crawler reaches without reading robots.txt first,
+#                 and unlike the <meta> tag it applies to every asset, not just
+#                 index.html.
+# Referrer-Policy — the app's API calls go out to script.google.com. Without
+#                 this, the Referer header would carry this app's hostname to
+#                 Google on every request. Don't leak the internal URL.
+
+/*
+  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet
+  Referrer-Policy: no-referrer

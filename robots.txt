@@ -1,0 +1,9 @@
+# Aquamentor production-logging app — internal staff tool.
+# Not intended for public discovery. Please do not crawl or index.
+#
+# NOTE: this file is a request, not access control. Compliant crawlers honour
+# it; anything else ignores it. Real protection is Cloudflare Access in front
+# of this hostname — see "Keeping it private" in README.md.
+
+User-agent: *
+Disallow: /
