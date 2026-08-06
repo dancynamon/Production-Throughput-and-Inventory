@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.0.0';
+  var APP_VERSION = '2.0.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -127,8 +127,21 @@
     var wrap = el('stageInputs');
     var pid = el('product').value;
     if (!pid) { wrap.innerHTML = '<div class="muted">Pick a product to see its stages.</div>'; return; }
-    var stages = LINES[PLINE[pid]] || [];
-    if (!stages.length) { wrap.innerHTML = '<div class="muted">No stages set for this product.</div>'; return; }
+    var line = PLINE[pid];
+    var stages = LINES[line] || [];
+    if (!stages.length) {
+      // Almost always a schema mismatch: the sheet assigns this product to a
+      // line the deployed backend no longer defines. Name both sides rather
+      // than showing an empty box, which says nothing about what to fix.
+      var known = Object.keys(LINES);
+      wrap.innerHTML = '<div class="muted">No stages for line <b>'
+        + escapeHtml(line || '(blank)') + '</b>.<br>The backend defines: '
+        + escapeHtml(known.length ? known.join(', ') : '(none)') + '.<br>'
+        + 'Fix the product\'s <b>Line</b> cell in the sheet, or run '
+        + '<b>Aquamentor → Migrate to Blank → Exo/Standard</b> if the sheet '
+        + 'predates the current backend.</div>';
+      return;
+    }
     wrap.innerHTML = stages.map(function (s) {
       return '<label class="stage-row"><span class="stage-row__name">' + escapeHtml(s) + '</span>'
            + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
