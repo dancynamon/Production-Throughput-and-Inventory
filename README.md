@@ -97,21 +97,36 @@ Stage-based production tracking for XRT rescue tubes, built on free tools:
 
 ---
 
-## Hosting on GitHub Pages (free)
+## Hosting (free) — pick one
 
-This folder is already in your repo. To publish it:
+The app is plain static files at the **root of this repo**, so any static host
+serves it as-is. No build step.
+
+### Option A — Cloudflare Pages
+
+1. <https://dash.cloudflare.com> → **Workers & Pages → Create → Pages →
+   Connect to Git**, pick this repo.
+2. Build settings: **Framework preset: None**, **Build command: (leave empty)**,
+   **Build output directory: `/`**.
+3. **Save and Deploy.** You get `https://<project>.pages.dev`.
+4. Optional: **Custom domains** → add e.g. `production.aquamentor.com` (the
+   domain is already on Cloudflare, so the DNS record is one click).
+
+### Option B — GitHub Pages
 
 1. Push your branch and merge to your default branch (or enable Pages on the
    branch).
 2. On GitHub: **Settings → Pages → Build and deployment → Source: Deploy from
    a branch**, pick your branch and `/ (root)`.
-3. Your app will be at `https://<you>.github.io/<repo>/inventory/`.
+3. Your app will be at `https://<you>.github.io/<repo>/`.
 
 > **Note:** `config.js` contains only your Apps Script URL, which is safe to
-> expose (the script only accepts the actions it defines). But **anyone with
-> the URL can post production entries**, so keep the hosted URL internal. For
-> a small shop that's usually fine; if you want a gate, add a shared PIN check
-> in `submitProduction()` in `Code.gs`.
+> expose (the script only accepts the actions it defines). The **Overview** and
+> **Receive** screens are already gated behind the manager PIN
+> (`MANAGER_PIN` in `Code.gs` — **change it from the default `2468`**).
+> **Log My Day** is deliberately ungated, so anyone with the URL can post a
+> production entry. For a small shop that's usually fine; keep the hosted URL
+> internal, or add a PIN check to `submitDay()` in `Code.gs` if you want a gate.
 
 ---
 
