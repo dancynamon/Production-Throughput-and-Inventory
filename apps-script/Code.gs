@@ -38,7 +38,7 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.0.0';
+var BACKEND_VERSION = '2.1.0';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -76,7 +76,24 @@ var LINES = {
     ['Straps Attached', 25, 20], ['Boxed', 30, 20]
   ],
   Shape: [ ['CNC', 0, 0], ['Clean', 0, 0], ['Box', 0, 0] ],
-  Chair: [ ['Cut', 0, 0], ['Assemble', 0, 0], ['Box', 0, 0] ]
+  Chair: [ ['Cut', 0, 0], ['Assemble', 0, 0], ['Box', 0, 0] ],
+
+  // DEPRECATED, and deliberately still here. This is the pre-split single tube
+  // line. Removing it meant that deploying this file against a sheet that had
+  // not been migrated yet left every tube product with no stages at all — the
+  // app can only render stages for a line the backend defines, so the two
+  // halves have to be upgraded in lockstep or the floor stops. Keeping the old
+  // line means an unmigrated sheet keeps working exactly as before, and the
+  // migration becomes something you do when you're ready rather than something
+  // you must do within the same minute.
+  //
+  // Nothing seeds it. migrateToVariantLines() replaces Tube products with the
+  // Blank/TubeExo/TubeStd set, after which this is unused and can be deleted.
+  Tube: [
+    ['Cut', 30, 30], ['Glued', 30, 15], ['Meshed', 30, 20], ['Patched', 15, 15],
+    ['Paint 1', 25, 18], ['Paint 2', 25, 18], ['Printed', 45, 64],
+    ['Straps Attached', 25, 20], ['Boxed', 30, 20]
+  ]
 };
 function stagesForLine(line) {
   return (LINES[line] || LINES.Blank).map(function (s) { return s[0]; });
@@ -386,6 +403,52 @@ function resetAllTabs() {
     if (sh) ss.deleteSheet(sh);
   });
   setup();
+}
+
+/* Print exactly what this script and this spreadsheet currently are.
+ *
+ * When the app misbehaves the question is almost always "which half is stale?"
+ * — the saved script, the deployed version, or the sheet. Run this from the
+ * editor (▶ Run) and read the Execution log; it answers all three at once and
+ * needs no deployment, no UI and no arguments. Paste the output when asking
+ * for help with a mismatch. */
+function whatAmIRunning() {
+  var out = [];
+  function say(k, v) { out.push(String(k) + ': ' + String(v)); }
+
+  say('Backend version', typeof BACKEND_VERSION === 'undefined'
+    ? '(undefined — this editor has pre-1.1.0 code)' : BACKEND_VERSION);
+  say('Lines defined in code', typeof LINES === 'undefined'
+    ? '(undefined)' : Object.keys(LINES).join(', '));
+  say('migrateToVariantLines', typeof migrateToVariantLines === 'function' ? 'present' : 'MISSING');
+  say('resetAllTabs', typeof resetAllTabs === 'function' ? 'present' : 'MISSING');
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  say('Spreadsheet', ss.getName() + '  (' + ss.getId() + ')');
+  say('Tabs', ss.getSheets().map(function (s) { return s.getName(); }).join(', '));
+
+  [TAB.products, TAB.planning].forEach(function (tab) {
+    var sh = ss.getSheetByName(tab);
+    if (!sh) { say(tab + ' headers', '(tab missing)'); return; }
+    say(tab + ' headers', sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].join(' | '));
+  });
+
+  // The actual failure mode: a product pointing at a line the code doesn't have.
+  var known = typeof LINES === 'undefined' ? {} : LINES;
+  var orphans = readObjects(TAB.products)
+    .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .filter(function (r) { return !known[r.Line || '']; })
+    .map(function (r) { return r.ProductID + ' -> "' + (r.Line || '(blank)') + '"'; });
+  say('Products whose Line the code does NOT define',
+    orphans.length ? orphans.join(', ') : 'none — every active product resolves');
+
+  say('StageLog rows', readObjects(TAB.stagelog).length);
+
+  var text = out.join('\n');
+  Logger.log('\n' + text);
+  try { SpreadsheetApp.getUi().alert('Aquamentor — current state', text, SpreadsheetApp.getUi().ButtonSet.OK); }
+  catch (e) { /* no UI context (e.g. run headless) — the log still has it */ }
+  return text;
 }
 
 /* One-time migration from the old single "Tube" line to Blank → Exo/Standard.
@@ -747,6 +810,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Aquamentor')
     .addItem('Set up / repair missing tabs', 'setup')
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
+    .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
     .addSeparator()
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
     .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
