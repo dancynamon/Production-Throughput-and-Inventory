@@ -34,6 +34,14 @@ var TAB = {
 // public app code. CHANGE THIS to your own code.
 var MANAGER_PIN = '2468';
 
+// Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
+// the sheet is the source of truth — setup() preserves whatever is in it (see
+// the Employees block in setup()), so add and remove people there, not here.
+var DEFAULT_EMPLOYEES = [
+  ['Dan', 'YES'], ['John', 'YES'], ['Alex', 'YES'],
+  ['Joe', 'YES'], ['Max', 'YES'], ['Francis', 'YES']
+];
+
 // Each product belongs to a LINE with its own ordered stages. [stage, ideal/hr,
 // floor/hr]. Tube rates come from your Throughput sheet; Shape/Chair rates 0 =
 // paced by daily target, not an hourly line rate.
@@ -62,9 +70,24 @@ function productLineMap() {
  * ========================================================================== */
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var kept = [], created = [];
+
+  // A tab that already exists is LEFT ALONE — never cleared, never reseeded.
+  // The sheet is the source of truth for everything maintained outside the app:
+  // on-hand counts, the roster, daily targets, BOM tweaks, and both logs. Only
+  // genuinely missing tabs get created and seeded with the defaults below, so
+  // this is safe to re-run. Overview is the one exception — it is derived, not
+  // entered, so rebuildOverview() redraws it from StageLog + Planning.
+  // For a true factory reset, use resetAllTabs() (Aquamentor menu), which asks
+  // for confirmation first.
+  function seed(tabName, headers, rows) {
+    if (ss.getSheetByName(tabName)) { kept.push(tabName); return; }
+    writeTab(ss, tabName, headers, rows);
+    created.push(tabName);
+  }
 
   // ---- Products (Line groups them into a process: Tube / Shape / Chair) -----
-  writeTab(ss, TAB.products,
+  seed(TAB.products,
     ['ProductID', 'ProductName', 'Line', 'Unit', 'Active'],
     [
       ['XRT50',   'XRT-50 Rescue Tube', 'Tube',  'each', 'YES'],
@@ -93,13 +116,13 @@ function setup() {
   Object.keys(LINES).forEach(function (line) {
     LINES[line].forEach(function (s, i) { stageRows.push([line, i + 1, s[0], s[1], s[2]]); });
   });
-  writeTab(ss, TAB.stages, ['Line', 'Order', 'Stage', 'IdealRate_perHr', 'FloorRate_perHr'], stageRows);
+  seed(TAB.stages, ['Line', 'Order', 'Stage', 'IdealRate_perHr', 'FloorRate_perHr'], stageRows);
 
   // ---- RawMaterials --------------------------------------------------------
   // M001–M033 from your "Raw Material Inventory" sheet (3/1/2023 counts; blank
   // = not yet counted). M034–M037 come from the COGS build (foam, adhesive,
   // paint, ink) — they aren't on the count sheet yet, so count/receive them.
-  writeTab(ss, TAB.materials,
+  seed(TAB.materials,
     ['MaterialID', 'MaterialName', 'Unit', 'OnHand', 'ReorderPoint', 'Status', 'Category', 'Notes'],
     [
       ['M001', 'Glue Pods',                'Boxes',         5,    1,    '', 'Glue & Mesh',      ''],
@@ -159,7 +182,7 @@ function setup() {
   //   (44 lb + 5 gal ≈ 3,500 tubes); ink 0.007 unit/tube (ESTIMATE, refine).
   // XRT-40 = XRT-50 ×0.8 for length-based materials; patch/CA/accelerant are
   // per-end so identical to 50"; hardware/box identical.
-  writeTab(ss, TAB.bom,
+  seed(TAB.bom,
     ['ProductID', 'Stage', 'MaterialID', 'QtyPerUnit'],
     [
       // XRT-50
@@ -218,28 +241,61 @@ function setup() {
     ]);
 
   // ---- StageLog: filled by the phone app (start with headers) --------------
-  writeTab(ss, TAB.stagelog,
+  seed(TAB.stagelog,
     ['Timestamp', 'WorkDate', 'Employee', 'ProductID', 'ProductName', 'Stage', 'Qty', 'Notes'],
     []);
 
   // ---- ReceivingLog --------------------------------------------------------
-  writeTab(ss, TAB.receiving,
+  seed(TAB.receiving,
     ['Timestamp', 'Employee', 'MaterialID', 'MaterialName', 'QtyAdded', 'Notes'],
     []);
 
   // ---- Employees -----------------------------------------------------------
-  writeTab(ss, TAB.employees, ['Name', 'Active'],
-    [['Maria', 'YES'], ['James', 'YES'], ['Priya', 'YES'], ['Sam', 'YES']]);
+  seed(TAB.employees, ['Name', 'Active'], DEFAULT_EMPLOYEES);
 
   // ---- Planning: your daily build target per product (drives next-day goals)-
-  writeTab(ss, TAB.planning, ['ProductID', 'ProductName', 'DailyTarget'],
+  seed(TAB.planning, ['ProductID', 'ProductName', 'DailyTarget'],
     readObjects(TAB.products).map(function (r) {
       var def = r.ProductID === 'XRT50' ? 60 : (r.ProductID === 'XRT40' ? 40 : 0);
       return [r.ProductID, r.ProductName, def];
     }));
 
   rebuildOverview();
-  SpreadsheetApp.getActive().toast('Setup complete — stage-based tracking ready.', 'Aquamentor', 5);
+
+  var msg = created.length
+    ? 'Created: ' + created.join(', ') + '.'
+    : 'Nothing to create — every tab already existed.';
+  if (kept.length) msg += ' Left untouched: ' + kept.join(', ') + '.';
+  SpreadsheetApp.getActive().toast(msg, 'Aquamentor', 8);
+}
+
+/* Factory reset. Deletes the data tabs outright and lets setup() reseed them
+ * from the built-in defaults. This is the ONLY path that destroys data entered
+ * in the sheet, and it asks first. Nothing calls it automatically. */
+function resetAllTabs() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.alert(
+    'Erase and rebuild ALL tabs?',
+    'This DELETES everything in Products, Stages, RawMaterials, BOM, StageLog, '
+      + 'ReceivingLog, Employees and Planning — including your on-hand counts, '
+      + 'your roster, and all production and receiving history — and replaces '
+      + 'them with the built-in defaults.\n\n'
+      + 'This cannot be undone. Make a copy of this spreadsheet first '
+      + '(File → Make a copy) if you are not certain.\n\nContinue?',
+    ui.ButtonSet.YES_NO);
+
+  if (answer !== ui.Button.YES) {
+    SpreadsheetApp.getActive().toast('Cancelled — nothing was changed.', 'Aquamentor', 5);
+    return;
+  }
+
+  [TAB.products, TAB.stages, TAB.materials, TAB.bom,
+   TAB.stagelog, TAB.receiving, TAB.employees, TAB.planning].forEach(function (t) {
+    var sh = ss.getSheetByName(t);
+    if (sh) ss.deleteSheet(sh);
+  });
+  setup();
 }
 
 /* ============================================================================
@@ -503,8 +559,10 @@ function rebuildOverview() {
  * ========================================================================== */
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Aquamentor')
-    .addItem('Build / reset all tabs (setup)', 'setup')
+    .addItem('Set up / repair missing tabs', 'setup')
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
+    .addSeparator()
+    .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
     .addToUi();
 }
 

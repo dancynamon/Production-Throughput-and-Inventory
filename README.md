@@ -62,8 +62,24 @@ Stage-based production tracking for XRT rescue tubes, built on free tools:
    ink from the COGS build), the 9-stage pipeline, and the seeded recipe.
 
 > There's also an **"Aquamentor" menu** in the spreadsheet (reload the sheet if
-> you don't see it) with *Build/reset all tabs* and *Rebuild overview / next-day
-> goals*.
+> you don't see it) with *Set up / repair missing tabs*, *Rebuild overview /
+> next-day goals*, and *⚠ Erase and rebuild ALL tabs*.
+
+### The sheet is the source of truth
+
+Everything you maintain by hand — on-hand counts, the employee roster, daily
+targets, BOM tweaks — lives in the sheet, and **nothing in this project
+overwrites it**. `setup()` only ever *creates tabs that are missing*; a tab that
+already exists is left exactly as it is, so *Set up / repair missing tabs* is
+safe to re-run any time (it reports what it created and what it left alone).
+
+The single exception is **Overview**, which is derived rather than entered — it
+gets redrawn from `StageLog` + `Planning` every time it rebuilds. Don't hand-edit
+that tab.
+
+If you ever genuinely want the factory defaults back, *⚠ Erase and rebuild ALL
+tabs* does that — it asks for confirmation first, and it is the only thing here
+that destroys data. Take a copy of the spreadsheet before you use it.
 
 ### Part 2 — Deploy the backend (5 min)
 
