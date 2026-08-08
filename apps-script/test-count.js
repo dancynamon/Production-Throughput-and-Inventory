@@ -51,7 +51,11 @@ const matSheet = fakeSheet(MAT_HEADERS, [
   ['M034', 'EVA Foam (2# black)', 'sheet', 50, 10, 'OK', 'Foam', '', '', '', ''],
   ['M037', 'UV White Ink (print)', 'unit', 8, 1, 'OK', 'Ink', '', '', '', '']
 ]);
-const countLog = fakeSheet([], []);
+// Real headers matter: submitCount() now writes through appendByHeader(), so a
+// header-less fixture would append nothing and mask a genuine regression.
+const countLog = fakeSheet(['Timestamp', 'MaterialID', 'MaterialName', 'Unit',
+                            'EstimatedAtCount', 'CountedQty', 'Variance',
+                            'VariancePct', 'CountedBy', 'Notes'], []);
 
 const sandbox = {
   SpreadsheetApp: {
@@ -111,6 +115,13 @@ check('UNCOUNTED material gets no LastCounted stamp', matSheet.grid[3][8], '');
 check('one CountLog row per counted material', countLog.appended.length, 2);
 check('CountLog captures estimate AND count, not just the correction',
   countLog.appended[0].slice(1, 7), ['M014', '1" Red PP Webbing', 'Yards', 100, 88, 12]);
+
+// Rows are written by header name, so an added or reordered column can't
+// silently shift every value one place along.
+check('CountLog row is ordered by header, not by argument position',
+  countLog.appended[0].length, 10);
+check('CountedBy lands in the CountedBy column', countLog.appended[0][8], 'Dan');
+check('Notes land in the Notes column', countLog.appended[0][9], 'Q3 stocktake');
 
 // Guards
 check('blank submission is rejected rather than zeroing everything',
