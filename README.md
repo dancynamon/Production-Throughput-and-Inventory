@@ -304,6 +304,54 @@ at ~250 tubes/box (≈310 for the 40″).
 
 ---
 
+## Estimated vs actual inventory
+
+`OnHand` is an **estimate**. It moves by recipe: a stage gets logged, the BOM
+says that stage eats 1.78 yd of webbing, 1.78 comes off. It is only ever as
+good as the BOM — and several BOM numbers are openly approximate (the UV ink
+rate is a top-down guess; the whole 40″ column is the 50″ column × 0.8). Add
+scrap, offcuts and the odd unlogged day and it drifts from the shelf.
+
+A **physical count** is the actual. The **Count** screen (manager-gated) lists
+every material with its current estimate beside an empty box:
+
+```
+1" Red PP Webbing                    est. 100   [  88 ]  Yards
+  last counted 2026-07-14 · var +6
+```
+
+Leave a box blank and that material is untouched — partial counts are normal.
+Recording a count does three things:
+
+1. appends a row to **`CountLog`** with the estimate, the count and the variance
+2. **re-baselines** `OnHand` to the counted number
+3. stamps `LastCounted`, `LastCountedAt`, `LastVariance` on the material
+
+**Variance is `estimate − counted`.** Positive means the shelf holds *less* than
+the recipe predicted — over-consumption, scrap or shrinkage. Negative means the
+recipe is over-deducting.
+
+### Why the log matters more than the correction
+
+Without this you would type the real number straight into `OnHand`, and the
+information that the estimate was ever wrong is gone.
+
+A material that drifts the *same direction every count* is not shrinkage — it
+is a wrong BOM number, and `CountLog` is the evidence to fix it. Anything off by
+10%+ is flagged in the confirmation. Take the variance percentage, apply it to
+that material's `QtyPerUnit` rows, and the estimate gets better each cycle.
+That is the path to pinning down the ink rate and the 40″ figures with measured
+numbers instead of guesses.
+
+The arithmetic — variance sign, partial counts, re-baselining — is pinned by
+`apps-script/test-count.js`. Run `node apps-script/test-count.js` after touching
+`submitCount()`.
+
+> **Turning it on for an existing sheet:** **Aquamentor → Enable count
+> reconciliation**. It only *appends* the three columns to `RawMaterials` and
+> creates `CountLog` — no existing cell is touched, so it needs no confirmation
+> and is safe to run twice.
+
 ## Knowing what you're running
 
 Every screen has a muted line at the bottom — `v1.1.0 · Aquamentor Production`.

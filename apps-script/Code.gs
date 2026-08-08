@@ -26,8 +26,35 @@ var TAB = {
   receiving: 'ReceivingLog',
   employees: 'Employees',
   planning:  'Planning',
+  countlog:  'CountLog',
   overview:  'Overview'
 };
+
+/* Estimated vs actual.
+ *
+ * RawMaterials.OnHand is an ESTIMATE. It moves by recipe: a stage is logged,
+ * the BOM says that stage eats 1.78 yd of webbing, 1.78 comes off. It is only
+ * ever as good as the BOM, and several BOM figures are openly approximate —
+ * the UV ink rate is a top-down guess and the whole 40" column is the 50"
+ * column times 0.8. Add scrap, offcuts, miscounts and the odd unlogged day and
+ * the estimate drifts from the shelf.
+ *
+ * A physical count is the ACTUAL. Recording one does three things: it writes
+ * the count to CountLog with the variance against the estimate at that moment,
+ * it re-baselines OnHand to the counted number, and it stamps LastCounted /
+ * LastCountedAt / LastVariance on the material.
+ *
+ * The variance history is the point. Consistent one-directional drift on a
+ * material is not shrinkage, it is a wrong BOM number, and CountLog is the
+ * evidence needed to correct it. Typing a corrected number straight into
+ * OnHand — which is what you would do without this — throws that away.
+ */
+var COUNTLOG_HEADERS = ['Timestamp', 'MaterialID', 'MaterialName', 'Unit',
+                        'EstimatedAtCount', 'CountedQty', 'Variance', 'VariancePct',
+                        'CountedBy', 'Notes'];
+
+// Appended to RawMaterials by enableCountReconciliation() on an existing sheet.
+var COUNT_COLUMNS = ['LastCounted', 'LastCountedAt', 'LastVariance'];
 
 // Manager PIN — the three owners type this to unlock the full site (Overview,
 // Receive). Employees never see it; it lives here on the server, not in the
@@ -38,7 +65,7 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.1.0';
+var BACKEND_VERSION = '2.2.0';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -361,6 +388,9 @@ function setup() {
     ['Timestamp', 'Employee', 'MaterialID', 'MaterialName', 'QtyAdded', 'Notes'],
     []);
 
+  // ---- CountLog: physical stocktakes, appended by submitCount() ------------
+  seed(TAB.countlog, COUNTLOG_HEADERS, []);
+
   // ---- Employees -----------------------------------------------------------
   seed(TAB.employees, ['Name', 'Active'], DEFAULT_EMPLOYEES);
 
@@ -398,7 +428,8 @@ function resetAllTabs() {
   }
 
   [TAB.products, TAB.stages, TAB.materials, TAB.bom,
-   TAB.stagelog, TAB.receiving, TAB.employees, TAB.planning].forEach(function (t) {
+   TAB.stagelog, TAB.receiving, TAB.employees, TAB.planning,
+   TAB.countlog].forEach(function (t) {
     var sh = ss.getSheetByName(t);
     if (sh) ss.deleteSheet(sh);
   });
@@ -449,6 +480,43 @@ function whatAmIRunning() {
   try { SpreadsheetApp.getUi().alert('Aquamentor — current state', text, SpreadsheetApp.getUi().ButtonSet.OK); }
   catch (e) { /* no UI context (e.g. run headless) — the log still has it */ }
   return text;
+}
+
+/* Turn on estimated-vs-actual on a sheet that predates it.
+ *
+ * Deliberately additive: it APPENDS the three reconciliation columns to
+ * RawMaterials and creates CountLog, and touches no existing cell. Your
+ * on-hand numbers, reorder points, categories and notes are untouched, so
+ * unlike the other migrations this one needs no confirmation and is safe to
+ * run twice — the second run reports that there was nothing to do. */
+function enableCountReconciliation() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var did = [];
+
+  var matSheet = ss.getSheetByName(TAB.materials);
+  if (!matSheet) {
+    SpreadsheetApp.getActive().toast('No RawMaterials tab — run setup first.', 'Aquamentor', 6);
+    return;
+  }
+
+  var headers = matSheet.getRange(1, 1, 1, matSheet.getLastColumn()).getValues()[0];
+  var missing = COUNT_COLUMNS.filter(function (h) { return headers.indexOf(h) === -1; });
+  if (missing.length) {
+    var all = headers.concat(missing);
+    matSheet.getRange(1, 1, 1, all.length).setValues([all])
+      .setFontWeight('bold').setBackground('#0c1f3f').setFontColor('#ffffff');
+    did.push('added ' + missing.join(', ') + ' to RawMaterials');
+  }
+
+  if (!ss.getSheetByName(TAB.countlog)) {
+    writeTab(ss, TAB.countlog, COUNTLOG_HEADERS, []);
+    did.push('created CountLog');
+  }
+
+  SpreadsheetApp.getActive().toast(
+    did.length ? did.join('; ') + '. No existing values were changed.'
+               : 'Already enabled — nothing to do.',
+    'Aquamentor', 8);
 }
 
 /* One-time migration from the old single "Tube" line to Blank → Exo/Standard.
@@ -519,6 +587,7 @@ function doGet(e) {
     else if (action === 'today')     result = getToday(p);
     else if (action === 'submitDay') result = submitDay(p);
     else if (action === 'receive')   result = receiveStock(p);
+    else if (action === 'count')     result = submitCount(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
@@ -553,7 +622,11 @@ function getStock() {
     var onHand = Number(m.OnHand) || 0, reorder = Number(m.ReorderPoint) || 0;
     return {
       id: m.MaterialID, name: m.MaterialName, unit: m.Unit, category: m.Category || '',
-      onHand: onHand, counted: counted, reorderPoint: reorder, low: counted && onHand <= reorder
+      onHand: onHand, counted: counted, reorderPoint: reorder, low: counted && onHand <= reorder,
+      // Reconciliation. onHand is the ESTIMATE; lastCounted is the last actual.
+      lastCounted:   m.LastCounted === '' || m.LastCounted === undefined ? null : Number(m.LastCounted),
+      lastCountedAt: m.LastCountedAt ? fmtDate(m.LastCountedAt) : null,
+      lastVariance:  m.LastVariance === '' || m.LastVariance === undefined ? null : Number(m.LastVariance)
     };
   });
   return { ok: true, materials: mats };
@@ -691,6 +764,92 @@ function receiveStock(p) {
   }
 }
 
+/* Record a physical count for one or more materials and reconcile.
+ *
+ *   ?action=count&employee=Dan&counts={"M014":95,"M034":12}&notes=Q3 stocktake
+ *
+ * Variance is estimate − counted, so POSITIVE means the shelf holds less than
+ * the recipe predicted (over-consumption, scrap or shrinkage) and NEGATIVE
+ * means the recipe is over-deducting. Only materials present in `counts` are
+ * touched; a partial count is normal and leaves everything else alone. */
+function submitCount(p) {
+  var employee = String(p.employee || '').trim();
+  var notes    = String(p.notes || '').trim();
+  if (!employee) return { ok: false, error: 'Please pick who you are.' };
+
+  var counts;
+  try { counts = JSON.parse(p.counts || '{}'); }
+  catch (e) { return { ok: false, error: 'Counts were not valid JSON.' }; }
+
+  var ids = Object.keys(counts).filter(function (id) {
+    var v = counts[id];
+    return v !== '' && v !== null && v !== undefined && !isNaN(Number(v));
+  });
+  if (!ids.length) return { ok: false, error: 'Enter at least one counted quantity.' };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var matSheet = ss.getSheetByName(TAB.materials);
+    if (!matSheet) return { ok: false, error: 'RawMaterials tab is missing.' };
+
+    var headers = matSheet.getRange(1, 1, 1, matSheet.getLastColumn()).getValues()[0];
+    var col = {};
+    headers.forEach(function (h, i) { col[h] = i + 1; });   // 1-based
+    if (!col.LastCounted) {
+      return { ok: false, error: 'This sheet has no LastCounted column yet. '
+             + 'Run Aquamentor → Enable count reconciliation first.' };
+    }
+
+    var logSheet = ss.getSheetByName(TAB.countlog);
+    if (!logSheet) {
+      logSheet = ss.insertSheet(TAB.countlog);
+      logSheet.getRange(1, 1, 1, COUNTLOG_HEADERS.length).setValues([COUNTLOG_HEADERS])
+        .setFontWeight('bold').setBackground('#0c1f3f').setFontColor('#ffffff');
+      logSheet.setFrozenRows(1);
+    }
+
+    var rows = matSheet.getDataRange().getValues();
+    var now = new Date();
+    var applied = [], unknown = [];
+
+    ids.forEach(function (id) {
+      var ri;
+      for (var i = 1; i < rows.length; i++) { if (rows[i][0] === id) { ri = i; break; } }
+      if (ri === undefined) { unknown.push(id); return; }
+
+      var name = rows[ri][1], unit = rows[ri][2];
+      var estimated = Number(rows[ri][3]) || 0;
+      var countedQty = round2(Number(counts[id]));
+      var variance = round2(estimated - countedQty);
+      var pct = estimated === 0 ? '' : round2((variance / estimated) * 100);
+
+      logSheet.appendRow([now, id, name, unit, estimated, countedQty, variance, pct, employee, notes]);
+
+      // Re-baseline: the count becomes the new truth the estimate runs from.
+      matSheet.getRange(ri + 1, 4).setValue(countedQty);
+      matSheet.getRange(ri + 1, col.LastCounted).setValue(countedQty);
+      matSheet.getRange(ri + 1, col.LastCountedAt).setValue(now);
+      matSheet.getRange(ri + 1, col.LastVariance).setValue(variance);
+
+      applied.push({ id: id, name: name, unit: unit, estimated: estimated,
+                     counted: countedQty, variance: variance, variancePct: pct });
+    });
+
+    // Biggest relative drift first — that ordering is the BOM-correction worklist.
+    applied.sort(function (a, b) {
+      return Math.abs(Number(b.variancePct) || 0) - Math.abs(Number(a.variancePct) || 0);
+    });
+
+    return { ok: true, counted: applied, unknown: unknown,
+             message: 'Reconciled ' + applied.length + ' material'
+                    + (applied.length === 1 ? '' : 's') + '.' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ============================================================================
  *  3. OVERVIEW / STATE MACHINE
  *  For each product: completed-per-stage (all time), WIP waiting before each
@@ -812,6 +971,7 @@ function onOpen() {
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
     .addSeparator()
+    .addItem('Enable count reconciliation', 'enableCountReconciliation')
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
     .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
     .addToUi();

@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.1.0';
+  var APP_VERSION = '2.2.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -67,6 +67,7 @@
       var emp = data.employees.map(function (n) { return { value: n, label: n }; });
       fillSelect(el('employee'), emp, 'Select your name');
       fillSelect(el('recvEmployee'), emp, 'Select your name');
+      fillSelect(el('countEmployee'), emp, 'Select your name');
       fillSelect(el('product'), data.products.map(function (p) { return { value: p.id, label: p.name }; }), 'Select a product');
       fillSelect(el('recvMaterial'), (data.materials || []).map(function (m) {
         return { value: m.id, label: m.name + (m.unit ? ' (' + m.unit + ')' : '') };
@@ -325,6 +326,7 @@
     if (tab) tab.classList.add('tab--active');
     el('screen-' + name).classList.add('screen--active');
     if (name === 'overview') loadOverview();
+    if (name === 'count') loadCountSheet();
     if (name === 'day') loadToday();
   }
   document.querySelectorAll('.tab').forEach(function (tab) {
@@ -335,6 +337,85 @@
     loadConfig();
     if (el('screen-overview').classList.contains('screen--active')) loadOverview();
     toast('Refreshed');
+  });
+
+
+  /* ---- Count: reconcile estimated vs actual ------------------------------ */
+  /* Each row shows the recipe's estimate next to an empty box for the real
+   * number. Showing the estimate matters: it lets whoever is counting notice a
+   * wild disagreement while they are still standing at the shelf, which is the
+   * only moment it is cheap to recheck. Blank means not counted. */
+  function loadCountSheet() {
+    var wrap = el('countRows');
+    wrap.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'stock' }).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load stock');
+      var byCat = {};
+      (d.materials || []).forEach(function (m) {
+        (byCat[m.category || 'Other'] = byCat[m.category || 'Other'] || []).push(m);
+      });
+      wrap.innerHTML = Object.keys(byCat).map(function (cat) {
+        return '<div class="count-cat">' + escapeHtml(cat) + '</div>'
+          + byCat[cat].map(function (m) {
+              var est = m.counted ? fmt(m.onHand) : '—';
+              var last = m.lastCountedAt
+                ? 'last counted ' + escapeHtml(m.lastCountedAt)
+                  + (m.lastVariance === null ? ''
+                     : ' · var ' + (m.lastVariance > 0 ? '+' : '') + fmt(m.lastVariance))
+                : 'never counted';
+              return '<label class="count-row">'
+                + '<span class="count-row__name">' + escapeHtml(m.name)
+                + '<span class="count-row__meta">' + last + '</span></span>'
+                + '<span class="count-row__est">est. ' + est + '</span>'
+                + '<input class="count-row__input" type="number" inputmode="decimal" '
+                + 'min="0" step="any" placeholder="count" data-mat="' + escapeHtml(m.id) + '">'
+                + '<span class="count-row__unit">' + escapeHtml(m.unit || '') + '</span>'
+                + '</label>';
+            }).join('');
+      }).join('');
+    }).catch(function (err) {
+      wrap.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>';
+    });
+  }
+
+  el('countForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var counts = {}, n = 0;
+    document.querySelectorAll('#countRows [data-mat]').forEach(function (inp) {
+      if (inp.value === '') return;              // blank = not counted, leave alone
+      var v = Number(inp.value);
+      if (isNaN(v) || v < 0) return;
+      counts[inp.getAttribute('data-mat')] = v; n++;
+    });
+    if (!el('countEmployee').value) { toast('Pick who you are'); return; }
+    if (!n) { toast('Enter at least one counted quantity'); return; }
+
+    var btn = el('countBtn'); btn.disabled = true; btn.textContent = 'Recording…';
+    api({ action: 'count', employee: el('countEmployee').value,
+          counts: JSON.stringify(counts), notes: el('countNotes').value }, 30000)
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Count failed');
+        var box = el('countResult');
+        box.innerHTML = '<div class="result__head">' + escapeHtml(d.message) + '</div>'
+          + '<ul class="result__list">' + (d.counted || []).map(function (c) {
+              var sign = c.variance > 0 ? '+' : '';
+              var cls  = Math.abs(Number(c.variancePct) || 0) >= 10 ? ' count-off' : '';
+              return '<li class="' + cls + '"><span>' + escapeHtml(c.name) + '</span>'
+                + '<span class="result__num">est ' + fmt(c.estimated)
+                + ' → ' + fmt(c.counted)
+                + '  (' + sign + fmt(c.variance)
+                + (c.variancePct === '' ? '' : ', ' + sign + fmt(c.variancePct) + '%')
+                + ')</span></li>';
+            }).join('') + '</ul>'
+          + '<div class="result__note">Estimates re-baselined to your counts. '
+          + 'Anything off by 10%+ is flagged — a material that drifts the same '
+          + 'way every count is a BOM number to fix, not shrinkage.</div>';
+        box.hidden = false;
+        loadCountSheet();
+        toast('Count recorded');
+      })
+      .catch(function (err) { toast('⚠ ' + err.message); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Record Count'; });
   });
 
   /* ---- Utils ------------------------------------------------------------- */
