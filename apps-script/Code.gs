@@ -49,11 +49,18 @@ var TAB = {
  * evidence needed to correct it. Typing a corrected number straight into
  * OnHand — which is what you would do without this — throws that away.
  */
+// Hours is what turns "we did 60" into "we can do 60". Units per DAY is
+// confounded by how many people worked and for how long; units per HOUR is a
+// rate you can multiply by planned staffing. It also finally gives the
+// Ideal/Floor rate columns something to be compared against.
+var STAGELOG_HEADERS = ['Timestamp', 'WorkDate', 'Employee', 'ProductID',
+                        'ProductName', 'Stage', 'Qty', 'Hours', 'Notes'];
+
 var COUNTLOG_HEADERS = ['Timestamp', 'MaterialID', 'MaterialName', 'Unit',
                         'EstimatedAtCount', 'CountedQty', 'Variance', 'VariancePct',
                         'CountedBy', 'Notes'];
 
-// Appended to RawMaterials by enableCountReconciliation() on an existing sheet.
+// Appended to RawMaterials by upgradeSchema() on an existing sheet.
 var COUNT_COLUMNS = ['LastCounted', 'LastCountedAt', 'LastVariance'];
 
 // Manager PIN — the three owners type this to unlock the full site (Overview,
@@ -65,7 +72,7 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.2.0';
+var BACKEND_VERSION = '2.3.0';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -379,9 +386,7 @@ function setup() {
   seed(TAB.bom, BOM_HEADERS, tubeBomRows().concat(NON_TUBE_BOM_ROWS));
 
   // ---- StageLog: filled by the phone app (start with headers) --------------
-  seed(TAB.stagelog,
-    ['Timestamp', 'WorkDate', 'Employee', 'ProductID', 'ProductName', 'Stage', 'Qty', 'Notes'],
-    []);
+  seed(TAB.stagelog, STAGELOG_HEADERS, []);
 
   // ---- ReceivingLog --------------------------------------------------------
   seed(TAB.receiving,
@@ -482,31 +487,36 @@ function whatAmIRunning() {
   return text;
 }
 
-/* Turn on estimated-vs-actual on a sheet that predates it.
+/* Bring an older sheet up to the current schema.
  *
- * Deliberately additive: it APPENDS the three reconciliation columns to
- * RawMaterials and creates CountLog, and touches no existing cell. Your
- * on-hand numbers, reorder points, categories and notes are untouched, so
- * unlike the other migrations this one needs no confirmation and is safe to
- * run twice — the second run reports that there was nothing to do. */
-function enableCountReconciliation() {
+ * Deliberately additive: it only ever APPENDS missing columns and creates
+ * missing tabs, and touches no existing cell. On-hand numbers, reorder points,
+ * categories, notes and every logged row are left exactly as they are — so
+ * unlike the other migrations this needs no confirmation and is safe to run
+ * as many times as you like. Run it after any update that mentions a new
+ * column; if there is nothing to do it says so. */
+function upgradeSchema() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var did = [];
 
-  var matSheet = ss.getSheetByName(TAB.materials);
-  if (!matSheet) {
-    SpreadsheetApp.getActive().toast('No RawMaterials tab — run setup first.', 'Aquamentor', 6);
-    return;
+  /* Append any missing headers to an existing tab without touching a single
+   * existing cell. Rows written through appendByHeader() then start filling
+   * the new columns; older rows keep blanks, which read as "not recorded"
+   * rather than as zero. */
+  function addColumns(tabName, wanted) {
+    var sh = ss.getSheetByName(tabName);
+    if (!sh) return;
+    var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    var missing = wanted.filter(function (h) { return headers.indexOf(h) === -1; });
+    if (!missing.length) return;
+    var all = headers.concat(missing);
+    sh.getRange(1, 1, 1, all.length).setValues([all])
+      .setFontWeight('bold').setBackground('#0c1f3f').setFontColor('#ffffff');
+    did.push('added ' + missing.join(', ') + ' to ' + tabName);
   }
 
-  var headers = matSheet.getRange(1, 1, 1, matSheet.getLastColumn()).getValues()[0];
-  var missing = COUNT_COLUMNS.filter(function (h) { return headers.indexOf(h) === -1; });
-  if (missing.length) {
-    var all = headers.concat(missing);
-    matSheet.getRange(1, 1, 1, all.length).setValues([all])
-      .setFontWeight('bold').setBackground('#0c1f3f').setFontColor('#ffffff');
-    did.push('added ' + missing.join(', ') + ' to RawMaterials');
-  }
+  addColumns(TAB.materials, COUNT_COLUMNS);
+  addColumns(TAB.stagelog, ['Hours']);
 
   if (!ss.getSheetByName(TAB.countlog)) {
     writeTab(ss, TAB.countlog, COUNTLOG_HEADERS, []);
@@ -515,9 +525,10 @@ function enableCountReconciliation() {
 
   SpreadsheetApp.getActive().toast(
     did.length ? did.join('; ') + '. No existing values were changed.'
-               : 'Already enabled — nothing to do.',
+               : 'Already up to date — nothing to do.',
     'Aquamentor', 8);
 }
+
 
 /* One-time migration from the old single "Tube" line to Blank → Exo/Standard.
  * setup() deliberately never overwrites an existing tab, so a sheet built
@@ -588,6 +599,7 @@ function doGet(e) {
     else if (action === 'submitDay') result = submitDay(p);
     else if (action === 'receive')   result = receiveStock(p);
     else if (action === 'count')     result = submitCount(p);
+    else if (action === 'metrics')   result = getMetrics();
     else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
@@ -667,8 +679,11 @@ function submitDay(p) {
   var employee  = String(p.employee || '').trim();
   var productId = String(p.productId || '').trim();
   var notes     = String(p.notes || '').trim();
-  var counts;
+  var counts, hours;
   try { counts = JSON.parse(p.counts || '{}'); } catch (e) { return { ok: false, error: 'Bad counts payload' }; }
+  // Hours are OPTIONAL and per stage. A day logged without them still records
+  // production; it just cannot contribute to a rate.
+  try { hours = JSON.parse(p.hours || '{}'); } catch (e) { hours = {}; }
 
   if (!workDate)  return { ok: false, error: 'Please pick the work date.' };
   if (!employee)  return { ok: false, error: 'Please pick who you are.' };
@@ -699,8 +714,14 @@ function submitDay(p) {
     valid.forEach(function (stage) {
       var qty = Number(counts[stage]) || 0;
       if (qty <= 0) return;
-      logSheet.appendRow([now, workDate, employee, productId, product.ProductName, stage, qty, notes]);
-      logged.push({ stage: stage, qty: qty });
+      var hrs = Number(hours[stage]);
+      hrs = (isFinite(hrs) && hrs > 0) ? round2(hrs) : '';
+      appendByHeader(logSheet, {
+        Timestamp: now, WorkDate: workDate, Employee: employee,
+        ProductID: productId, ProductName: product.ProductName,
+        Stage: stage, Qty: qty, Hours: hrs, Notes: notes
+      });
+      logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs });
 
       bom.filter(function (r) { return r.Stage === stage; }).forEach(function (r) {
         var ri = rowOf[r.MaterialID];
@@ -756,7 +777,10 @@ function receiveStock(p) {
     var name = matRows[ri][1], unit = matRows[ri][2];
     var after = round2((Number(matRows[ri][3]) || 0) + qty);
     matSheet.getRange(ri + 1, 4).setValue(after);
-    ss.getSheetByName(TAB.receiving).appendRow([new Date(), employee, materialId, name, qty, notes]);
+    appendByHeader(ss.getSheetByName(TAB.receiving), {
+      Timestamp: new Date(), Employee: employee, MaterialID: materialId,
+      MaterialName: name, QtyAdded: qty, Notes: notes
+    });
     return { ok: true, message: 'Received ' + round2(qty) + ' ' + unit + ' of ' + name,
              material: { id: materialId, name: name, unit: unit, onHand: after } };
   } finally {
@@ -799,7 +823,7 @@ function submitCount(p) {
     headers.forEach(function (h, i) { col[h] = i + 1; });   // 1-based
     if (!col.LastCounted) {
       return { ok: false, error: 'This sheet has no LastCounted column yet. '
-             + 'Run Aquamentor → Enable count reconciliation first.' };
+             + 'Run Aquamentor → Add missing columns (safe upgrade) first.' };
     }
 
     var logSheet = ss.getSheetByName(TAB.countlog);
@@ -825,7 +849,11 @@ function submitCount(p) {
       var variance = round2(estimated - countedQty);
       var pct = estimated === 0 ? '' : round2((variance / estimated) * 100);
 
-      logSheet.appendRow([now, id, name, unit, estimated, countedQty, variance, pct, employee, notes]);
+      appendByHeader(logSheet, {
+        Timestamp: now, MaterialID: id, MaterialName: name, Unit: unit,
+        EstimatedAtCount: estimated, CountedQty: countedQty,
+        Variance: variance, VariancePct: pct, CountedBy: employee, Notes: notes
+      });
 
       // Re-baseline: the count becomes the new truth the estimate runs from.
       matSheet.getRange(ri + 1, 4).setValue(countedQty);
@@ -848,6 +876,148 @@ function submitCount(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ============================================================================
+ *  RUNWAY, THROUGHPUT, METRICS  —  "how much, how fast, by when"
+ * ========================================================================== */
+
+/* How many more units of each product the material on hand can support.
+ *
+ * A material can be consumed at several stages of one product (paint at both
+ * Paint 1 and Paint 2), so the per-unit requirement is the SUM across stages,
+ * not any single BOM row.
+ *
+ * Materials with a blank OnHand are reported as `uncounted` rather than
+ * treated as zero. Treating "never counted" as "none left" would report a
+ * runway of 0 for almost every product here, which is both wrong and useless —
+ * the honest answer is a number plus a list of what would sharpen it. */
+function computeRunway() {
+  var stock = {};
+  readObjects(TAB.materials).forEach(function (m) {
+    var has = !(m.OnHand === '' || m.OnHand === null || m.OnHand === undefined);
+    stock[m.MaterialID] = { name: m.MaterialName, unit: m.Unit,
+                            onHand: has ? Number(m.OnHand) || 0 : null };
+  });
+
+  var perUnit = {};                        // productId -> materialId -> qty summed over stages
+  readObjects(TAB.bom).forEach(function (r) {
+    if (!r.ProductID || !r.MaterialID) return;
+    perUnit[r.ProductID] = perUnit[r.ProductID] || {};
+    perUnit[r.ProductID][r.MaterialID] =
+      (perUnit[r.ProductID][r.MaterialID] || 0) + (Number(r.QtyPerUnit) || 0);
+  });
+
+  var out = {};
+  readObjects(TAB.products)
+    .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .forEach(function (pr) {
+      var needs = perUnit[pr.ProductID] || {};
+      var buildable = null, constraint = null, uncounted = [], detail = [];
+
+      Object.keys(needs).forEach(function (mid) {
+        var need = needs[mid], mat = stock[mid];
+        if (!mat || !(need > 0)) return;
+        if (mat.onHand === null) { uncounted.push({ id: mid, name: mat.name }); return; }
+        var canMake = Math.floor(mat.onHand / need);
+        detail.push({ id: mid, name: mat.name, unit: mat.unit,
+                      onHand: mat.onHand, perUnit: round2(need), canMake: canMake });
+        if (buildable === null || canMake < buildable) {
+          buildable = canMake;
+          constraint = { id: mid, name: mat.name, unit: mat.unit,
+                         onHand: mat.onHand, perUnit: round2(need) };
+        }
+      });
+
+      detail.sort(function (a, b) { return a.canMake - b.canMake; });
+      out[pr.ProductID] = {
+        buildable: buildable, constraint: constraint,
+        uncounted: uncounted, materials: detail.slice(0, 5)
+      };
+    });
+  return out;
+}
+
+/* Measured throughput per (product, stage), straight from StageLog.
+ *
+ * unitsPerHour is the number worth planning with, but it only exists for
+ * entries that carried hours. unitsPerDay is always available and is reported
+ * alongside so a rate is still visible before the habit of logging hours takes
+ * hold — with daysObserved so nobody mistakes one good day for a rate. */
+function computeThroughput() {
+  var agg = {};
+  readObjects(TAB.stagelog).forEach(function (r) {
+    if (!r.ProductID || !r.Stage) return;
+    var key = r.ProductID + '||' + r.Stage;
+    var a = agg[key] || (agg[key] = { productId: r.ProductID, stage: r.Stage,
+                                      qty: 0, hours: 0, qtyWithHours: 0, days: {} });
+    var qty = Number(r.Qty) || 0, hrs = Number(r.Hours) || 0;
+    a.qty += qty;
+    if (hrs > 0) { a.hours += hrs; a.qtyWithHours += qty; }
+    if (r.WorkDate) a.days[fmtDate(r.WorkDate)] = true;
+  });
+
+  return Object.keys(agg).map(function (k) {
+    var a = agg[k], days = Object.keys(a.days).length;
+    return {
+      productId: a.productId, stage: a.stage,
+      totalQty: a.qty, daysObserved: days, hoursLogged: round2(a.hours),
+      unitsPerDay:  days ? round2(a.qty / days) : null,
+      unitsPerHour: a.hours > 0 ? round2(a.qtyWithHours / a.hours) : null
+    };
+  });
+}
+
+/* One read-only call for the dashboard.
+ *
+ * Deliberately a stable, self-describing contract rather than whatever the
+ * phone screens happen to need — the dashboard is a separate project on its
+ * own release cycle, and coupling it to the UI's shape would mean changing
+ * both sides together every time a screen moves. Read-only and unauthenticated,
+ * same as every other action here. */
+function getMetrics() {
+  var runway = computeRunway();
+  var overview = computeOverview();
+  var rates = computeThroughput();
+
+  var rateBy = {};
+  rates.forEach(function (r) { rateBy[r.productId + '||' + r.stage] = r; });
+
+  var products = overview.map(function (pr) {
+    return {
+      id: pr.productId, name: pr.name, feedsFrom: pr.feedsFrom,
+      finished: pr.finished,
+      runway: runway[pr.productId] || null,
+      stages: pr.stages.map(function (s) {
+        var r = rateBy[pr.productId + '||' + s.stage] || null;
+        return {
+          stage: s.stage, completed: s.completed, waiting: s.waiting,
+          target: s.target, suggest: s.suggest, starved: s.starved,
+          unitsPerHour: r ? r.unitsPerHour : null,
+          unitsPerDay:  r ? r.unitsPerDay  : null,
+          daysObserved: r ? r.daysObserved : 0,
+          hoursLogged:  r ? r.hoursLogged  : 0
+        };
+      })
+    };
+  });
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    backendVersion: BACKEND_VERSION,
+    sheetId: SpreadsheetApp.getActiveSpreadsheet().getId(),
+    products: products,
+    materials: getStock().materials,
+    throughput: rates,
+    // Named so a consumer can tell an empty pipeline from a broken one.
+    coverage: {
+      stageLogRows: readObjects(TAB.stagelog).length,
+      rowsWithHours: readObjects(TAB.stagelog).filter(function (r) {
+        return Number(r.Hours) > 0;
+      }).length
+    }
+  };
 }
 
 /* ============================================================================
@@ -932,7 +1102,8 @@ function computeOverview() {
 }
 
 function getOverview() {
-  return { ok: true, products: computeOverview(), materials: getStock().materials, stages: stageNames() };
+  return { ok: true, products: computeOverview(), materials: getStock().materials,
+           runway: computeRunway(), stages: stageNames() };
 }
 
 /* Writes the overview to a sheet tab too (for the desktop/web view in Sheets). */
@@ -971,7 +1142,7 @@ function onOpen() {
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
     .addSeparator()
-    .addItem('Enable count reconciliation', 'enableCountReconciliation')
+    .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
     .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
     .addToUi();
@@ -993,6 +1164,20 @@ function readObjects(tabName) {
     out.push(obj);
   }
   return out;
+}
+
+/* Append a row by HEADER NAME rather than position.
+ *
+ * appendRow() is positional, so the moment a sheet's columns and the code's
+ * expectation diverge — which is exactly what happens when a column is added
+ * to a sheet that already has data — every value lands one place off and the
+ * row is silently wrong. Matching on the header makes an extra or reordered
+ * column harmless, and a missing one just writes blank. */
+function appendByHeader(sh, obj) {
+  var headers = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  sh.appendRow(headers.map(function (h) {
+    return Object.prototype.hasOwnProperty.call(obj, h) ? obj[h] : '';
+  }));
 }
 
 function writeTab(ss, tabName, headers, rows) {

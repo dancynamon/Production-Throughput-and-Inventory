@@ -352,6 +352,63 @@ The arithmetic — variance sign, partial counts, re-baselining — is pinned by
 > creates `CountLog` — no existing cell is touched, so it needs no confirmation
 > and is safe to run twice.
 
+## How much, how fast — and the dashboard feed
+
+### Hours
+
+Each stage row on **Log My Day** has a `hrs` box next to the count. Optional —
+leave it blank and the day still records production, it just can't contribute
+to a rate.
+
+It matters because units per **day** is confounded by who worked and for how
+long: one person for two hours and three people all day both read as "Cut: 60."
+Units per **hour** is a rate you can multiply by planned staffing. It also
+finally gives the `IdealRate_perHr` columns something real to be measured
+against.
+
+### Runway — "how much can I build right now?"
+
+On the **Overview**, under each product:
+
+> **53** buildable · limited by **1" Red PP Webbing** (96 Yards ÷ 1.78/unit)
+
+Derived from `BOM × OnHand` — no new data entry. A material consumed at several
+stages of one product (paint at Paint 1 *and* Paint 2) is **summed** across
+them, so the per-unit figure is the true requirement.
+
+Materials that have never been counted are **excluded and listed**, not read as
+zero. Most of this sheet is uncounted; treating blank as empty would report a
+runway of 0 almost everywhere.
+
+The constraint is the actionable half. "Webbing is low" is a nag; "webbing stops
+the line in 53 units" is a decision.
+
+### `?action=metrics` — the dashboard endpoint
+
+One read-only call returning a stable contract, independent of whatever the
+phone screens happen to show:
+
+```
+GET …/exec?action=metrics
+{
+  "generatedAt": "…", "backendVersion": "2.3.0", "sheetId": "…",
+  "products": [{ "id", "name", "feedsFrom", "finished",
+                 "runway": { "buildable", "constraint", "uncounted", "materials" },
+                 "stages": [{ "stage", "completed", "waiting", "target", "suggest",
+                              "starved", "unitsPerHour", "unitsPerDay",
+                              "daysObserved", "hoursLogged" }] }],
+  "materials": [ … ],
+  "throughput": [ … ],
+  "coverage": { "stageLogRows", "rowsWithHours" }
+}
+```
+
+`coverage` is there so a consumer can tell an empty pipeline from a broken one —
+zero rows means nobody has logged yet, not that the call failed.
+
+Every rate is **measured**, not configured, so all of it stays null until days
+are actually logged. `apps-script/test-metrics.js` pins the arithmetic.
+
 ## Knowing what you're running
 
 Every screen has a muted line at the bottom — `v1.1.0 · Aquamentor Production`.

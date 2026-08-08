@@ -216,3 +216,25 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
   .count-row{ grid-template-columns:1fr 78px 40px }
   .count-row__est{ grid-column:1; font-size:11px }
 }
+
+/* ---- Stage rows: done + hours ------------------------------------------- */
+.stage-head{
+  display:grid; grid-template-columns:1fr 84px 64px; gap:8px;
+  font-size:11px; color:var(--muted); text-transform:uppercase;
+  letter-spacing:.04em; padding:0 0 4px; text-align:right;
+}
+.stage-row{ display:grid !important; grid-template-columns:1fr 84px 64px; gap:8px; align-items:center }
+.stage-row__hours{
+  width:100%; padding:8px; font-size:15px; text-align:right;
+  border:1px solid var(--border); border-radius:8px; background:var(--surface);
+  color:var(--muted);
+}
+
+/* ---- Runway ------------------------------------------------------------- */
+.runway{
+  padding:10px 14px; border-top:1px solid var(--border);
+  font-size:13px; color:var(--ink);
+}
+.runway__n{ font-size:17px; font-weight:700; color:var(--navy) }
+.runway__none{ color:var(--muted) }
+.runway__warn{ margin-top:4px; font-size:11px; color:var(--muted) }

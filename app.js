@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.2.0';
+  var APP_VERSION = '2.3.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -149,21 +149,34 @@
         + 'predates the current backend.</div>';
       return;
     }
-    wrap.innerHTML = stages.map(function (s) {
-      return '<label class="stage-row"><span class="stage-row__name">' + escapeHtml(s) + '</span>'
-           + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
-           + 'data-stage="' + escapeHtml(s) + '" placeholder="0"></label>';
-    }).join('');
+    // Hours is optional per stage. Left blank the day still records production,
+    // it just can't contribute to a units/hour rate.
+    wrap.innerHTML = '<div class="stage-head"><span></span><span>done</span><span>hrs</span></div>'
+      + stages.map(function (s) {
+          var st = escapeHtml(s);
+          return '<label class="stage-row"><span class="stage-row__name">' + st + '</span>'
+               + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
+               + 'data-stage="' + st + '" placeholder="0">'
+               + '<input class="stage-row__hours" type="number" inputmode="decimal" min="0" step="any" '
+               + 'data-hours="' + st + '" placeholder="—">'
+               + '</label>';
+        }).join('');
   }
   el('product').addEventListener('change', buildStageInputs);
 
   /* ---- Submit the day ---------------------------------------------------- */
   el('dayForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    var counts = {}, total = 0;
+    var counts = {}, hours = {}, total = 0;
     document.querySelectorAll('#stageInputs [data-stage]').forEach(function (inp) {
       var v = parseInt(inp.value, 10);
       if (v > 0) { counts[inp.getAttribute('data-stage')] = v; total += v; }
+    });
+    document.querySelectorAll('#stageInputs [data-hours]').forEach(function (inp) {
+      var stage = inp.getAttribute('data-hours');
+      var h = Number(inp.value);
+      // Only meaningful next to a count — hours with no output isn't a rate.
+      if (inp.value !== '' && h > 0 && counts[stage]) hours[stage] = h;
     });
     var payload = {
       action: 'submitDay',
@@ -171,6 +184,7 @@
       employee: el('employee').value,
       productId: el('product').value,
       counts: JSON.stringify(counts),
+      hours: JSON.stringify(hours),
       notes: el('notes').value
     };
     if (!payload.workDate)  { toast('Pick the work date'); return; }
@@ -222,6 +236,7 @@
     api({ action: 'overview' }).then(function (data) {
       if (!data.ok) throw new Error(data.error || 'Could not load overview');
       var html = '';
+      var runway = data.runway || {};
       (data.products || []).forEach(function (pr) {
         html += '<div class="ov-card"><div class="ov-card__head">' + escapeHtml(pr.name)
              + '<span class="ov-card__meta">'
@@ -235,6 +250,27 @@
                + '<td>' + fmt(s.target) + '</td>'
                + '<td class="ov-goal">' + fmt(s.suggest) + (s.starved ? ' <span class="ov-flag">↑short</span>' : '') + '</td></tr>';
         });
+        // Runway: what the material on hand can still support, and what runs
+        // out first. The constraint is the actionable half — "webbing is low"
+        // is a nag, "webbing stops the line in 53 units" is a decision.
+        var rw = runway[pr.productId];
+        if (rw) {
+          html += '<div class="runway">';
+          if (rw.buildable === null) {
+            html += '<span class="runway__none">No counted materials — runway unknown</span>';
+          } else {
+            html += '<span class="runway__n">' + fmt(rw.buildable) + '</span> buildable'
+                 + (rw.constraint ? ' · limited by <b>' + escapeHtml(rw.constraint.name) + '</b> ('
+                     + fmt(rw.constraint.onHand) + ' ' + escapeHtml(rw.constraint.unit || '')
+                     + ' ÷ ' + fmt(rw.constraint.perUnit) + '/unit)' : '');
+          }
+          if (rw.uncounted && rw.uncounted.length) {
+            html += '<div class="runway__warn">Not counted, so excluded: '
+                 + rw.uncounted.map(function (u) { return escapeHtml(u.name); }).join(', ')
+                 + '</div>';
+          }
+          html += '</div>';
+        }
         html += '</tbody></table></div>';
       });
       // Low materials
