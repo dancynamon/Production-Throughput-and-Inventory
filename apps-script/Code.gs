@@ -27,8 +27,43 @@ var TAB = {
   employees: 'Employees',
   planning:  'Planning',
   countlog:  'CountLog',
+  wipbase:   'WipBaseline',
   overview:  'Overview'
 };
+
+/* Opening work-in-progress.
+ *
+ * The chain math — waiting = completed(previous stage) − completed(this one) —
+ * assumes the floor was EMPTY the day logging started. It never is. Aquamentor's
+ * first week of real data shows 151 tubes getting straps when 85 had been
+ * meshed and none patched: not sloppy logging, just tubes that were already
+ * mid-pipeline before anyone opened the app. Left uncorrected, every WIP
+ * figure is wrong, every "upstream short" flag is noise, and any lead time
+ * derived from them is confidently wrong.
+ *
+ * The fix is a baseline, exactly as for materials. What is countable is not
+ * "how many have ever passed Patched" — nobody knows that — but the PILE
+ * physically sitting at each station waiting to be worked. Cumulative
+ * completions are then derived by walking the line backwards from finished
+ * goods:
+ *
+ *   completed(last)  = finished on hand
+ *   completed(i)     = completed(i+1) + pile waiting at stage i+1
+ *
+ * Only the newest baseline per product counts, and StageLog rows are filtered
+ * to those AFTER it — anything logged earlier is already embodied in the piles
+ * that were counted, so including it would double-count.
+ *
+ * The first stage of a line is deliberately not asked for: on a variant line
+ * its input is the shared blank pool, which computeOverview already derives
+ * from the feeder, and on a Blank line it is raw foam, which is not tracked
+ * as WIP at all.
+ */
+var WIPBASE_HEADERS = ['Timestamp', 'ProductID', 'ProductName', 'Stage',
+                       'WaitingBefore', 'CountedBy', 'Notes'];
+
+// Pseudo-stage marking units past the final stage — finished, not yet shipped.
+var WIP_FINISHED = '(finished)';
 
 /* Estimated vs actual.
  *
@@ -72,7 +107,7 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.3.0';
+var BACKEND_VERSION = '2.4.0';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -396,6 +431,9 @@ function setup() {
   // ---- CountLog: physical stocktakes, appended by submitCount() ------------
   seed(TAB.countlog, COUNTLOG_HEADERS, []);
 
+  // ---- WipBaseline: opening work-in-progress, appended by submitWipBaseline
+  seed(TAB.wipbase, WIPBASE_HEADERS, []);
+
   // ---- Employees -----------------------------------------------------------
   seed(TAB.employees, ['Name', 'Active'], DEFAULT_EMPLOYEES);
 
@@ -434,7 +472,7 @@ function resetAllTabs() {
 
   [TAB.products, TAB.stages, TAB.materials, TAB.bom,
    TAB.stagelog, TAB.receiving, TAB.employees, TAB.planning,
-   TAB.countlog].forEach(function (t) {
+   TAB.countlog, TAB.wipbase].forEach(function (t) {
     var sh = ss.getSheetByName(t);
     if (sh) ss.deleteSheet(sh);
   });
@@ -523,6 +561,11 @@ function upgradeSchema() {
     did.push('created CountLog');
   }
 
+  if (!ss.getSheetByName(TAB.wipbase)) {
+    writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
+    did.push('created WipBaseline');
+  }
+
   SpreadsheetApp.getActive().toast(
     did.length ? did.join('; ') + '. No existing values were changed.'
                : 'Already up to date — nothing to do.',
@@ -600,6 +643,7 @@ function doGet(e) {
     else if (action === 'receive')   result = receiveStock(p);
     else if (action === 'count')     result = submitCount(p);
     else if (action === 'metrics')   result = getMetrics();
+    else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
@@ -878,6 +922,111 @@ function submitCount(p) {
   }
 }
 
+/* Latest opening-WIP baseline per product, already converted from countable
+ * piles into the cumulative completions the chain math needs.
+ *
+ * Returns  productId -> { at: Date, completed: {stage: n}, piles: {...},
+ *                         finished: n, countedBy, notes } */
+function wipBaselineMap() {
+  var rows = readObjects(TAB.wipbase);
+  if (!rows.length) return {};
+
+  // Keep only the newest timestamp per product; a re-count supersedes entirely.
+  var newest = {};
+  rows.forEach(function (r) {
+    if (!r.ProductID || !r.Timestamp) return;
+    var t = new Date(r.Timestamp).getTime();
+    if (isNaN(t)) return;
+    if (!newest[r.ProductID] || t > newest[r.ProductID]) newest[r.ProductID] = t;
+  });
+
+  var grouped = {};
+  rows.forEach(function (r) {
+    if (!r.ProductID || !r.Timestamp) return;
+    var t = new Date(r.Timestamp).getTime();
+    if (t !== newest[r.ProductID]) return;
+    var g = grouped[r.ProductID] || (grouped[r.ProductID] = {
+      at: new Date(t), piles: {}, finished: 0,
+      countedBy: r.CountedBy || '', notes: r.Notes || ''
+    });
+    var qty = Number(r.WaitingBefore) || 0;
+    if (r.Stage === WIP_FINISHED) g.finished = qty;
+    else g.piles[r.Stage] = qty;
+  });
+
+  var lineMap = productLineMap();
+  Object.keys(grouped).forEach(function (pid) {
+    var g = grouped[pid];
+    var stages = stagesForLine(lineMap[pid] || 'Blank');
+    // Walk backwards: everything past a stage is either finished or queued at
+    // some later station.
+    var completed = {}, running = g.finished;
+    for (var i = stages.length - 1; i >= 0; i--) {
+      completed[stages[i]] = running;
+      running += (g.piles[stages[i]] || 0);
+    }
+    g.completed = completed;
+  });
+
+  return grouped;
+}
+
+/* Record an opening-WIP count for one product. Supersedes any earlier one.
+ *
+ *   ?action=wipBaseline&employee=Dan&productId=XRT50EXO
+ *     &piles={"Patched":40,"Paint 1":12,"(finished)":8}
+ */
+function submitWipBaseline(p) {
+  var employee  = String(p.employee || '').trim();
+  var productId = String(p.productId || '').trim();
+  var notes     = String(p.notes || '').trim();
+  if (!employee)  return { ok: false, error: 'Please pick who you are.' };
+  if (!productId) return { ok: false, error: 'Please pick a product.' };
+
+  var piles;
+  try { piles = JSON.parse(p.piles || '{}'); }
+  catch (e) { return { ok: false, error: 'Piles were not valid JSON.' }; }
+
+  var product = readObjects(TAB.products).filter(function (r) {
+    return r.ProductID === productId;
+  })[0];
+  if (!product) return { ok: false, error: 'Unknown product: ' + productId };
+
+  var stages = stagesForLine(product.Line || 'Blank');
+  var valid = stages.concat([WIP_FINISHED]);
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName(TAB.wipbase);
+    if (!sh) sh = writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
+
+    // A zero is meaningful here — "nothing is queued at Paint 2" is a real
+    // measurement, not a blank — so every valid stage is written, not just the
+    // ones with a number in them.
+    var now = new Date(), written = [];
+    valid.forEach(function (stage) {
+      var raw = piles[stage];
+      var qty = (raw === '' || raw === null || raw === undefined) ? 0 : Number(raw);
+      if (isNaN(qty) || qty < 0) qty = 0;
+      appendByHeader(sh, {
+        Timestamp: now, ProductID: productId, ProductName: product.ProductName,
+        Stage: stage, WaitingBefore: qty, CountedBy: employee, Notes: notes
+      });
+      written.push({ stage: stage, qty: qty });
+    });
+
+    var fresh = wipBaselineMap()[productId] || { completed: {} };
+    return { ok: true, productId: productId, name: product.ProductName,
+             piles: written, completed: fresh.completed,
+             message: 'Opening WIP recorded for ' + product.ProductName
+                    + '. Counts logged before now are superseded.' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* ============================================================================
  *  RUNWAY, THROUGHPUT, METRICS  —  "how much, how fast, by when"
  * ========================================================================== */
@@ -986,7 +1135,7 @@ function getMetrics() {
   var products = overview.map(function (pr) {
     return {
       id: pr.productId, name: pr.name, feedsFrom: pr.feedsFrom,
-      finished: pr.finished,
+      finished: pr.finished, baselineAt: pr.baselineAt,
       runway: runway[pr.productId] || null,
       stages: pr.stages.map(function (s) {
         var r = rateBy[pr.productId + '||' + s.stage] || null;
@@ -1038,14 +1187,28 @@ function computeOverview() {
     targets[r.ProductID][r.Stage] = Number(r.DailyTarget) || 0;
   });
 
-  // completed[productId][stage] = sum of StageLog Qty
+  // completed[productId][stage] = opening baseline + everything logged since.
+  //
+  // Rows timestamped BEFORE a product's baseline are skipped: the units they
+  // describe are already standing on the floor and were counted in the piles,
+  // so adding them again would double-count the same physical tubes.
+  var baseline = wipBaselineMap();
   var completed = {};
   readObjects(TAB.stagelog).forEach(function (r) {
     var pid = r.ProductID, st = r.Stage;
+    if (!pid || !st) return;
+    var base = baseline[pid];
+    if (base && r.Timestamp) {
+      var t = new Date(r.Timestamp).getTime();
+      if (!isNaN(t) && t <= base.at.getTime()) return;
+    }
     completed[pid] = completed[pid] || {};
     completed[pid][st] = (completed[pid][st] || 0) + (Number(r.Qty) || 0);
   });
-  function done(pid, stage) { return (completed[pid] || {})[stage] || 0; }
+  function done(pid, stage) {
+    var opening = (baseline[pid] && baseline[pid].completed[stage]) || 0;
+    return opening + ((completed[pid] || {})[stage] || 0);
+  }
   function target(pid, stage) { return (targets[pid] || {})[stage] || 0; }
 
   var products = readObjects(TAB.products)
@@ -1096,8 +1259,10 @@ function computeOverview() {
                target: want, suggest: suggest, starved: starved };
     });
 
+    var base = baseline[pid];
     return { productId: pid, name: pr.ProductName, feedsFrom: feeder || null,
-             finished: done(pid, stages[stages.length - 1]), stages: rows };
+             finished: done(pid, stages[stages.length - 1]), stages: rows,
+             baselineAt: base ? fmtDate(base.at) : null };
   });
 }
 

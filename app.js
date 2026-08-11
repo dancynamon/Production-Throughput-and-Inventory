@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.3.0';
+  var APP_VERSION = '2.4.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -68,7 +68,10 @@
       fillSelect(el('employee'), emp, 'Select your name');
       fillSelect(el('recvEmployee'), emp, 'Select your name');
       fillSelect(el('countEmployee'), emp, 'Select your name');
-      fillSelect(el('product'), data.products.map(function (p) { return { value: p.id, label: p.name }; }), 'Select a product');
+      fillSelect(el('wipEmployee'), emp, 'Select your name');
+      var prodOpts = data.products.map(function (p) { return { value: p.id, label: p.name }; });
+      fillSelect(el('product'), prodOpts, 'Select a product');
+      fillSelect(el('wipProduct'), prodOpts, 'Select a product');
       fillSelect(el('recvMaterial'), (data.materials || []).map(function (m) {
         return { value: m.id, label: m.name + (m.unit ? ' (' + m.unit + ')' : '') };
       }), 'Select a material');
@@ -241,7 +244,10 @@
         html += '<div class="ov-card"><div class="ov-card__head">' + escapeHtml(pr.name)
              + '<span class="ov-card__meta">'
              + (pr.feedsFrom ? 'from ' + escapeHtml(pr.feedsFrom) + ' · ' : '')
-             + 'finished ' + pr.finished + '</span></div>'
+             + 'finished ' + pr.finished
+             + (pr.baselineAt ? ' · WIP base ' + escapeHtml(pr.baselineAt)
+                              : ' · <b>no WIP baseline</b>')
+             + '</span></div>'
              + '<table class="ov-table"><thead><tr><th>Stage</th><th>Done</th><th>WIP</th><th>Target</th><th>Next day</th></tr></thead><tbody>';
         pr.stages.forEach(function (s) {
           html += '<tr' + (s.starved ? ' class="ov-starved"' : '') + '><td>' + escapeHtml(s.stage) + '</td>'
@@ -363,6 +369,7 @@
     el('screen-' + name).classList.add('screen--active');
     if (name === 'overview') loadOverview();
     if (name === 'count') loadCountSheet();
+    if (name === 'wip') buildWipRows();
     if (name === 'day') loadToday();
   }
   document.querySelectorAll('.tab').forEach(function (tab) {
@@ -452,6 +459,63 @@
       })
       .catch(function (err) { toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Record Count'; });
+  });
+
+
+  /* ---- WIP: opening work-in-progress baseline ---------------------------- */
+  /* The first stage of a line is deliberately absent. On a variant line its
+   * input is the shared blank pool, which the backend already derives from the
+   * feeder; on a Blank line it is raw foam, which isn't tracked as WIP. */
+  function buildWipRows() {
+    var wrap = el('wipRows'), pid = el('wipProduct').value;
+    if (!pid) { wrap.innerHTML = '<div class="muted">Pick a product.</div>'; return; }
+    var stages = LINES[PLINE[pid]] || [];
+    if (stages.length < 2) {
+      wrap.innerHTML = '<div class="muted">This line has too few stages to hold WIP between stations.</div>';
+      return;
+    }
+    var rows = stages.slice(1).map(function (s) {
+      return { key: s, label: 'Waiting for ' + s };
+    });
+    rows.push({ key: '(finished)', label: 'Finished, past ' + stages[stages.length - 1] });
+    wrap.innerHTML = '<p class="section-label">How many are sitting at each point right now?</p>'
+      + rows.map(function (r) {
+          return '<label class="stage-row"><span class="stage-row__name">' + escapeHtml(r.label) + '</span>'
+               + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
+               + 'data-pile="' + escapeHtml(r.key) + '" value="0"></label>';
+        }).join('');
+  }
+  el('wipProduct').addEventListener('change', buildWipRows);
+
+  el('wipForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!el('wipEmployee').value) { toast('Pick who you are'); return; }
+    if (!el('wipProduct').value)  { toast('Pick a product'); return; }
+    var piles = {};
+    document.querySelectorAll('#wipRows [data-pile]').forEach(function (inp) {
+      var v = Number(inp.value);
+      piles[inp.getAttribute('data-pile')] = (isNaN(v) || v < 0) ? 0 : v;
+    });
+    var btn = el('wipBtn'); btn.disabled = true; btn.textContent = 'Recording…';
+    api({ action: 'wipBaseline', employee: el('wipEmployee').value,
+          productId: el('wipProduct').value, piles: JSON.stringify(piles),
+          notes: el('wipNotes').value }, 30000)
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Could not record WIP');
+        var box = el('wipResult');
+        box.innerHTML = '<div class="result__head">' + escapeHtml(d.message) + '</div>'
+          + '<ul class="result__list">' + Object.keys(d.completed || {}).map(function (st) {
+              return '<li><span>' + escapeHtml(st) + '</span>'
+                   + '<span class="result__num">' + fmt(d.completed[st]) + ' through</span></li>';
+            }).join('') + '</ul>'
+          + '<div class="result__note">These are the cumulative totals the pipeline '
+          + 'now starts from. Anything logged before this moment is superseded, so '
+          + 'the same units are not counted twice.</div>';
+        box.hidden = false;
+        toast('Opening WIP recorded');
+      })
+      .catch(function (err) { toast('⚠ ' + err.message); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Record Opening WIP'; });
   });
 
   /* ---- Utils ------------------------------------------------------------- */

@@ -27,6 +27,7 @@
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
   <button class="tab" data-screen="count" data-mgr="1">Count</button>
+  <button class="tab" data-screen="wip" data-mgr="1">WIP</button>
 </nav>
 
 <main>
@@ -86,6 +87,22 @@
       <button type="submit" id="countBtn" class="btn-primary">Record Count</button>
     </form>
     <div id="countResult" class="result" hidden></div>
+  </section>
+
+  <!-- ============ WIP (opening work-in-progress baseline) ============ -->
+  <section id="screen-wip" class="screen">
+    <p class="stock-hint">One-time count per product, to tell the app what was
+      already mid-pipeline before tracking started. Walk the floor and count the
+      pile <b>waiting</b> at each station, plus anything finished but not shipped.
+      Zero is a real answer — leave it at 0 if the station is clear.</p>
+    <form id="wipForm" autocomplete="off">
+      <label class="field"><span>Who are you?</span><select id="wipEmployee" required></select></label>
+      <label class="field"><span>Product</span><select id="wipProduct" required></select></label>
+      <label class="field"><span>Notes (optional)</span><input id="wipNotes" type="text" placeholder="Monday morning walk…"></label>
+      <div id="wipRows"><div class="muted">Pick a product.</div></div>
+      <button type="submit" id="wipBtn" class="btn-primary">Record Opening WIP</button>
+    </form>
+    <div id="wipResult" class="result" hidden></div>
   </section>
 </main>
 

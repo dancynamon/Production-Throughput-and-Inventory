@@ -5,7 +5,7 @@
 /* Bump this whenever any file in SHELL changes, and keep the number in step
  * with APP_VERSION in app.js — otherwise installed phones keep serving the old
  * shell and the footer version is how you'd find out. */
-var CACHE = 'aquamentor-prod-v13';
+var CACHE = 'aquamentor-prod-v14';
 var SHELL = [
   './',
   './index.html',

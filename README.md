@@ -352,6 +352,54 @@ The arithmetic — variance sign, partial counts, re-baselining — is pinned by
 > creates `CountLog` — no existing cell is touched, so it needs no confirmation
 > and is safe to run twice.
 
+## Opening work-in-progress
+
+The chain math — `waiting = completed(previous stage) − completed(this one)` —
+assumes the floor was **empty** the day tracking started. It never is.
+
+Aquamentor's first week showed 151 tubes getting straps when 85 had been meshed
+and none patched. Not sloppy logging: those tubes were already mid-pipeline
+before anyone opened the app. Uncorrected, every WIP figure is wrong, every
+"upstream short" flag is noise, and any lead time built on them is confidently
+wrong.
+
+The **WIP** screen (manager-gated) fixes it with a one-time count per product.
+It asks only what is physically countable — the pile standing at each station:
+
+```
+Waiting for Paint 1                        [ 40 ]
+Waiting for Paint 2                        [ 25 ]
+Waiting for Printed                        [ 10 ]
+Waiting for Straps Attached                [  5 ]
+Waiting for Boxed                          [  0 ]
+Finished, past Boxed                       [  8 ]
+```
+
+Cumulative completions are then derived by walking the line **backwards** from
+finished goods:
+
+```
+completed(last) = finished on hand
+completed(i)    = completed(i+1) + pile waiting at stage i+1
+```
+
+so the counts above give `Patched 88 · Paint 1 48 · Paint 2 23 · Printed 13 ·
+Straps 8 · Boxed 8`. Nobody has to know how many units ever passed a station —
+only what is standing in front of it.
+
+**Zero is a real answer.** An empty station means 0, not blank.
+
+**The first stage isn't asked for.** On a variant line its input is the shared
+blank pool, which the Overview already derives from the feeder; on a Blank line
+it's raw foam, which isn't tracked as WIP.
+
+Rows logged **before** a baseline are ignored — those units are already standing
+in the piles that were counted, so including them would count the same tube
+twice. Re-running a count for a product supersedes the previous one entirely.
+
+The Overview marks any product still lacking one as **no WIP baseline**, and
+`apps-script/test-wip.js` pins both the backward walk and the double-count guard.
+
 ## How much, how fast — and the dashboard feed
 
 ### Hours
