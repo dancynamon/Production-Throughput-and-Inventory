@@ -15,6 +15,14 @@
  *
  *  Run setup() once (Extensions > Apps Script > Run) to build every tab.
  *  See README.md for click-by-click deployment.
+ *
+ *  ---------------------------------------------------------------------------
+ *  BUILD:  2026-08-11 17:54 UTC      version 2.4.1
+ *  ---------------------------------------------------------------------------
+ *  Stamped on every change so you can tell at a glance which paste is sitting
+ *  in the editor. Compare against the BUILD line on GitHub before wondering
+ *  whether an edit landed. Also reported by whatAmIRunning() and returned to
+ *  the app, which shows it in the footer.
  * ========================================================================== */
 
 var TAB = {
@@ -107,7 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.4.0';
+var BACKEND_VERSION = '2.4.1';
+
+// Matches the BUILD line in the header comment above. Version numbers say what
+// changed; this says WHEN this exact text was generated, which is the faster
+// answer to "did my paste actually take?".
+var BUILD_STAMP = '2026-08-11 17:54 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -492,6 +505,8 @@ function whatAmIRunning() {
 
   say('Backend version', typeof BACKEND_VERSION === 'undefined'
     ? '(undefined — this editor has pre-1.1.0 code)' : BACKEND_VERSION);
+  say('Build stamp', typeof BUILD_STAMP === 'undefined'
+    ? '(undefined — this editor has pre-2.4.1 code)' : BUILD_STAMP);
   say('Lines defined in code', typeof LINES === 'undefined'
     ? '(undefined)' : Object.keys(LINES).join(', '));
   say('migrateToVariantLines', typeof migrateToVariantLines === 'function' ? 'present' : 'MISSING');
@@ -669,7 +684,8 @@ function getConfig() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   return { ok: true, products: products, employees: employees, materials: materials,
            lines: lines, stages: stageNames(),
-           backendVersion: BACKEND_VERSION, sheetName: ss.getName(), sheetId: ss.getId() };
+           backendVersion: BACKEND_VERSION, buildStamp: BUILD_STAMP,
+           sheetName: ss.getName(), sheetId: ss.getId() };
 }
 
 function getStock() {

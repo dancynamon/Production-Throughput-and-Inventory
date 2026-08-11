@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.4.0';
+  var APP_VERSION = '2.4.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -60,6 +60,7 @@
       buildFacts.backend = data.backendVersion || null;
       buildFacts.sheet   = data.sheetName || null;
       buildFacts.sheetId = data.sheetId || null;
+      buildFacts.buildStamp = data.buildStamp || null;
       renderBuildInfo();
       LINES = data.lines || {};
       PLINE = {};
@@ -86,7 +87,7 @@
    * Apps Script deployment it talks to, and which spreadsheet that deployment
    * is bound to. `backend`, `sheet` and `sheetId` arrive from ?action=config,
    * so they stay blank until the Apps Script side is redeployed. */
-  var buildFacts = { backend: null, sheet: null, sheetId: null };
+  var buildFacts = { backend: null, sheet: null, sheetId: null, buildStamp: null };
 
   function apiLabel() {
     if (!API) return 'not set';
@@ -107,6 +108,7 @@
     var rows = [
       ['App version',     APP_VERSION],
       ['Backend version', buildFacts.backend || 'not reported — redeploy Apps Script'],
+      ['Backend built',    buildFacts.buildStamp || 'not reported'],
       ['Sheet',           buildFacts.sheet   || '—'],
       ['Sheet ID',        buildFacts.sheetId || '—'],
       ['API',             apiLabel()],
@@ -115,7 +117,7 @@
     ];
     el('buildDetails').innerHTML = rows.map(function (r, i) {
       return '<div class="buildinfo__row"><span>' + escapeHtml(r[0]) + '</span>'
-           + '<code' + (i === 5 ? ' id="buildCache"' : '') + '>' + escapeHtml(r[1]) + '</code></div>';
+           + '<code' + (r[0] === 'Cached shell' ? ' id="buildCache"' : '') + '>' + escapeHtml(r[1]) + '</code></div>';
     }).join('');
 
     var cacheCell = el('buildCache');
