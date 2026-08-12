@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-11 17:54 UTC      version 2.4.1
+ *  BUILD:  2026-08-12 18:30 UTC      version 2.5.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.4.1';
+var BACKEND_VERSION = '2.5.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-11 17:54 UTC';
+var BUILD_STAMP = '2026-08-12 18:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -159,6 +159,11 @@ var LINES = {
   ],
   Shape: [ ['CNC', 0, 0], ['Clean', 0, 0], ['Box', 0, 0] ],
   Chair: [ ['Cut', 0, 0], ['Assemble', 0, 0], ['Box', 0, 0] ],
+
+  // Shoulder strap with 6' tow line. A SUB-ASSEMBLY: it is made at its own
+  // station from webbing and hardware, then consumed whole by a tube at
+  // "Straps Attached". One station, because that is what it is.
+  Strap: [ ['Made', 0, 0] ],
 
   // DEPRECATED, and deliberately still here. This is the pre-split single tube
   // line. Removing it meant that deploying this file against a sheet that had
@@ -207,44 +212,52 @@ function productFeedMap() {
 // box counts do not scale with length, so they are not in this table.
 var TUBE_SIZES = [
   { blank: 'BLANK50', exo: 'XRT50EXO', std: 'XRT50STD', label: '50"',
+    strap: 'STRAP50', strapMat: 'M044',
     foam: 0.1333, adhesive: 0.1522, mesh: 0.004,  paint: 0.0769,
     web1red: 1.78,  web1blk: 2.44,  web2blk: 1.58 },
   // 40" is length-scaled ×0.8 on foam / adhesive / paint / webbing.
   // Mesh is ~310 tubes per box rather than ~250.
   { blank: 'BLANK40', exo: 'XRT40EXO', std: 'XRT40STD', label: '40"',
+    strap: 'STRAP40', strapMat: 'M045',
     foam: 0.1067, adhesive: 0.1218, mesh: 0.0032, paint: 0.0615,
     web1red: 1.424, web1blk: 1.952, web2blk: 1.264 }
 ];
 
-var PRODUCT_HEADERS = ['ProductID', 'ProductName', 'Line', 'Unit', 'Active', 'FeedsFrom'];
+// OutputMaterial: finishing this product's LAST stage ADDS to that material's
+// on-hand. It is what makes a sub-assembly work — the strap line produces
+// stock, the tube line consumes it. FeedsFrom's mirror image.
+var PRODUCT_HEADERS = ['ProductID', 'ProductName', 'Line', 'Unit', 'Active',
+                       'FeedsFrom', 'OutputMaterial'];
 
 var PRODUCT_ROWS = (function () {
   var rows = [];
   TUBE_SIZES.forEach(function (s) {
-    rows.push([s.blank, s.label + ' Blank (uncommitted)',   'Blank',   'each', 'YES', '']);
+    rows.push([s.blank, s.label + ' Blank (uncommitted)',   'Blank',   'each', 'YES', '', '']);
     rows.push([s.exo,   'XRT-' + s.label.replace('"', '') + ' Exotube (meshed)',
-                                                            'TubeExo', 'each', 'YES', s.blank]);
+                                                            'TubeExo', 'each', 'YES', s.blank, '']);
     rows.push([s.std,   'XRT-' + s.label.replace('"', '') + ' Standard (unmeshed)',
-                                                            'TubeStd', 'each', 'YES', s.blank]);
+                                                            'TubeStd', 'each', 'YES', s.blank, '']);
+    rows.push([s.strap, 'Shoulder Strap w/ 6\' Tow Line (' + s.label + ')',
+                                                            'Strap',   'each', 'YES', '', s.strapMat]);
   });
   return rows.concat([
     // Foam-mat shapes (size buckets) — CNC → Clean → Box, foam by area
-    ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES', ''],
-    ['SHP24',   'Shape 24x24',        'Shape', 'each', 'YES', ''],
-    ['SHP36',   'Shape 36x36',        'Shape', 'each', 'YES', ''],
-    ['SHP4824', 'Shape 48x24',        'Shape', 'each', 'YES', ''],
-    ['SHP48',   'Shape 48x48',        'Shape', 'each', 'YES', ''],
-    ['SHP7236', 'Shape 72x36',        'Shape', 'each', 'YES', ''],
+    ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES', '', ''],
+    ['SHP24',   'Shape 24x24',        'Shape', 'each', 'YES', '', ''],
+    ['SHP36',   'Shape 36x36',        'Shape', 'each', 'YES', '', ''],
+    ['SHP4824', 'Shape 48x24',        'Shape', 'each', 'YES', '', ''],
+    ['SHP48',   'Shape 48x48',        'Shape', 'each', 'YES', '', ''],
+    ['SHP7236', 'Shape 72x36',        'Shape', 'each', 'YES', '', ''],
     // Kickboards
-    ['KB914',   'Kickboard 9x14',     'Shape', 'each', 'YES', ''],
-    ['KB1116',  'Kickboard 11x16.5',  'Shape', 'each', 'YES', ''],
-    ['KB1220',  'Kickboard 11.8x20',  'Shape', 'each', 'YES', ''],
+    ['KB914',   'Kickboard 9x14',     'Shape', 'each', 'YES', '', ''],
+    ['KB1116',  'Kickboard 11x16.5',  'Shape', 'each', 'YES', '', ''],
+    ['KB1220',  'Kickboard 11.8x20',  'Shape', 'each', 'YES', '', ''],
     // Lifeguard chairs — Cut → Assemble → Box; lumber + hardware
-    ['LGC30',   'Lifeguard Chair 30"','Chair', 'each', 'YES', ''],
-    ['LGC40',   'Lifeguard Chair 40"','Chair', 'each', 'YES', ''],
-    ['LGC50',   'Lifeguard Chair 50"','Chair', 'each', 'YES', ''],
-    ['LGC60',   'Lifeguard Chair 60"','Chair', 'each', 'YES', ''],
-    ['LGC72',   'Lifeguard Chair 72"','Chair', 'each', 'YES', '']
+    ['LGC30',   'Lifeguard Chair 30"','Chair', 'each', 'YES', '', ''],
+    ['LGC40',   'Lifeguard Chair 40"','Chair', 'each', 'YES', '', ''],
+    ['LGC50',   'Lifeguard Chair 50"','Chair', 'each', 'YES', '', ''],
+    ['LGC60',   'Lifeguard Chair 60"','Chair', 'each', 'YES', '', ''],
+    ['LGC72',   'Lifeguard Chair 72"','Chair', 'each', 'YES', '', '']
   ]);
 })();
 
@@ -259,6 +272,25 @@ function tubeBomRows() {
     rows.push([s.blank, 'Cut',   'M034', s.foam]);
     rows.push([s.blank, 'Glued', 'M035', s.adhesive]);
 
+    /* The strap's own recipe. These are the exact quantities that previously
+     * came off at the tube's "Straps Attached", moved wholesale rather than
+     * split — so consumption per FINISHED TUBE is unchanged to the decimal and
+     * no inventory shifts. What is approximate is only which station gets
+     * charged: if some of this webbing is really wrapped around the tube
+     * rather than part of the shoulder strap, move those rows back onto the
+     * tube. Doing so has zero effect on stock levels.
+     *
+     * Split by size for the same reason — the existing quantities differ by
+     * size. If the shoulder strap is genuinely identical for a 50" and a 40",
+     * give me the real per-strap numbers and these collapse to one SKU. */
+    rows.push(
+      [s.strap, 'Made', 'M014', s.web1red],
+      [s.strap, 'Made', 'M015', s.web1blk],
+      [s.strap, 'Made', 'M019', s.web2blk],
+      [s.strap, 'Made', 'M023', 1],
+      [s.strap, 'Made', 'M024', 1]
+    );
+
     [s.exo, s.std].forEach(function (pid) {
       if (pid === s.exo) rows.push([pid, 'Meshed', 'M002', s.mesh]);  // boxes
       rows.push(
@@ -268,11 +300,9 @@ function tubeBomRows() {
         [pid, 'Paint 1',         'M036', s.paint],
         [pid, 'Paint 2',         'M036', s.paint],
         [pid, 'Printed',         'M037', 0.007],      // ink — ESTIMATE
-        [pid, 'Straps Attached', 'M014', s.web1red],
-        [pid, 'Straps Attached', 'M015', s.web1blk],
-        [pid, 'Straps Attached', 'M019', s.web2blk],
-        [pid, 'Straps Attached', 'M023', 1],
-        [pid, 'Straps Attached', 'M024', 1],
+        // One finished strap, not raw webbing. The webbing and hardware now
+        // come off stock at the Strap station instead.
+        [pid, 'Straps Attached', s.strapMat, 1],
         [pid, 'Boxed',           'M031', 0.002],
         [pid, 'Boxed',           'M033', 0.0833]
       );
@@ -419,7 +449,11 @@ function setup() {
       ['M041', 'Lumber 2x4 (1.5x3.5x96)',  'boards',        '',   60,   '', 'Chair Lumber',     'Count needed'],
       ['M042', 'Lumber 1x6 (.75x5.5x97)',  'boards',        '',   20,   '', 'Chair Lumber',     'Count needed'],
       // ---- Lifeguard chair hardware ----
-      ['M043', 'Chair Hardware Kit',       'kits',          '',   20,   '', 'Chair Hardware',   '1 kit per chair (bolts/nuts/washers/screws). Itemize later if wanted.']
+      ['M043', 'Chair Hardware Kit',       'kits',          '',   20,   '', 'Chair Hardware',   '1 kit per chair (bolts/nuts/washers/screws). Itemize later if wanted.'],
+      // Sub-assemblies. Produced by the Strap line (Products.OutputMaterial),
+      // consumed by the tube lines at "Straps Attached".
+      ['M044', 'Shoulder Strap w/ 6\' Tow Line (50")', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per 50" tube'],
+      ['M045', 'Shoulder Strap w/ 6\' Tow Line (40")', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per 40" tube'],
     ]);
   setColumnFormula(ss, TAB.materials, 6 /*F*/,
     '=IF(D{r}="","",IF(D{r}<=E{r},"⚠ REORDER","OK"))');
@@ -568,6 +602,7 @@ function upgradeSchema() {
     did.push('added ' + missing.join(', ') + ' to ' + tabName);
   }
 
+  addColumns(TAB.products, ['OutputMaterial']);
   addColumns(TAB.materials, COUNT_COLUMNS);
   addColumns(TAB.stagelog, ['Hours']);
 
@@ -611,7 +646,8 @@ function migrateToVariantLines() {
       + 'layout:\n\n'
       + '   BLANK50 / BLANK40      Cut → Glued\n'
       + '   XRT50EXO / XRT40EXO    Meshed → Patched → … → Boxed\n'
-      + '   XRT50STD / XRT40STD    Patched → … → Boxed\n\n'
+      + '   XRT50STD / XRT40STD    Patched → … → Boxed\n'
+      + '   STRAP50 / STRAP40      Made  (sub-assembly, 1 per tube)\n\n'
       + 'Planning also changes shape: one row per product AND STAGE, so targets '
       + 'are set per stage.\n\n'
       + 'RawMaterials (your on-hand counts), Employees, StageLog and ReceivingLog '
@@ -769,7 +805,7 @@ function submitDay(p) {
     var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId; });
 
     var logSheet = ss.getSheetByName(TAB.stagelog);
-    var logged = [], consumed = {}, warnings = [], now = new Date();
+    var logged = [], consumed = {}, warnings = [], produced = [], now = new Date();
 
     valid.forEach(function (stage) {
       var qty = Number(counts[stage]) || 0;
@@ -782,6 +818,20 @@ function submitDay(p) {
         Stage: stage, Qty: qty, Hours: hrs, Notes: notes
       });
       logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs });
+
+      // A sub-assembly's LAST stage PRODUCES stock. Without this the strap
+      // line would consume webbing and create nothing, while the tube line
+      // consumed straps that never existed.
+      if (stage === valid[valid.length - 1] && product.OutputMaterial) {
+        var outRi = rowOf[String(product.OutputMaterial).trim()];
+        if (outRi !== undefined) {
+          var made = round2((Number(matRows[outRi][3]) || 0) + qty);
+          matRows[outRi][3] = made;
+          matSheet.getRange(outRi + 1, 4).setValue(made);
+          produced.push({ id: matRows[outRi][0], name: matRows[outRi][1],
+                          unit: matRows[outRi][2], added: qty, onHand: made });
+        }
+      }
 
       bom.filter(function (r) { return r.Stage === stage; }).forEach(function (r) {
         var ri = rowOf[r.MaterialID];
@@ -809,6 +859,7 @@ function submitDay(p) {
       consumed: Object.keys(consumed).map(function (k) {
         return { name: consumed[k].name, used: consumed[k].used, onHand: consumed[k].onHand, unit: consumed[k].unit };
       }),
+      produced: produced,
       warnings: warnings
     };
   } finally {
