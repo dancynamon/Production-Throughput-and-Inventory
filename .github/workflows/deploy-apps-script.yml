@@ -92,6 +92,35 @@ jobs:
           printf '{"scriptId":"%s","rootDir":"apps-script"}' \
             '${{ secrets.APPS_SCRIPT_ID }}' > .clasp.json
 
+      # clasp reports a bare "Unexpected non-whitespace character after JSON at
+      # position N", which says nothing about which file or how to fix it. The
+      # usual cause is copying from Terminal and catching the shell prompt on
+      # the end of the paste. Deliberately reports only shape — length, brace
+      # balance, final character — and never any content, since a fragment of a
+      # credential file is still a credential.
+      - name: Validate the credentials before using them
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          node -e '
+            const fs = require("fs");
+            const path = process.env.HOME + "/.clasprc.json";
+            const raw = fs.readFileSync(path, "utf8");
+            try {
+              JSON.parse(raw);
+              console.log(`clasprc.json parses cleanly (${raw.length} chars)`);
+            } catch (e) {
+              const t = raw.trimEnd();
+              console.log(`::error::CLASP_CREDENTIALS is not valid JSON — ${e.message}`);
+              console.log(`length ${raw.length}, opens ${(raw.match(/{/g)||[]).length}, closes ${(raw.match(/}/g)||[]).length}`);
+              console.log(`last character is ${JSON.stringify(t.slice(-1))} — it should be "}"`);
+              console.log("");
+              console.log("Almost always the shell prompt copied along with the output.");
+              console.log("On macOS re-copy it without touching the terminal selection:");
+              console.log("    cat ~/.clasprc.json | pbcopy");
+              console.log("then paste straight into the CLASP_CREDENTIALS secret.");
+              process.exit(1);
+            }'
+
       - name: Push and deploy
         if: steps.gate.outputs.configured == 'true'
         env:
