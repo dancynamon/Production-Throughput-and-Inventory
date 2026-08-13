@@ -43,7 +43,14 @@ There is no GitHub↔Apps Script sync (no clasp). Copy-paste is the only bridge.
    https://raw.githubusercontent.com/dancynamon/Production-Throughput-and-Inventory/main/apps-script/Code.gs
    → **Save** (wait for the dot on the file tab to clear)
 2. Run **`upgradeSchema`** from the ▶ Run dropdown if any column was added
+2b. `upgradeSchema` also self-applies on the first app request after a deploy
+   (guarded on `BUILD_STAMP` in script properties), so forgetting it is no
+   longer fatal — but running it by hand makes the change visible immediately
 3. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**
+
+`.github/workflows/deploy-apps-script.yml` automates 1 and 3 via clasp once
+three repo secrets exist (`CLASP_CREDENTIALS`, `APPS_SCRIPT_ID`,
+`APPS_SCRIPT_DEPLOYMENT_ID`). It skips green while unconfigured.
 
 Step 3 is the one that gets skipped. Saving never changes what the web app
 serves — only a new version does. **Never "New deployment"**: it mints a new

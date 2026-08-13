@@ -1,0 +1,3 @@
+# clasp writes these when the workflow runs; they are generated, never committed
+.clasp.json
+.clasprc.json

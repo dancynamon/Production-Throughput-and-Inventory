@@ -1,0 +1,84 @@
+# Push Code.gs into the bound Apps Script project and cut a new web-app
+# version, so the backend ships on a push to main exactly like the front end
+# already does on Cloudflare.
+#
+# INERT UNTIL CONFIGURED. Without the secrets below it skips with a green tick
+# rather than failing — an always-red workflow is worse than no workflow.
+#
+# One-time setup (about ten minutes, on your own machine):
+#
+#   1. Turn on the Apps Script API:  https://script.google.com/home/usersettings
+#   2. npm i -g @google/clasp && clasp login
+#   3. cat ~/.clasprc.json          -> repo secret  CLASP_CREDENTIALS
+#   4. Open the Apps Script editor -> Project Settings -> copy the Script ID
+#                                   -> repo secret  APPS_SCRIPT_ID
+#   5. Deployment ID from Deploy > Manage deployments (starts AKfycb…)
+#                                   -> repo secret  APPS_SCRIPT_DEPLOYMENT_ID
+#
+# Step 5 matters: passing the EXISTING deployment id updates that deployment in
+# place. Omitting it mints a brand-new URL and leaves config.js pointing at the
+# old one — the exact failure that cost several rounds of debugging by hand.
+
+name: Deploy Apps Script
+
+on:
+  push:
+    branches: [main]
+    paths: ['apps-script/Code.gs']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check whether this repo is configured for clasp
+        id: gate
+        env:
+          CREDS: ${{ secrets.CLASP_CREDENTIALS }}
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: |
+          if [ -z "$CREDS" ] || [ -z "$SCRIPT_ID" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Secrets not set — skipping. See the header of this file for setup."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.configured == 'true'
+        with:
+          node-version: '20'
+
+      - name: Run the test suite before touching production
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          for t in overview count metrics wip strap today; do
+            echo "--- test-$t ---"
+            node "apps-script/test-$t.js"
+          done
+
+      - name: Install clasp and authenticate
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          npm install -g @google/clasp
+          printf '%s' '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
+          printf '{"scriptId":"%s","rootDir":"apps-script"}' \
+            '${{ secrets.APPS_SCRIPT_ID }}' > .clasp.json
+
+      - name: Push and deploy
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
+        run: |
+          clasp push --force
+          STAMP=$(grep -m1 -oP "BUILD:\s+\K[0-9-]+ [0-9:]+ UTC" apps-script/Code.gs || echo "manual")
+          if [ -n "$DEPLOYMENT_ID" ]; then
+            # Update the EXISTING deployment. Creating a new one would mint a
+            # fresh /exec URL that config.js does not point at.
+            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$STAMP"
+          else
+            echo "::warning::APPS_SCRIPT_DEPLOYMENT_ID not set — pushed the code but did NOT deploy it."
+            echo "::warning::The web app keeps serving the previous version until you deploy by hand."
+          fi

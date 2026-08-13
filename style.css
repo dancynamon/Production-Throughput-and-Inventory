@@ -246,3 +246,11 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
   border-bottom:2px solid var(--gold); padding-bottom:4px;
 }
 .ov-family:first-child{ margin-top:4px }
+
+/* ---- Duplicate-entry notice --------------------------------------------- */
+.result__dup{
+  margin:10px 14px; padding:10px 12px; font-size:13px;
+  background:#fff6e5; border:1px solid var(--gold); border-radius:var(--radius);
+  color:var(--ink);
+}
+.result__dup ul{ margin:6px 0; padding-left:18px }

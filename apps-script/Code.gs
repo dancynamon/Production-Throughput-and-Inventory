@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-13 19:17 UTC      version 2.7.1
+ *  BUILD:  2026-08-13 19:24 UTC      version 2.8.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.7.1';
+var BACKEND_VERSION = '2.8.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-13 19:17 UTC';
+var BUILD_STAMP = '2026-08-13 19:24 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -560,6 +560,11 @@ function whatAmIRunning() {
     ? '(undefined — this editor has pre-1.1.0 code)' : BACKEND_VERSION);
   say('Build stamp', typeof BUILD_STAMP === 'undefined'
     ? '(undefined — this editor has pre-2.4.1 code)' : BUILD_STAMP);
+  try {
+    var seen = PropertiesService.getScriptProperties().getProperty('schemaStamp');
+    say('Schema applied for', seen === BUILD_STAMP ? seen + '  (current)'
+        : (seen || '(never)') + '  — will self-apply on the next app request');
+  } catch (e2) { say('Schema applied for', '(unreadable)'); }
   say('Lines defined in code', typeof LINES === 'undefined'
     ? '(undefined)' : Object.keys(LINES).join(', '));
   say('migrateToVariantLines', typeof migrateToVariantLines === 'function' ? 'present' : 'MISSING');
@@ -602,6 +607,18 @@ function whatAmIRunning() {
  * as many times as you like. Run it after any update that mentions a new
  * column; if there is nothing to do it says so. */
 function upgradeSchema() {
+  var did = applySchemaUpgrades();
+  SpreadsheetApp.getActive().toast(
+    did.length ? did.join('; ') + '. No existing values were changed.'
+               : 'Already up to date — nothing to do.',
+    'Aquamentor', 8);
+}
+
+/* The upgrade itself, with no UI, so it can also run unattended from doGet.
+ * Every operation is additive and idempotent — a missing column is appended,
+ * a missing tab created, and anything already present is left alone — so
+ * running it twice, or concurrently, changes nothing. */
+function applySchemaUpgrades() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var did = [];
 
@@ -700,7 +717,31 @@ function migrateToVariantLines() {
  *    ?action=receive&employee&materialId&qty&notes
  *    ?action=submitDay&workDate&employee&productId&counts={"Cut":40,...}&notes
  * ========================================================================== */
+/* Apply pending schema upgrades once per deployed build.
+ *
+ * "Paste, Save, run upgradeSchema, Deploy" is four steps and the middle one is
+ * the easiest to forget — and forgetting it makes the app fail in a way that
+ * looks like a code bug rather than a missing column. The upgrade is additive
+ * and idempotent, so there is no reason a person has to trigger it.
+ *
+ * Guarded on BUILD_STAMP in script properties, so it runs on the first request
+ * after a deploy and is a single property read on every request after that.
+ * Wrapped so a failure here can never take down a request that would otherwise
+ * have worked — a missing column degrades one feature, an exception loses the
+ * whole call. */
+function ensureSchemaCurrent() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (props.getProperty('schemaStamp') === BUILD_STAMP) return;
+    applySchemaUpgrades();
+    props.setProperty('schemaStamp', BUILD_STAMP);
+  } catch (err) {
+    // Deliberately swallowed. Surfaced via whatAmIRunning() instead.
+  }
+}
+
 function doGet(e) {
+  ensureSchemaCurrent();
   var p = e && e.parameter ? e.parameter : {};
   var action = p.action || 'config';
   var result;
@@ -838,11 +879,35 @@ function submitDay(p) {
     var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId; });
 
     var logSheet = ss.getSheetByName(TAB.stagelog);
-    var logged = [], consumed = {}, warnings = [], produced = [], now = new Date();
+    /* What is already on the books for this product today, so a second entry
+     * for the same stage can be called out. Not blocked — two batches in a day
+     * is normal, and a shift handover legitimately produces two rows — but a
+     * double-tap and a real second batch look identical in the data, and only
+     * the person who just pressed the button can tell them apart. */
+    var priorToday = {};
+    readObjects(TAB.stagelog).forEach(function (r) {
+      if (r.ProductID !== productId || fmtDate(r.WorkDate) !== workDate) return;
+      var k = r.Stage;
+      priorToday[k] = priorToday[k] || { qty: 0, by: [] };
+      priorToday[k].qty += Number(r.Qty) || 0;
+      if (r.Employee && priorToday[k].by.indexOf(r.Employee) === -1) {
+        priorToday[k].by.push(r.Employee);
+      }
+    });
+
+    var logged = [], consumed = {}, warnings = [], produced = [], duplicates = [], now = new Date();
 
     valid.forEach(function (stage) {
       var qty = Number(counts[stage]) || 0;
       if (qty <= 0) return;
+      var prior = priorToday[stage];
+      if (prior && prior.qty > 0) {
+        duplicates.push({
+          stage: stage, priorQty: prior.qty, priorBy: prior.by.join(', '),
+          addedQty: qty, newTotal: round2(prior.qty + qty)
+        });
+      }
+
       var hrs = Number(hours[stage]);
       hrs = (isFinite(hrs) && hrs > 0) ? round2(hrs) : '';
       appendByHeader(logSheet, {
@@ -893,6 +958,7 @@ function submitDay(p) {
         return { name: consumed[k].name, used: consumed[k].used, onHand: consumed[k].onHand, unit: consumed[k].unit };
       }),
       produced: produced,
+      duplicates: duplicates,
       warnings: warnings
     };
   } finally {

@@ -13,10 +13,11 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.7.1';
+  var APP_VERSION = '2.8.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
+  var TODAY = {};    // productId -> {stage: qty} already logged for the picked date
   var PLINE = {};    // productId -> line, from config
 
   /* ---- JSONP ------------------------------------------------------------- */
@@ -228,6 +229,18 @@
       hours: JSON.stringify(hours),
       notes: el('notes').value
     };
+    // A double-tap and a genuine second batch are identical in the data, and
+    // only the person at the phone knows which this is. Ask, don't block.
+    var already = (TODAY[payload.productId] || {});
+    var repeats = Object.keys(counts).filter(function (st) { return already[st] > 0; });
+    if (repeats.length) {
+      var msg = repeats.map(function (st) {
+        return '\u2022 ' + st + ': ' + already[st] + ' already logged, adding ' + counts[st];
+      }).join('\n');
+      if (!window.confirm('Already logged today for this product:\n\n' + msg
+            + '\n\nSubmit anyway? (Cancel if you tapped twice.)')) return;
+    }
+
     if (!payload.workDate)  { toast('Pick the work date'); return; }
     if (!payload.employee)  { toast('Pick who you are'); return; }
     if (!payload.productId) { toast('Pick a product'); return; }
@@ -263,6 +276,17 @@
              + escapeHtml(c.unit) + ' → ' + fmt(c.onHand) + '</span></li>';
       });
       html += '</ul>';
+    }
+    // Backstop for the pre-submit confirm — catches a stale Today's-totals
+    // cache, or two people logging the same stage from different phones.
+    if (data.duplicates && data.duplicates.length) {
+      html += '<div class="result__dup"><b>Already logged today</b><ul>'
+           + data.duplicates.map(function (x) {
+               return '<li>' + escapeHtml(x.stage) + ' — ' + fmt(x.priorQty)
+                    + ' by ' + escapeHtml(x.priorBy || 'someone')
+                    + ', now <b>' + fmt(x.newTotal) + '</b> total</li>';
+             }).join('')
+           + '</ul>If that was a double-tap, delete the extra row in StageLog.</div>';
     }
     if (data.warnings && data.warnings.length) {
       html += '<div class="result__warn">⚠ ' + data.warnings.map(escapeHtml).join('<br>⚠ ') + '</div>';
@@ -379,6 +403,11 @@
                + '<div class="today-chips">' + (chips || '<span class="muted">—</span>') + '</div></div>';
         }).join('');
       }
+      TODAY = {};
+      (d.products || []).forEach(function (pr) {
+        TODAY[pr.productId] = {};
+        (pr.rows || []).forEach(function (r) { TODAY[pr.productId][r.stage] = r.qty; });
+      });
       card.hidden = false;
     }).catch(function () {});
   }
