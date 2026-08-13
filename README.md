@@ -352,6 +352,31 @@ The arithmetic — variance sign, partial counts, re-baselining — is pinned by
 > creates `CountLog` — no existing cell is touched, so it needs no confirmation
 > and is safe to run twice.
 
+## Product families
+
+`Products.Family` groups the picker and the Overview. It is **presentation
+only** — `Line` says how a product is built and `FeedsFrom` says what it draws
+from; nothing computational reads `Family`.
+
+```
+Rescue Tubes       BLANK50 · XRT50EXO · XRT50STD · BLANK40 · XRT40EXO
+                   XRT40STD · STRAP6
+Foam Mats          SHP16 · SHP24 · SHP36 · SHP4824 · SHP48 · SHP7236
+Kickboards         KB914 · KB1116 · KB1220
+Lifeguard Chairs   LGC30 · LGC40 · LGC50 · LGC60 · LGC72
+```
+
+Order comes from `FAMILY_ORDER` in `Code.gs`. A blank or unrecognised family
+falls into **Other** and is appended rather than dropped, so a product added by
+hand still shows up.
+
+The product pickers use native `<optgroup>` headings — phones render those as
+real section headers and screen readers announce them — and the Overview breaks
+its cards under the same headings.
+
+The strap sits under **Rescue Tubes** because that is where someone looks for
+it. Move it to its own family by editing that one cell.
+
 ## Opening work-in-progress
 
 The chain math — `waiting = completed(previous stage) − completed(this one)` —

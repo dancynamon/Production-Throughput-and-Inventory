@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-13 12:01 UTC      version 2.6.0
+ *  BUILD:  2026-08-13 12:30 UTC      version 2.7.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.6.0';
+var BACKEND_VERSION = '2.7.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-13 12:01 UTC';
+var BUILD_STAMP = '2026-08-13 12:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -249,39 +249,47 @@ var STRAP_RECIPE = [
   ['M024', 1]       // 2" tri-glide
 ];
 
+/* Family is presentation only. Line already says how a product is built and
+ * FeedsFrom says what it draws from — those carry the real relationships and
+ * nothing here should depend on Family. It exists so a picker with 22 entries
+ * reads as five short lists instead of one long one. Unknown or blank falls
+ * into "Other" rather than disappearing. */
+var FAMILY_ORDER = ['Rescue Tubes', 'Foam Mats', 'Kickboards',
+                    'Lifeguard Chairs', 'Other'];
+
 var PRODUCT_HEADERS = ['ProductID', 'ProductName', 'Line', 'Unit', 'Active',
-                       'FeedsFrom', 'OutputMaterial'];
+                       'FeedsFrom', 'OutputMaterial', 'Family'];
 
 var PRODUCT_ROWS = (function () {
   var rows = [];
   TUBE_SIZES.forEach(function (s) {
-    rows.push([s.blank, s.label + ' Blank (uncommitted)',   'Blank',   'each', 'YES', '', '']);
+    rows.push([s.blank, s.label + ' Blank (uncommitted)',   'Blank',   'each', 'YES', '', '', 'Rescue Tubes']);
     rows.push([s.exo,   'XRT-' + s.label.replace('"', '') + ' Exotube (meshed)',
-                                                            'TubeExo', 'each', 'YES', s.blank, '']);
+                                                            'TubeExo', 'each', 'YES', s.blank, '', 'Rescue Tubes']);
     rows.push([s.std,   'XRT-' + s.label.replace('"', '') + ' Standard (unmeshed)',
-                                                            'TubeStd', 'each', 'YES', s.blank, '']);
+                                                            'TubeStd', 'each', 'YES', s.blank, '', 'Rescue Tubes']);
   });
   // One strap for every tube size.
   rows.push([STRAP_PRODUCT, 'Shoulder Strap w/ 6\' Tow Line',
-             'Strap', 'each', 'YES', '', STRAP_MATERIAL]);
+             'Strap', 'each', 'YES', '', STRAP_MATERIAL, 'Rescue Tubes']);
   return rows.concat([
     // Foam-mat shapes (size buckets) — CNC → Clean → Box, foam by area
-    ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES', '', ''],
-    ['SHP24',   'Shape 24x24',        'Shape', 'each', 'YES', '', ''],
-    ['SHP36',   'Shape 36x36',        'Shape', 'each', 'YES', '', ''],
-    ['SHP4824', 'Shape 48x24',        'Shape', 'each', 'YES', '', ''],
-    ['SHP48',   'Shape 48x48',        'Shape', 'each', 'YES', '', ''],
-    ['SHP7236', 'Shape 72x36',        'Shape', 'each', 'YES', '', ''],
+    ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES', '', '', 'Foam Mats'],
+    ['SHP24',   'Shape 24x24',        'Shape', 'each', 'YES', '', '', 'Foam Mats'],
+    ['SHP36',   'Shape 36x36',        'Shape', 'each', 'YES', '', '', 'Foam Mats'],
+    ['SHP4824', 'Shape 48x24',        'Shape', 'each', 'YES', '', '', 'Foam Mats'],
+    ['SHP48',   'Shape 48x48',        'Shape', 'each', 'YES', '', '', 'Foam Mats'],
+    ['SHP7236', 'Shape 72x36',        'Shape', 'each', 'YES', '', '', 'Foam Mats'],
     // Kickboards
-    ['KB914',   'Kickboard 9x14',     'Shape', 'each', 'YES', '', ''],
-    ['KB1116',  'Kickboard 11x16.5',  'Shape', 'each', 'YES', '', ''],
-    ['KB1220',  'Kickboard 11.8x20',  'Shape', 'each', 'YES', '', ''],
+    ['KB914',   'Kickboard 9x14',     'Shape', 'each', 'YES', '', '', 'Kickboards'],
+    ['KB1116',  'Kickboard 11x16.5',  'Shape', 'each', 'YES', '', '', 'Kickboards'],
+    ['KB1220',  'Kickboard 11.8x20',  'Shape', 'each', 'YES', '', '', 'Kickboards'],
     // Lifeguard chairs — Cut → Assemble → Box; lumber + hardware
-    ['LGC30',   'Lifeguard Chair 30"','Chair', 'each', 'YES', '', ''],
-    ['LGC40',   'Lifeguard Chair 40"','Chair', 'each', 'YES', '', ''],
-    ['LGC50',   'Lifeguard Chair 50"','Chair', 'each', 'YES', '', ''],
-    ['LGC60',   'Lifeguard Chair 60"','Chair', 'each', 'YES', '', ''],
-    ['LGC72',   'Lifeguard Chair 72"','Chair', 'each', 'YES', '', '']
+    ['LGC30',   'Lifeguard Chair 30"','Chair', 'each', 'YES', '', '', 'Lifeguard Chairs'],
+    ['LGC40',   'Lifeguard Chair 40"','Chair', 'each', 'YES', '', '', 'Lifeguard Chairs'],
+    ['LGC50',   'Lifeguard Chair 50"','Chair', 'each', 'YES', '', '', 'Lifeguard Chairs'],
+    ['LGC60',   'Lifeguard Chair 60"','Chair', 'each', 'YES', '', '', 'Lifeguard Chairs'],
+    ['LGC72',   'Lifeguard Chair 72"','Chair', 'each', 'YES', '', '', 'Lifeguard Chairs']
   ]);
 })();
 
@@ -613,7 +621,7 @@ function upgradeSchema() {
     did.push('added ' + missing.join(', ') + ' to ' + tabName);
   }
 
-  addColumns(TAB.products, ['OutputMaterial']);
+  addColumns(TAB.products, ['OutputMaterial', 'Family']);
   addColumns(TAB.materials, COUNT_COLUMNS);
   addColumns(TAB.stagelog, ['Hours']);
 
@@ -717,7 +725,10 @@ function doGet(e) {
 function getConfig() {
   var products = readObjects(TAB.products)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
-    .map(function (r) { return { id: r.ProductID, name: r.ProductName, line: r.Line || 'Blank' }; });
+    .map(function (r) {
+      return { id: r.ProductID, name: r.ProductName, line: r.Line || 'Blank',
+               family: String(r.Family || '').trim() || 'Other' };
+    });
   var employees = readObjects(TAB.employees)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
     .map(function (r) { return r.Name; });
@@ -730,7 +741,7 @@ function getConfig() {
   // shop floor rather than by reading code.
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   return { ok: true, products: products, employees: employees, materials: materials,
-           lines: lines, stages: stageNames(),
+           lines: lines, stages: stageNames(), familyOrder: FAMILY_ORDER,
            backendVersion: BACKEND_VERSION, buildStamp: BUILD_STAMP,
            sheetName: ss.getName(), sheetId: ss.getId() };
 }
@@ -1212,7 +1223,7 @@ function getMetrics() {
 
   var products = overview.map(function (pr) {
     return {
-      id: pr.productId, name: pr.name, feedsFrom: pr.feedsFrom,
+      id: pr.productId, name: pr.name, feedsFrom: pr.feedsFrom, family: pr.family,
       finished: pr.finished, baselineAt: pr.baselineAt,
       runway: runway[pr.productId] || null,
       stages: pr.stages.map(function (s) {
@@ -1339,6 +1350,7 @@ function computeOverview() {
 
     var base = baseline[pid];
     return { productId: pid, name: pr.ProductName, feedsFrom: feeder || null,
+             family: String(pr.Family || '').trim() || 'Other',
              finished: done(pid, stages[stages.length - 1]), stages: rows,
              baselineAt: base ? fmtDate(base.at) : null };
   });

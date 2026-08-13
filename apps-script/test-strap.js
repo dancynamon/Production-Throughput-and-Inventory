@@ -41,5 +41,24 @@ ck('no size-specific strap material lingers in any recipe',
    bom.filter(r=>r[2]==='M045').length, 0);
 ck('every product row matches the header width',
    [...new Set(s.PRODUCT_ROWS.map(r=>r.length))], [s.PRODUCT_HEADERS.length]);
+
+/* --- Family grouping (presentation only, must not affect the model) ------ */
+const FAM = 7;
+const byFam = {};
+s.PRODUCT_ROWS.forEach(r => (byFam[r[FAM]] = byFam[r[FAM]] || []).push(r[0]));
+
+ck('every product has a family — none silently fall out of the picker',
+   s.PRODUCT_ROWS.filter(r => !r[FAM]).length, 0);
+ck('every family used is one the backend knows how to order',
+   Object.keys(byFam).filter(f => !s.FAMILY_ORDER.includes(f)), []);
+ck('the strap is filed with the tubes it feeds',
+   byFam['Rescue Tubes'].includes('STRAP6'), true);
+ck('kickboards are their own family, not lumped in with foam mats',
+   byFam['Kickboards'], ['KB914','KB1116','KB1220']);
+// Family is cosmetic: Line drives the pipeline and must be untouched by it.
+ck('grouping did not disturb any product line',
+   [...new Set(s.PRODUCT_ROWS.map(r => r[2]))].sort(),
+   ['Blank','Chair','Shape','Strap','TubeExo','TubeStd']);
+
 console.log(fail?`\n${fail} FAILURE(S)`:'\nAll checks passed.');
 process.exit(fail?1:0);

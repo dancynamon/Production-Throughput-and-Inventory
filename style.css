@@ -238,3 +238,11 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .runway__n{ font-size:17px; font-weight:700; color:var(--navy) }
 .runway__none{ color:var(--muted) }
 .runway__warn{ margin-top:4px; font-size:11px; color:var(--muted) }
+
+/* ---- Product family headings -------------------------------------------- */
+.ov-family{
+  margin:20px 0 6px; font-size:12px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--navy);
+  border-bottom:2px solid var(--gold); padding-bottom:4px;
+}
+.ov-family:first-child{ margin-top:4px }

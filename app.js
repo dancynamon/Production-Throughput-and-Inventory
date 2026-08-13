@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.6.0';
+  var APP_VERSION = '2.7.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -52,6 +52,39 @@
     });
   }
 
+  /* Same as fillSelect but with <optgroup> headings. Native grouping rather
+   * than indented labels: phone pickers render optgroups as real section
+   * headers, and a screen reader announces them. Families arrive in the
+   * backend's order; anything it doesn't know about is appended rather than
+   * dropped. */
+  function fillSelectGrouped(sel, items, placeholder, order) {
+    sel.innerHTML = '';
+    var ph = document.createElement('option');
+    ph.value = ''; ph.textContent = placeholder; ph.disabled = true; ph.selected = true;
+    sel.appendChild(ph);
+
+    var byFamily = {};
+    items.forEach(function (it) {
+      var f = it.family || 'Other';
+      (byFamily[f] = byFamily[f] || []).push(it);
+    });
+    var families = (order || []).filter(function (f) { return byFamily[f]; })
+      .concat(Object.keys(byFamily).filter(function (f) {
+        return (order || []).indexOf(f) === -1;
+      }));
+
+    families.forEach(function (f) {
+      var group = document.createElement('optgroup');
+      group.label = f;
+      byFamily[f].forEach(function (it) {
+        var o = document.createElement('option');
+        o.value = it.value; o.textContent = it.label;
+        group.appendChild(o);
+      });
+      sel.appendChild(group);
+    });
+  }
+
   /* ---- Config: dropdowns + stage inputs ---------------------------------- */
   function loadConfig() {
     if (!API) { el('setupBanner').hidden = false; renderBuildInfo(); return; }
@@ -70,9 +103,12 @@
       fillSelect(el('recvEmployee'), emp, 'Select your name');
       fillSelect(el('countEmployee'), emp, 'Select your name');
       fillSelect(el('wipEmployee'), emp, 'Select your name');
-      var prodOpts = data.products.map(function (p) { return { value: p.id, label: p.name }; });
-      fillSelect(el('product'), prodOpts, 'Select a product');
-      fillSelect(el('wipProduct'), prodOpts, 'Select a product');
+      var prodOpts = data.products.map(function (p) {
+        return { value: p.id, label: p.name, family: p.family };
+      });
+      var famOrder = data.familyOrder || [];
+      fillSelectGrouped(el('product'), prodOpts, 'Select a product', famOrder);
+      fillSelectGrouped(el('wipProduct'), prodOpts, 'Select a product', famOrder);
       fillSelect(el('recvMaterial'), (data.materials || []).map(function (m) {
         return { value: m.id, label: m.name + (m.unit ? ' (' + m.unit + ')' : '') };
       }), 'Select a material');
@@ -242,7 +278,13 @@
       if (!data.ok) throw new Error(data.error || 'Could not load overview');
       var html = '';
       var runway = data.runway || {};
+      var lastFamily = null;
       (data.products || []).forEach(function (pr) {
+        var fam = pr.family || 'Other';
+        if (fam !== lastFamily) {
+          html += '<div class="ov-family">' + escapeHtml(fam) + '</div>';
+          lastFamily = fam;
+        }
         html += '<div class="ov-card"><div class="ov-card__head">' + escapeHtml(pr.name)
              + '<span class="ov-card__meta">'
              + (pr.feedsFrom ? 'from ' + escapeHtml(pr.feedsFrom) + ' · ' : '')
