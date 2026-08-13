@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-13 12:30 UTC      version 2.7.0
+ *  BUILD:  2026-08-13 19:17 UTC      version 2.7.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.7.0';
+var BACKEND_VERSION = '2.7.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-13 12:30 UTC';
+var BUILD_STAMP = '2026-08-13 19:17 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -778,10 +778,21 @@ function getToday(p) {
   });
   var products = Object.keys(byProduct).map(function (pid) {
     var stages = stagesForLine(lineMap[pid] || 'Blank');
+    /* Deliberately NOT a sum across stages.
+     *
+     * Summing counts the same physical unit once per station it passed: one
+     * chair cut, assembled and boxed in a day reads as three chairs. The tube
+     * lines never made that obvious because different tubes sit at different
+     * stages, so the figure looked plausible while being just as wrong.
+     *
+     * A day has two honest headline numbers — how many entered the line and
+     * how many came off the end of it — and the per-stage chips carry the
+     * rest. */
     return {
       productId: pid, name: byProduct[pid].name,
       rows: stages.map(function (s) { return { stage: s, qty: byProduct[pid].stages[s] || 0 }; }),
-      total: stages.reduce(function (a, s) { return a + (byProduct[pid].stages[s] || 0); }, 0)
+      started:  byProduct[pid].stages[stages[0]] || 0,
+      finished: byProduct[pid].stages[stages[stages.length - 1]] || 0
     };
   });
   return { ok: true, workDate: workDate, products: products };

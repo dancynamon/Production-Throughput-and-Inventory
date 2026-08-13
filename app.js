@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.7.0';
+  var APP_VERSION = '2.7.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -371,8 +371,11 @@
           var chips = pr.rows.filter(function (r) { return r.qty > 0; }).map(function (r) {
             return '<span class="today-chip">' + escapeHtml(r.stage) + ' <b>' + r.qty + '</b></span>';
           }).join('');
+          // "started → finished", never a sum: one chair through three
+          // stations is one chair, not three.
           return '<div class="today-prod"><div class="today-prod__name">' + escapeHtml(pr.name)
-               + ' <span class="today-prod__total">' + pr.total + ' total</span></div>'
+               + ' <span class="today-prod__total">' + fmt(pr.started) + ' started → '
+               + fmt(pr.finished) + ' finished</span></div>'
                + '<div class="today-chips">' + (chips || '<span class="muted">—</span>') + '</div></div>';
         }).join('');
       }

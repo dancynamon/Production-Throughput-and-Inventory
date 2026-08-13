@@ -352,6 +352,27 @@ The arithmetic — variance sign, partial counts, re-baselining — is pinned by
 > creates `CountLog` — no existing cell is touched, so it needs no confirmation
 > and is safe to run twice.
 
+## "Today's totals" is started → finished, never a sum
+
+One chair Cut, Assembled and Boxed in a single day is **one chair**. Summing
+the stage quantities counts the same physical unit once per station it passed
+and reports three.
+
+The daily card shows two honest numbers instead:
+
+```
+Lifeguard Chair 30"          1 started → 1 finished
+   Cut 1    Assemble 1    Box 1
+```
+
+`started` is the quantity at the line's first stage, `finished` the quantity at
+its last. The per-stage chips carry everything in between. A cutting-only day
+reads `48 started → 0 finished`, which is correct — nothing came off the end.
+
+Log every stage a unit actually passes through. That is right, and it is what
+drives the material deductions: the chair above correctly took lumber at Cut
+and a hardware kit at Assemble, once each.
+
 ## Product families
 
 `Products.Family` groups the picker and the Overview. It is **presentation
