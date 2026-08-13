@@ -191,3 +191,35 @@ jobs:
             echo "::warning::APPS_SCRIPT_DEPLOYMENT_ID not set — pushed the code but did NOT deploy it."
             echo "::warning::The web app keeps serving the previous version until you deploy by hand."
           fi
+
+      # "Deployed @7" only means SOME deployment moved. If APPS_SCRIPT_DEPLOYMENT_ID
+      # names a different one than config.js calls, the run goes green while the
+      # app keeps serving old code — which is exactly what happened, and it cost
+      # a round trip to notice from a screenshot.
+      #
+      # So ask the app's own endpoint what it is running. config.js holds the
+      # URL the phones actually call, so this checks the only thing that matters.
+      - name: Verify the app's endpoint is serving this build
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          URL=$(grep -oP 'API_URL:\s*"\K[^"]+' config.js | tail -1)
+          WANT=$(grep -oP "var BACKEND_VERSION = '\K[^']+" apps-script/Code.gs)
+          echo "Endpoint : ${URL%%\?*}"
+          echo "Expecting: backendVersion $WANT"
+
+          RESP=$(curl -sL --max-time 60 "$URL?action=config&cb=$RANDOM$$")
+          GOT=$(printf '%s' "$RESP" | grep -oP '"backendVersion":"\K[^"]+' || true)
+
+          if [ "$GOT" = "$WANT" ]; then
+            echo "Confirmed: the app's endpoint is serving $GOT."
+            exit 0
+          fi
+
+          echo "::error::The app's endpoint reports '${GOT:-none}', not '$WANT'."
+          echo ""
+          echo "clasp deployed, but not to the deployment config.js points at."
+          echo "APPS_SCRIPT_DEPLOYMENT_ID must be the id embedded in that URL:"
+          echo "    https://script.google.com/macros/s/<THIS PART>/exec"
+          echo ""
+          echo "Copy it straight out of config.js and update the secret."
+          exit 1
