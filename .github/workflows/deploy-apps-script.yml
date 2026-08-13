@@ -33,17 +33,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Names each missing secret rather than reporting a bare "not configured".
+      # A gate that only says no turns every misconfiguration into a guessing
+      # game, and the usual cause is a name typo or the Variables tab instead
+      # of the Secrets tab — both of which this distinguishes at a glance.
       - name: Check whether this repo is configured for clasp
         id: gate
         env:
           CREDS: ${{ secrets.CLASP_CREDENTIALS }}
           SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+          DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
         run: |
-          if [ -z "$CREDS" ] || [ -z "$SCRIPT_ID" ]; then
+          missing=""
+          report () {
+            if [ -z "$2" ]; then
+              echo "  $1: MISSING"
+              missing="$missing $1"
+            else
+              echo "  $1: present (${#2} chars)"
+            fi
+          }
+          echo "Repository secrets visible to this workflow:"
+          report CLASP_CREDENTIALS         "$CREDS"
+          report APPS_SCRIPT_ID            "$SCRIPT_ID"
+          report APPS_SCRIPT_DEPLOYMENT_ID "$DEPLOYMENT_ID"
+
+          if [ -n "$missing" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "Secrets not set — skipping. See the header of this file for setup."
+            echo "::warning::Missing:$missing — skipping the deploy."
+            echo ""
+            echo "Check Settings > Secrets and variables > Actions:"
+            echo "  * they must be under the SECRETS tab, not VARIABLES"
+            echo "  * they must be REPOSITORY secrets, not environment secrets"
+            echo "  * names are case-sensitive and must match exactly"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "All three present — proceeding."
           fi
 
       - uses: actions/setup-node@v4
