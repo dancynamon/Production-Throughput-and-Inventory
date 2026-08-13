@@ -92,6 +92,18 @@ jobs:
           printf '{"scriptId":"%s","rootDir":"apps-script"}' \
             '${{ secrets.APPS_SCRIPT_ID }}' > .clasp.json
 
+          # apps-script/ holds the six Node test files and smoketest.js as well
+          # as the backend. clasp treats every .js in rootDir as Apps Script
+          # source, so without this it would push Node tests — require() and all
+          # — into the live project. Allow-list rather than deny-list: a test
+          # file added later is then excluded by default instead of silently
+          # shipping to production.
+          cat > .claspignore <<'IGNORE'
+          **/**
+          !Code.gs
+          !appsscript.json
+          IGNORE
+
       # clasp reports a bare "Unexpected non-whitespace character after JSON at
       # position N", which says nothing about which file or how to fix it. The
       # usual cause is copying from Terminal and catching the shell prompt on
@@ -134,6 +146,11 @@ jobs:
         if: steps.gate.outputs.configured == 'true'
         run: |
           clasp pull --force || echo "pull failed — will fall back to a default manifest"
+
+          # clasp pulls Apps Script sources as .js, so Code.gs comes back as
+          # Code.js and the two then map to the same remote file — "Conflicting
+          # files found". We only ever wanted the manifest out of that pull.
+          rm -f apps-script/Code.js
           git checkout -- apps-script/Code.gs 2>/dev/null || true
 
           if [ ! -f apps-script/appsscript.json ]; then
@@ -155,6 +172,9 @@ jobs:
 
           echo "Manifest that will be pushed:"
           cat apps-script/appsscript.json
+          echo ""
+          echo "Files clasp considers in scope:"
+          clasp status || true
 
       - name: Push and deploy
         if: steps.gate.outputs.configured == 'true'
