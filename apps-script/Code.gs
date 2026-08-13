@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-13 19:24 UTC      version 2.8.0
+ *  BUILD:  2026-08-13 21:40 UTC      version 2.9.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.8.0';
+var BACKEND_VERSION = '2.9.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-13 19:24 UTC';
+var BUILD_STAMP = '2026-08-13 21:40 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -748,6 +748,7 @@ function doGet(e) {
   try {
     if      (action === 'config')    result = getConfig();
     else if (action === 'stock')     result = getStock();
+    else if (action === 'inventory') result = getInventory(p);
     else if (action === 'overview')  result = getOverview();
     else if (action === 'today')     result = getToday(p);
     else if (action === 'submitDay') result = submitDay(p);
@@ -801,6 +802,107 @@ function getStock() {
     };
   });
   return { ok: true, materials: mats };
+}
+
+/* Everything the Inventory panel needs in one round trip.
+ *
+ * getStock() already carries the current numbers. What a stocktake screen adds
+ * is CONTEXT for each of them: when this material was last counted, how far off
+ * it was that time, and whether it has missed the same way several counts
+ * running. One variance is noise — a supplier's yard is not our yard, someone
+ * counted a half-roll as whole. Three in the same direction is a BOM number to
+ * fix, and that pattern is only visible with the history sitting next to the
+ * box you are typing into, while you are still at the shelf.
+ *
+ *   ?action=inventory[&history=3]
+ *
+ * Read-only. The write path stays submitCount() — one place where a count
+ * re-baselines OnHand and files a CountLog row, whatever screen sent it.
+ */
+function getInventory(p) {
+  var want = Number((p && p.history) || 3);
+  var keep = Math.max(1, Math.min(20, isFinite(want) && want > 0 ? want : 3));
+
+  var mats = getStock().materials;
+  var now = new Date();
+
+  /* CountLog is append-only, so its natural order is chronological. unshift()
+   * turns that into newest-first per material without a sort — and without
+   * trusting the Timestamp column, which is blank on any row a human typed. */
+  var history = {}, newestAt = null, newestBy = '';
+  readObjects(TAB.countlog).forEach(function (r) {
+    var id = String(r.MaterialID || '').trim();
+    if (!id) return;
+    var entry = {
+      at: fmtDate(r.Timestamp),
+      estimated: Number(r.EstimatedAtCount) || 0,
+      counted:   Number(r.CountedQty) || 0,
+      variance:  Number(r.Variance) || 0,
+      variancePct: blankish(r.VariancePct) ? null : Number(r.VariancePct),
+      by: String(r.CountedBy || ''), notes: String(r.Notes || '')
+    };
+    (history[id] = history[id] || []).unshift(entry);
+    if (r.Timestamp instanceof Date && (!newestAt || r.Timestamp > newestAt)) {
+      newestAt = r.Timestamp; newestBy = entry.by;
+    }
+  });
+
+  var neverCounted = 0, negative = 0, low = 0, drifting = 0;
+  mats.forEach(function (m) {
+    var h = history[m.id] || [];
+    m.history = h.slice(0, keep);
+    m.countsRecorded = h.length;
+    m.lastVariancePct = h.length ? h[0].variancePct : null;
+    m.daysSinceCount = daysSince(m.lastCountedAt, now);
+
+    /* A run of same-signed variances is the signature of a wrong recipe rather
+     * than a bad count. An exact match breaks the run: agreement is evidence
+     * against drift, not neutral. */
+    var run = 0, dir = 0;
+    for (var i = 0; i < h.length; i++) {
+      var s = h[i].variance > 0 ? 1 : h[i].variance < 0 ? -1 : 0;
+      if (!s || (dir && s !== dir)) break;
+      dir = s; run++;
+    }
+    m.driftRun = run;
+    m.drifting = run >= 2;
+
+    if (!m.lastCountedAt) neverCounted++;
+    if (m.onHand < 0) negative++;
+    if (m.low) low++;
+    if (m.drifting) drifting++;
+  });
+
+  return {
+    ok: true,
+    materials: mats,
+    summary: {
+      materials: mats.length,
+      neverCounted: neverCounted,
+      // Negative stock is not a count that went wrong, it is a count that never
+      // happened: the recipe has been deducting against an opening balance
+      // nobody ever set. Surfaced separately so it reads as a to-do, not a bug.
+      negative: negative,
+      low: low,
+      drifting: drifting,
+      lastCountAt: newestAt ? fmtDate(newestAt) : null,
+      lastCountBy: newestBy,
+      daysSinceLastCount: newestAt ? daysSince(fmtDate(newestAt), now) : null
+    }
+  };
+}
+
+function blankish(v) { return v === '' || v === null || v === undefined; }
+
+/* Whole days between a 'YYYY-MM-DD' string and `now`, both read as local dates.
+ * Parsing the parts by hand rather than through Date(string), which reads a
+ * bare date as UTC and can land a day out either side of the dateline. */
+function daysSince(dateStr, now) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || ''));
+  if (!m) return null;
+  var then  = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((today.getTime() - then.getTime()) / 86400000);
 }
 
 /*

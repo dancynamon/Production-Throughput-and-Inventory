@@ -76,6 +76,7 @@ node apps-script/test-count.js      # variance sign, partial counts
 node apps-script/test-metrics.js    # runway, throughput
 node apps-script/test-wip.js        # opening-WIP walk, double-count guard
 node apps-script/test-strap.js      # strap sub-assembly totals
+node apps-script/test-inventory.js  # count history order, drift runs
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma

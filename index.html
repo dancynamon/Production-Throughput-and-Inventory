@@ -26,7 +26,7 @@
   <button class="tab tab--active" data-screen="day">Log My Day</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
-  <button class="tab" data-screen="count" data-mgr="1">Count</button>
+  <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
   <button class="tab" data-screen="wip" data-mgr="1">WIP</button>
 </nav>
 
@@ -74,19 +74,41 @@
     <div id="recvResult" class="result" hidden></div>
   </section>
 
-  <!-- ============ COUNT (reconcile estimated vs actual) ============ -->
-  <section id="screen-count" class="screen">
-    <p class="stock-hint">Physical stocktake. <b>Est.</b> is what the recipe says
-      should be on the shelf; type what is actually there. Blank = not counted,
-      left alone. Recording a count re-baselines the estimate and logs the
-      variance.</p>
-    <form id="countForm" autocomplete="off">
-      <label class="field"><span>Who are you?</span><select id="countEmployee" required></select></label>
-      <label class="field"><span>Notes (optional)</span><input id="countNotes" type="text" placeholder="Q3 stocktake, partial shelf…"></label>
-      <div id="countRows"><div class="muted">Loading…</div></div>
-      <button type="submit" id="countBtn" class="btn-primary">Record Count</button>
+  <!-- ============ INVENTORY (view current stock + physical count) ============ -->
+  <section id="screen-inventory" class="screen">
+    <p class="stock-hint">Current stock, and the panel for correcting it.
+      <b>Est.</b> is what the recipe says should be on the shelf; type what is
+      actually there and the difference appears as you go. A blank box means
+      "not counted" and leaves that material completely alone. Recording
+      re-baselines the estimate and files the variance, so a material that
+      misses the same way every time can be traced back to its recipe.</p>
+
+    <div id="invSummary" class="inv-summary"></div>
+
+    <div class="inv-toolbar">
+      <input id="invSearch" type="search" class="inv-search" placeholder="Find a material…" autocomplete="off">
+      <div class="inv-chips" id="invFilters">
+        <button type="button" class="inv-chip inv-chip--on" data-filter="all">All</button>
+        <button type="button" class="inv-chip" data-filter="never">Never counted</button>
+        <button type="button" class="inv-chip" data-filter="negative">Negative</button>
+        <button type="button" class="inv-chip" data-filter="low">Below reorder</button>
+        <button type="button" class="inv-chip" data-filter="drift">Drifting</button>
+        <button type="button" class="inv-chip" data-filter="edited">Entered</button>
+      </div>
+    </div>
+
+    <form id="invForm" autocomplete="off">
+      <div class="row2">
+        <label class="field"><span>Who are you?</span><select id="invEmployee" required></select></label>
+        <label class="field"><span>Notes (optional)</span><input id="invNotes" type="text" placeholder="Q3 stocktake, back shelf…"></label>
+      </div>
+      <div id="invRows"><div class="muted">Loading…</div></div>
+      <div class="inv-bar">
+        <span id="invBarText" class="inv-bar__text">Nothing entered yet</span>
+        <button type="submit" id="invBtn" class="inv-bar__btn" disabled>Record Count</button>
+      </div>
     </form>
-    <div id="countResult" class="result" hidden></div>
+    <div id="invResult" class="result" hidden></div>
   </section>
 
   <!-- ============ WIP (opening work-in-progress baseline) ============ -->

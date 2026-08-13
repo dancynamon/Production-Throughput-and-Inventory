@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.8.0';
+  var APP_VERSION = '2.9.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -102,7 +102,7 @@
       var emp = data.employees.map(function (n) { return { value: n, label: n }; });
       fillSelect(el('employee'), emp, 'Select your name');
       fillSelect(el('recvEmployee'), emp, 'Select your name');
-      fillSelect(el('countEmployee'), emp, 'Select your name');
+      fillSelect(el('invEmployee'), emp, 'Select your name');
       fillSelect(el('wipEmployee'), emp, 'Select your name');
       var prodOpts = data.products.map(function (p) {
         return { value: p.id, label: p.name, family: p.family };
@@ -444,7 +444,7 @@
     if (tab) tab.classList.add('tab--active');
     el('screen-' + name).classList.add('screen--active');
     if (name === 'overview') loadOverview();
-    if (name === 'count') loadCountSheet();
+    if (name === 'inventory') loadInventory();
     if (name === 'wip') buildWipRows();
     if (name === 'day') loadToday();
   }
@@ -459,82 +459,349 @@
   });
 
 
-  /* ---- Count: reconcile estimated vs actual ------------------------------ */
-  /* Each row shows the recipe's estimate next to an empty box for the real
-   * number. Showing the estimate matters: it lets whoever is counting notice a
-   * wild disagreement while they are still standing at the shelf, which is the
-   * only moment it is cheap to recheck. Blank means not counted. */
-  function loadCountSheet() {
-    var wrap = el('countRows');
+  /* ---- Inventory: look at current stock, and correct it ------------------ */
+  /* One screen, two jobs, because on the floor they are the same job: you look
+   * at the numbers *because* you are about to fix them.
+   *
+   * Every row carries the estimate, a box for the real number, and the gap
+   * between them computed as you type. The gap has to be visible at the shelf —
+   * that is the only moment when "that can't be right, let me recount" costs
+   * nothing. Discovering it in a confirmation screen back at the desk means
+   * either walking back or filing a number you don't believe.
+   *
+   * DIRECTION. The gap is shown in words — "12 short", "5 extra" — never as a
+   * bare signed number. CountLog stores variance as estimate − counted, so
+   * "short" is filed as POSITIVE. Two conventions, one screen, is how you end
+   * up correcting a recipe in the wrong direction; words don't have that
+   * failure mode.
+   *
+   * Edits live in INV.edits keyed by material, not in the DOM, so filtering and
+   * searching can re-render freely without dropping numbers someone has already
+   * walked the floor to collect. */
+  var INV = { materials: [], summary: {}, filter: 'all', search: '', edits: {}, open: {} };
+
+  function loadInventory() {
+    var wrap = el('invRows');
     wrap.innerHTML = '<div class="muted">Loading…</div>';
-    api({ action: 'stock' }).then(function (d) {
-      if (!d.ok) throw new Error(d.error || 'Could not load stock');
-      var byCat = {};
-      (d.materials || []).forEach(function (m) {
-        (byCat[m.category || 'Other'] = byCat[m.category || 'Other'] || []).push(m);
-      });
-      wrap.innerHTML = Object.keys(byCat).map(function (cat) {
-        return '<div class="count-cat">' + escapeHtml(cat) + '</div>'
-          + byCat[cat].map(function (m) {
-              var est = m.counted ? fmt(m.onHand) : '—';
-              var last = m.lastCountedAt
-                ? 'last counted ' + escapeHtml(m.lastCountedAt)
-                  + (m.lastVariance === null ? ''
-                     : ' · var ' + (m.lastVariance > 0 ? '+' : '') + fmt(m.lastVariance))
-                : 'never counted';
-              return '<label class="count-row">'
-                + '<span class="count-row__name">' + escapeHtml(m.name)
-                + '<span class="count-row__meta">' + last + '</span></span>'
-                + '<span class="count-row__est">est. ' + est + '</span>'
-                + '<input class="count-row__input" type="number" inputmode="decimal" '
-                + 'min="0" step="any" placeholder="count" data-mat="' + escapeHtml(m.id) + '">'
-                + '<span class="count-row__unit">' + escapeHtml(m.unit || '') + '</span>'
-                + '</label>';
-            }).join('');
-      }).join('');
+    api({ action: 'inventory' }, 20000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load inventory');
+      INV.materials = d.materials || [];
+      INV.summary = d.summary || {};
+      renderInvSummary();
+      renderInvRows();
     }).catch(function (err) {
-      wrap.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>';
+      // A backend that predates this screen answers "Unknown action: inventory".
+      // Say which half is behind rather than showing a bare error.
+      var stale = /unknown action/i.test(err.message);
+      wrap.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message)
+        + (stale ? '<br>The Apps Script backend is older than this app — '
+                 + 'redeploy it (Deploy → Manage deployments → Edit → New version).' : '')
+        + '</div>';
     });
   }
 
-  el('countForm').addEventListener('submit', function (e) {
+  /* Headline counts, each one also a filter. The numbers that matter here are
+   * all "how much of this inventory is not trustworthy yet", so every stat
+   * doubles as the way to go fix it. */
+  function renderInvSummary() {
+    var s = INV.summary;
+    var stats = [
+      { key: 'all',      n: s.materials,    label: 'materials' },
+      { key: 'never',    n: s.neverCounted, label: 'never counted', warn: s.neverCounted > 0 },
+      { key: 'negative', n: s.negative,     label: 'negative',      warn: s.negative > 0 },
+      { key: 'low',      n: s.low,          label: 'below reorder', warn: s.low > 0 },
+      { key: 'drift',    n: s.drifting,     label: 'drifting',      warn: s.drifting > 0 }
+    ];
+    var html = stats.map(function (st) {
+      return '<button type="button" class="inv-stat' + (st.warn ? ' inv-stat--warn' : '')
+        + '" data-filter="' + st.key + '"><b>' + fmt(st.n || 0) + '</b>'
+        + '<span>' + st.label + '</span></button>';
+    }).join('');
+    html += '<div class="inv-stat inv-stat--flat"><b>'
+      + (s.lastCountAt ? escapeHtml(s.lastCountAt) : 'never')
+      + '</b><span>last stocktake'
+      + (s.daysSinceLastCount === null || s.daysSinceLastCount === undefined
+          ? '' : ' · ' + fmt(s.daysSinceLastCount) + 'd ago')
+      + '</span></div>';
+    el('invSummary').innerHTML = html;
+  }
+
+  function invVisible() {
+    var q = INV.search.toLowerCase();
+    return INV.materials.filter(function (m) {
+      if (q && (String(m.name) + ' ' + String(m.id) + ' ' + String(m.category || ''))
+                 .toLowerCase().indexOf(q) === -1) return false;
+      switch (INV.filter) {
+        case 'never':    return !m.lastCountedAt;
+        case 'negative': return m.onHand < 0;
+        case 'low':      return !!m.low;
+        case 'drift':    return !!m.drifting;
+        case 'edited':   return INV.edits[m.id] !== undefined && INV.edits[m.id] !== '';
+        default:         return true;
+      }
+    });
+  }
+
+  function renderInvRows() {
+    var wrap = el('invRows'), list = invVisible();
+    if (!list.length) {
+      wrap.innerHTML = '<div class="muted">Nothing matches that filter.</div>';
+      updateInvBar();
+      return;
+    }
+    var byCat = {}, order = [];
+    list.forEach(function (m) {
+      var c = m.category || 'Other';
+      if (!byCat[c]) { byCat[c] = []; order.push(c); }
+      byCat[c].push(m);
+    });
+    wrap.innerHTML = order.map(function (cat) {
+      return '<div class="count-cat">' + escapeHtml(cat) + '</div>'
+        + byCat[cat].map(invRowHtml).join('');
+    }).join('');
+    list.forEach(function (m) { paintInvDiff(m.id); });
+    updateInvBar();
+  }
+
+  function invRowHtml(m) {
+    var id = escapeHtml(m.id);
+    var meta = [];
+    if (m.lastCountedAt) {
+      meta.push('counted ' + escapeHtml(m.lastCountedAt)
+        + (m.daysSinceCount === null ? '' : ' (' + fmt(m.daysSinceCount) + 'd)'));
+      if (m.lastVariance !== null) meta.push(varianceWords(m.lastVariance) + ' that time');
+    } else {
+      meta.push('never counted');
+    }
+    if (m.reorderPoint) meta.push('reorder at ' + fmt(m.reorderPoint));
+
+    var flags = '';
+    if (m.drifting) flags += '<span class="inv-flag inv-flag--drift">' + fmt(m.driftRun)
+      + ' counts the same way</span>';
+    if (m.low)      flags += '<span class="inv-flag inv-flag--low">low</span>';
+    if (m.onHand < 0) flags += '<span class="inv-flag inv-flag--low">negative</span>';
+
+    // "=" fills the estimate in: a shelf that matches is a real, useful count,
+    // and typing 172.78 by hand to say "yes, that" invites a typo. Withheld on
+    // a negative estimate — copying that in would file nonsense as an actual.
+    var same = m.counted && m.onHand >= 0
+      ? '<button type="button" class="inv-mini" data-same="' + id + '">= est</button>' : '';
+    var hist = m.countsRecorded
+      ? '<button type="button" class="inv-mini" data-hist="' + id + '">history ('
+        + fmt(m.countsRecorded) + ')</button>' : '';
+
+    return '<div class="inv-row" data-row="' + id + '">'
+      + '<div class="inv-row__main">'
+      +   '<div class="inv-row__name">' + escapeHtml(m.name)
+      +     ' <span class="inv-row__id">' + id + '</span>' + flags + '</div>'
+      +   '<div class="inv-row__meta">' + meta.join(' · ') + '</div>'
+      +   '<div class="inv-row__acts">' + same + hist + '</div>'
+      + '</div>'
+      + '<div class="inv-row__est"><span class="inv-lbl">Est.</span>'
+      +   '<b class="' + (m.onHand < 0 ? 'inv-neg' : '') + '">'
+      +   (m.counted ? fmt(m.onHand) : '—') + '</b>'
+      +   '<small>' + escapeHtml(m.unit || '') + '</small></div>'
+      + '<div class="inv-row__actual"><span class="inv-lbl">Actual</span>'
+      +   '<input class="inv-input" type="number" inputmode="decimal" min="0" step="any" '
+      +   'placeholder="qty" data-mat="' + id + '" value="'
+      +   escapeHtml(INV.edits[m.id] === undefined ? '' : INV.edits[m.id]) + '"></div>'
+      + '<div class="inv-row__diff" data-diff="' + id + '"></div>'
+      + '<div class="inv-hist" data-histbox="' + id + '"'
+      +   (INV.open[m.id] ? '' : ' hidden') + '>' + invHistHtml(m) + '</div>'
+      + '</div>';
+  }
+
+  function invHistHtml(m) {
+    if (!m.history || !m.history.length) return '';
+    return '<table class="inv-hist__t"><thead><tr><th>Date</th><th>Est</th>'
+      + '<th>Counted</th><th>Gap</th><th>Who</th></tr></thead><tbody>'
+      + m.history.map(function (h) {
+          return '<tr><td>' + escapeHtml(h.at) + '</td><td>' + fmt(h.estimated) + '</td>'
+            + '<td>' + fmt(h.counted) + '</td><td>' + varianceWords(h.variance)
+            + (h.variancePct === null ? '' : ' (' + fmt(Math.abs(h.variancePct)) + '%)')
+            + '</td><td>' + escapeHtml(h.by || '—') + '</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  }
+
+  /* Stored variance is estimate − counted, so positive = the shelf held LESS
+   * than the recipe predicted. Rendered as a word so the sign never has to be
+   * decoded by whoever is reading it. */
+  function varianceWords(v) {
+    v = Number(v) || 0;
+    if (v === 0) return 'matched';
+    return fmt(Math.abs(v)) + (v > 0 ? ' short' : ' extra');
+  }
+
+  function invById(id) {
+    for (var i = 0; i < INV.materials.length; i++) if (INV.materials[i].id === id) return INV.materials[i];
+    return null;
+  }
+
+  /* The live gap for one row. Recomputed on every keystroke — cheap, and the
+   * alternative (only on blur) means the number someone is reasoning about is
+   * the one from before their last correction. */
+  function paintInvDiff(id) {
+    var cell = document.querySelector('[data-diff="' + cssEsc(id) + '"]');
+    if (!cell) return;
+    var m = invById(id), raw = INV.edits[id];
+    var row = document.querySelector('[data-row="' + cssEsc(id) + '"]');
+    if (row) row.classList.toggle('inv-row--edited', raw !== undefined && raw !== '');
+
+    if (raw === undefined || raw === '') { cell.className = 'inv-row__diff'; cell.innerHTML = ''; return; }
+    var n = Number(raw);
+    if (isNaN(n) || n < 0) {
+      cell.className = 'inv-row__diff inv-diff--bad';
+      cell.innerHTML = '<span class="inv-lbl">Diff</span><b>not a count</b>';
+      return;
+    }
+    if (!m || !m.counted) {
+      // No estimate to differ from — this count creates the baseline instead of
+      // correcting one, which is a different act and worth saying so.
+      cell.className = 'inv-row__diff inv-diff--new';
+      cell.innerHTML = '<span class="inv-lbl">Diff</span><b>first count</b>';
+      return;
+    }
+    var v = Math.round((m.onHand - n) * 100) / 100;          // same sign as CountLog
+    var pct = m.onHand === 0 ? null : Math.abs(v / m.onHand) * 100;
+    var off = pct !== null && pct >= 10;
+    cell.className = 'inv-row__diff'
+      + (v === 0 ? ' inv-diff--match' : v > 0 ? ' inv-diff--short' : ' inv-diff--extra')
+      + (off ? ' inv-diff--off' : '');
+    cell.innerHTML = '<span class="inv-lbl">Diff</span><b>' + varianceWords(v) + '</b>'
+      + (off ? '<small>' + fmt(pct) + '% off</small>' : '');
+  }
+
+  function updateInvBar() {
+    var short = 0, extra = 0, match = 0, first = 0, n = 0;
+    Object.keys(INV.edits).forEach(function (id) {
+      var raw = INV.edits[id];
+      if (raw === '' || raw === undefined) return;
+      var v = Number(raw);
+      if (isNaN(v) || v < 0) return;
+      n++;
+      var m = invById(id);
+      if (!m || !m.counted) { first++; return; }
+      var d = m.onHand - v;
+      if (d > 0) short++; else if (d < 0) extra++; else match++;
+    });
+    var parts = [];
+    if (short) parts.push(short + ' short');
+    if (extra) parts.push(extra + ' extra');
+    if (match) parts.push(match + ' matching');
+    if (first) parts.push(first + ' first count' + (first === 1 ? '' : 's'));
+    el('invBarText').textContent = n
+      ? n + ' counted — ' + parts.join(', ')
+      : 'Nothing entered yet';
+    el('invBtn').disabled = !n;
+  }
+
+  // Attribute selectors need the id escaped; material ids are tame today, but a
+  // stray quote in a sheet cell shouldn't be able to break the screen.
+  function cssEsc(s) { return String(s).replace(/["\\]/g, '\\$&'); }
+
+  el('invRows').addEventListener('input', function (e) {
+    var id = e.target.getAttribute && e.target.getAttribute('data-mat');
+    if (!id) return;
+    INV.edits[id] = e.target.value;
+    paintInvDiff(id);
+    updateInvBar();
+  });
+
+  el('invRows').addEventListener('click', function (e) {
+    var same = e.target.getAttribute && e.target.getAttribute('data-same');
+    if (same) {
+      var m = invById(same);
+      if (!m) return;
+      INV.edits[same] = String(m.onHand);
+      var box = document.querySelector('[data-mat="' + cssEsc(same) + '"]');
+      if (box) box.value = INV.edits[same];
+      paintInvDiff(same); updateInvBar();
+      return;
+    }
+    var hist = e.target.getAttribute && e.target.getAttribute('data-hist');
+    if (hist) {
+      var panel = document.querySelector('[data-histbox="' + cssEsc(hist) + '"]');
+      if (!panel) return;
+      INV.open[hist] = panel.hidden;
+      panel.hidden = !panel.hidden;
+    }
+  });
+
+  el('invSearch').addEventListener('input', function () {
+    INV.search = el('invSearch').value.trim();
+    renderInvRows();
+  });
+
+  function setInvFilter(f) {
+    INV.filter = f;
+    document.querySelectorAll('#invFilters .inv-chip').forEach(function (c) {
+      c.classList.toggle('inv-chip--on', c.getAttribute('data-filter') === f);
+    });
+    renderInvRows();
+  }
+  el('invFilters').addEventListener('click', function (e) {
+    var f = e.target.getAttribute && e.target.getAttribute('data-filter');
+    if (f) setInvFilter(f);
+  });
+  el('invSummary').addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-filter]') : null;
+    if (t) setInvFilter(t.getAttribute('data-filter'));
+  });
+
+  el('invForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var counts = {}, n = 0;
-    document.querySelectorAll('#countRows [data-mat]').forEach(function (inp) {
-      if (inp.value === '') return;              // blank = not counted, leave alone
-      var v = Number(inp.value);
+    Object.keys(INV.edits).forEach(function (id) {
+      var raw = INV.edits[id];
+      if (raw === '' || raw === undefined) return;   // blank = not counted, leave alone
+      var v = Number(raw);
       if (isNaN(v) || v < 0) return;
-      counts[inp.getAttribute('data-mat')] = v; n++;
+      counts[id] = v; n++;
     });
-    if (!el('countEmployee').value) { toast('Pick who you are'); return; }
+    if (!el('invEmployee').value) { toast('Pick who you are'); return; }
     if (!n) { toast('Enter at least one counted quantity'); return; }
 
-    var btn = el('countBtn'); btn.disabled = true; btn.textContent = 'Recording…';
-    api({ action: 'count', employee: el('countEmployee').value,
-          counts: JSON.stringify(counts), notes: el('countNotes').value }, 30000)
+    // Every recorded count overwrites an estimate. Cheap to confirm, expensive
+    // to undo — the old estimate is gone once the row is written.
+    if (!window.confirm('Record ' + n + ' counted material' + (n === 1 ? '' : 's') + '?\n\n'
+          + 'This replaces the estimate with your number and logs the difference.')) return;
+
+    var btn = el('invBtn'); btn.disabled = true; btn.textContent = 'Recording…';
+    api({ action: 'count', employee: el('invEmployee').value,
+          counts: JSON.stringify(counts), notes: el('invNotes').value }, 30000)
       .then(function (d) {
         if (!d.ok) throw new Error(d.error || 'Count failed');
-        var box = el('countResult');
-        box.innerHTML = '<div class="result__head">' + escapeHtml(d.message) + '</div>'
+        var box = el('invResult');
+        box.innerHTML = '<div class="result__ok">✓ ' + escapeHtml(d.message) + '</div>'
           + '<ul class="result__list">' + (d.counted || []).map(function (c) {
-              var sign = c.variance > 0 ? '+' : '';
-              var cls  = Math.abs(Number(c.variancePct) || 0) >= 10 ? ' count-off' : '';
+              var cls = Math.abs(Number(c.variancePct) || 0) >= 10 ? ' count-off' : '';
               return '<li class="' + cls + '"><span>' + escapeHtml(c.name) + '</span>'
-                + '<span class="result__num">est ' + fmt(c.estimated)
-                + ' → ' + fmt(c.counted)
-                + '  (' + sign + fmt(c.variance)
-                + (c.variancePct === '' ? '' : ', ' + sign + fmt(c.variancePct) + '%')
+                + '<span class="result__num">est ' + fmt(c.estimated) + ' → ' + fmt(c.counted)
+                + ' (' + varianceWords(c.variance)
+                + (c.variancePct === '' ? '' : ', ' + fmt(Math.abs(Number(c.variancePct))) + '%')
                 + ')</span></li>';
             }).join('') + '</ul>'
+          + (d.unknown && d.unknown.length
+              ? '<div class="result__warn">⚠ Not in the sheet, so skipped: '
+                + d.unknown.map(escapeHtml).join(', ') + '</div>' : '')
           + '<div class="result__note">Estimates re-baselined to your counts. '
-          + 'Anything off by 10%+ is flagged — a material that drifts the same '
+          + 'Anything off by 10%+ is flagged — a material that misses the same '
           + 'way every count is a BOM number to fix, not shrinkage.</div>';
         box.hidden = false;
-        loadCountSheet();
+        INV.edits = {};
+        el('invNotes').value = '';
+        loadInventory();
         toast('Count recorded');
       })
       .catch(function (err) { toast('⚠ ' + err.message); })
-      .then(function () { btn.disabled = false; btn.textContent = 'Record Count'; });
+      .then(function () {
+        btn.textContent = 'Record Count';
+        // Re-derive rather than blanket-enable: after a successful submit there
+        // is nothing left to record, and an enabled button that only produces a
+        // scolding toast is worse than a disabled one.
+        updateInvBar();
+      });
   });
 
 

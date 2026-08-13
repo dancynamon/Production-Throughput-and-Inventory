@@ -266,6 +266,9 @@ After editing Products/Employees, tap ⟳ in the app to refresh.
 - **Overview** — the live pipeline: Done / WIP / suggested next-day goal per
   stage, plus a reorder list.
 - **Receive** — log a delivery to add stock back (audited in `ReceivingLog`).
+- **Inventory** — current stock for every material, and the panel for correcting
+  it against a physical count.
+- **WIP** — the one-time opening work-in-progress count per product.
 
 **You** (the Sheet): the **Overview tab** mirrors the pipeline for desktop, and
 **Planning** is where you set daily targets. Run **Aquamentor → Rebuild
@@ -312,13 +315,33 @@ good as the BOM — and several BOM numbers are openly approximate (the UV ink
 rate is a top-down guess; the whole 40″ column is the 50″ column × 0.8). Add
 scrap, offcuts and the odd unlogged day and it drifts from the shelf.
 
-A **physical count** is the actual. The **Count** screen (manager-gated) lists
-every material with its current estimate beside an empty box:
+A **physical count** is the actual. The **Inventory** screen (manager-gated) is
+where you both look at the numbers and fix them — on the floor those are the
+same job, because you look at a number *because* you are about to correct it.
+Every material gets a row carrying its estimate, a box for the real number, and
+the gap between them computed as you type:
 
 ```
-1" Red PP Webbing                    est. 100   [  88 ]  Yards
-  last counted 2026-07-14 · var +6
+1" Red PP Webbing  M014   3 counts the same way      Est.   Actual    Diff
+counted 2026-07-14 (30d) · 6 short that time · reorder at 1000
+[= est] [history (3)]                                 100   [  88 ]  12 short
+                                                                      12% off
 ```
+
+The gap has to be visible **at the shelf**. That is the only moment when "that
+can't be right, let me recount" costs nothing; finding out back at the desk
+means either walking back or filing a number you don't believe.
+
+Across the top, five counts that are each also a filter — materials, never
+counted, negative, below reorder, drifting — plus the date of the last
+stocktake. `?action=inventory` serves the whole screen in one round trip and is
+read-only; the write path is still `submitCount()`, so a count records
+identically whatever sent it.
+
+**The gap is shown in words — "12 short", "5 extra" — never as a bare signed
+number.** `CountLog` stores variance as `estimate − counted`, so *short* is
+filed as **positive**. Two sign conventions on one screen is how a recipe gets
+corrected in the wrong direction; words don't have that failure mode.
 
 Leave a box blank and that material is untouched — partial counts are normal.
 Recording a count does three things:
@@ -338,14 +361,18 @@ information that the estimate was ever wrong is gone.
 
 A material that drifts the *same direction every count* is not shrinkage — it
 is a wrong BOM number, and `CountLog` is the evidence to fix it. Anything off by
-10%+ is flagged in the confirmation. Take the variance percentage, apply it to
-that material's `QtyPerUnit` rows, and the estimate gets better each cycle.
-That is the path to pinning down the ink rate and the 40″ figures with measured
-numbers instead of guesses.
+10%+ is flagged both live and in the confirmation, and a material that has
+missed the same way twice or more carries a **drifting** flag on its row with
+its history one tap away. An exact match breaks that run: agreement is evidence
+*against* drift, not neutral. Take the variance percentage, apply it to that
+material's `QtyPerUnit` rows, and the estimate gets better each cycle. That is
+the path to pinning down the ink rate and the 40″ figures with measured numbers
+instead of guesses.
 
 The arithmetic — variance sign, partial counts, re-baselining — is pinned by
-`apps-script/test-count.js`. Run `node apps-script/test-count.js` after touching
-`submitCount()`.
+`apps-script/test-count.js`; the panel's reads — history order, drift runs,
+never-counted vs zero — by `apps-script/test-inventory.js`. Run both after
+touching `submitCount()` or `getInventory()`.
 
 > **Turning it on for an existing sheet:** **Aquamentor → Enable count
 > reconciliation**. It only *appends* the three columns to `RawMaterials` and

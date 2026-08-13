@@ -79,7 +79,7 @@ jobs:
       - name: Run the test suite before touching production
         if: steps.gate.outputs.configured == 'true'
         run: |
-          for t in overview count metrics wip strap today; do
+          for t in overview count metrics wip strap today inventory; do
             echo "--- test-$t ---"
             node "apps-script/test-$t.js"
           done
@@ -92,7 +92,7 @@ jobs:
           printf '{"scriptId":"%s","rootDir":"apps-script"}' \
             '${{ secrets.APPS_SCRIPT_ID }}' > .clasp.json
 
-          # apps-script/ holds the six Node test files and smoketest.js as well
+          # apps-script/ holds the seven Node test files and smoketest.js as well
           # as the backend. clasp treats every .js in rootDir as Apps Script
           # source, so without this it would push Node tests — require() and all
           # — into the live project. Allow-list rather than deny-list: a test
