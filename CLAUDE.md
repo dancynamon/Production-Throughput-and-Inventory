@@ -82,5 +82,6 @@ assert on them rather than trusting the parser.
 - WIP baselines not yet recorded for any product
 - `MANAGER_PIN` still the default `2468`
 - Cloudflare Access / custom domain discussed, not set up
-- Strap BOM moved wholesale; the strap-vs-tube split is unconfirmed, and the
-  two size SKUs collapse to one if the shoulder strap is size-independent
+- Strap is one size-independent SKU (`STRAP6` -> `M044`), confirmed by Dan.
+  Its recipe uses the measured 50" webbing quantities; a real per-strap
+  measurement would refine `STRAP_RECIPE` in `Code.gs`

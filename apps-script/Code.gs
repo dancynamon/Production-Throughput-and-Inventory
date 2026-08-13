@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-12 18:30 UTC      version 2.5.0
+ *  BUILD:  2026-08-13 12:01 UTC      version 2.6.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.5.0';
+var BACKEND_VERSION = '2.6.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-12 18:30 UTC';
+var BUILD_STAMP = '2026-08-13 12:01 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -212,13 +212,11 @@ function productFeedMap() {
 // box counts do not scale with length, so they are not in this table.
 var TUBE_SIZES = [
   { blank: 'BLANK50', exo: 'XRT50EXO', std: 'XRT50STD', label: '50"',
-    strap: 'STRAP50', strapMat: 'M044',
     foam: 0.1333, adhesive: 0.1522, mesh: 0.004,  paint: 0.0769,
     web1red: 1.78,  web1blk: 2.44,  web2blk: 1.58 },
   // 40" is length-scaled ×0.8 on foam / adhesive / paint / webbing.
   // Mesh is ~310 tubes per box rather than ~250.
   { blank: 'BLANK40', exo: 'XRT40EXO', std: 'XRT40STD', label: '40"',
-    strap: 'STRAP40', strapMat: 'M045',
     foam: 0.1067, adhesive: 0.1218, mesh: 0.0032, paint: 0.0615,
     web1red: 1.424, web1blk: 1.952, web2blk: 1.264 }
 ];
@@ -226,6 +224,31 @@ var TUBE_SIZES = [
 // OutputMaterial: finishing this product's LAST stage ADDS to that material's
 // on-hand. It is what makes a sub-assembly work — the strap line produces
 // stock, the tube line consumes it. FeedsFrom's mirror image.
+/* The shoulder strap is ONE part. It is identical on a 50" and a 40" — a 6'
+ * tow line is 6' either way — and every tube consumes exactly one.
+ *
+ * Its recipe uses the 50" webbing quantities deliberately. The old BOM carried
+ * different webbing per size, but the 40" column was never measured: the file
+ * documented it as the 50" column x0.8, applied across foam, adhesive, paint
+ * AND webbing alike. Since the strap does not actually vary by size, the 50"
+ * figures are the measured ones and the 40" figures were an artefact of that
+ * blanket scaling. Collapsing to the 50" numbers is therefore a correction,
+ * not a compromise — though it does mean a 40" tube now draws the true webbing
+ * amount rather than 80% of it, so expect those three items to deplete faster
+ * than the old estimate suggested.
+ *
+ * If a real per-strap measurement says otherwise, this is the one place to
+ * change it. */
+var STRAP_PRODUCT  = 'STRAP6';
+var STRAP_MATERIAL = 'M044';
+var STRAP_RECIPE = [
+  ['M014', 1.78],   // 1" red webbing, yd
+  ['M015', 2.44],   // 1" black webbing, yd
+  ['M019', 1.58],   // 2" black webbing, yd
+  ['M023', 1],      // 1" D-ring
+  ['M024', 1]       // 2" tri-glide
+];
+
 var PRODUCT_HEADERS = ['ProductID', 'ProductName', 'Line', 'Unit', 'Active',
                        'FeedsFrom', 'OutputMaterial'];
 
@@ -237,9 +260,10 @@ var PRODUCT_ROWS = (function () {
                                                             'TubeExo', 'each', 'YES', s.blank, '']);
     rows.push([s.std,   'XRT-' + s.label.replace('"', '') + ' Standard (unmeshed)',
                                                             'TubeStd', 'each', 'YES', s.blank, '']);
-    rows.push([s.strap, 'Shoulder Strap w/ 6\' Tow Line (' + s.label + ')',
-                                                            'Strap',   'each', 'YES', '', s.strapMat]);
   });
+  // One strap for every tube size.
+  rows.push([STRAP_PRODUCT, 'Shoulder Strap w/ 6\' Tow Line',
+             'Strap', 'each', 'YES', '', STRAP_MATERIAL]);
   return rows.concat([
     // Foam-mat shapes (size buckets) — CNC → Clean → Box, foam by area
     ['SHP16',   'Shape 16x16',        'Shape', 'each', 'YES', '', ''],
@@ -272,24 +296,6 @@ function tubeBomRows() {
     rows.push([s.blank, 'Cut',   'M034', s.foam]);
     rows.push([s.blank, 'Glued', 'M035', s.adhesive]);
 
-    /* The strap's own recipe. These are the exact quantities that previously
-     * came off at the tube's "Straps Attached", moved wholesale rather than
-     * split — so consumption per FINISHED TUBE is unchanged to the decimal and
-     * no inventory shifts. What is approximate is only which station gets
-     * charged: if some of this webbing is really wrapped around the tube
-     * rather than part of the shoulder strap, move those rows back onto the
-     * tube. Doing so has zero effect on stock levels.
-     *
-     * Split by size for the same reason — the existing quantities differ by
-     * size. If the shoulder strap is genuinely identical for a 50" and a 40",
-     * give me the real per-strap numbers and these collapse to one SKU. */
-    rows.push(
-      [s.strap, 'Made', 'M014', s.web1red],
-      [s.strap, 'Made', 'M015', s.web1blk],
-      [s.strap, 'Made', 'M019', s.web2blk],
-      [s.strap, 'Made', 'M023', 1],
-      [s.strap, 'Made', 'M024', 1]
-    );
 
     [s.exo, s.std].forEach(function (pid) {
       if (pid === s.exo) rows.push([pid, 'Meshed', 'M002', s.mesh]);  // boxes
@@ -302,11 +308,17 @@ function tubeBomRows() {
         [pid, 'Printed',         'M037', 0.007],      // ink — ESTIMATE
         // One finished strap, not raw webbing. The webbing and hardware now
         // come off stock at the Strap station instead.
-        [pid, 'Straps Attached', s.strapMat, 1],
+        [pid, 'Straps Attached', STRAP_MATERIAL, 1],
         [pid, 'Boxed',           'M031', 0.002],
         [pid, 'Boxed',           'M033', 0.0833]
       );
     });
+  });
+
+  // The strap is size-independent, so its recipe is emitted once rather than
+  // per size.
+  STRAP_RECIPE.forEach(function (r) {
+    rows.push([STRAP_PRODUCT, 'Made', r[0], r[1]]);
   });
   return rows;
 }
@@ -452,8 +464,7 @@ function setup() {
       ['M043', 'Chair Hardware Kit',       'kits',          '',   20,   '', 'Chair Hardware',   '1 kit per chair (bolts/nuts/washers/screws). Itemize later if wanted.'],
       // Sub-assemblies. Produced by the Strap line (Products.OutputMaterial),
       // consumed by the tube lines at "Straps Attached".
-      ['M044', 'Shoulder Strap w/ 6\' Tow Line (50")', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per 50" tube'],
-      ['M045', 'Shoulder Strap w/ 6\' Tow Line (40")', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per 40" tube'],
+      ['M044', 'Shoulder Strap w/ 6\' Tow Line', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per tube, any size'],
     ]);
   setColumnFormula(ss, TAB.materials, 6 /*F*/,
     '=IF(D{r}="","",IF(D{r}<=E{r},"⚠ REORDER","OK"))');
@@ -647,7 +658,7 @@ function migrateToVariantLines() {
       + '   BLANK50 / BLANK40      Cut → Glued\n'
       + '   XRT50EXO / XRT40EXO    Meshed → Patched → … → Boxed\n'
       + '   XRT50STD / XRT40STD    Patched → … → Boxed\n'
-      + '   STRAP50 / STRAP40      Made  (sub-assembly, 1 per tube)\n\n'
+      + '   STRAP6                 Made  (sub-assembly, 1 per tube)\n\n'
       + 'Planning also changes shape: one row per product AND STAGE, so targets '
       + 'are set per stage.\n\n'
       + 'RawMaterials (your on-hand counts), Employees, StageLog and ReceivingLog '
