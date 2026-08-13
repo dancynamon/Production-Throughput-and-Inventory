@@ -121,6 +121,41 @@ jobs:
               process.exit(1);
             }'
 
+      # clasp push sends the WHOLE rootDir, manifest included, and the manifest
+      # carries the web-app access settings. Writing one from guesswork risks
+      # flipping "Anyone" to something that locks the floor out of the app, and
+      # the timezone silently shifts how WorkDate is interpreted.
+      #
+      # So pull the live project first and keep its manifest verbatim, then
+      # restore our Code.gs over whatever pull fetched. Only Code.gs changes;
+      # anything else already in the project — a stray file, an oauthScopes
+      # block someone added by hand — survives untouched.
+      - name: Fetch the live manifest so the push cannot clobber it
+        if: steps.gate.outputs.configured == 'true'
+        run: |
+          clasp pull --force || echo "pull failed — will fall back to a default manifest"
+          git checkout -- apps-script/Code.gs 2>/dev/null || true
+
+          if [ ! -f apps-script/appsscript.json ]; then
+            echo "::warning::No manifest came back from the project — writing a default."
+            echo "::warning::Confirm Deploy > Manage deployments still reads Execute as: Me, Who has access: Anyone."
+            cat > apps-script/appsscript.json <<'JSON'
+          {
+            "timeZone": "America/New_York",
+            "dependencies": {},
+            "exceptionLogging": "STACKDRIVER",
+            "runtimeVersion": "V8",
+            "webapp": {
+              "executeAs": "USER_DEPLOYING",
+              "access": "ANYONE_ANONYMOUS"
+            }
+          }
+          JSON
+          fi
+
+          echo "Manifest that will be pushed:"
+          cat apps-script/appsscript.json
+
       - name: Push and deploy
         if: steps.gate.outputs.configured == 'true'
         env:
