@@ -48,9 +48,23 @@ There is no GitHub↔Apps Script sync (no clasp). Copy-paste is the only bridge.
    longer fatal — but running it by hand makes the change visible immediately
 3. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**
 
-`.github/workflows/deploy-apps-script.yml` automates 1 and 3 via clasp once
-three repo secrets exist (`CLASP_CREDENTIALS`, `APPS_SCRIPT_ID`,
-`APPS_SCRIPT_DEPLOYMENT_ID`). It skips green while unconfigured.
+`.github/workflows/deploy-apps-script.yml` automates 1 and 3 via clasp. It
+skips green while unconfigured. Always needs `APPS_SCRIPT_ID` and
+`APPS_SCRIPT_DEPLOYMENT_ID`, plus **one** of:
+
+- `GCP_SA_KEY` — a service-account JSON key. Preferred: no reauth clock.
+  Requires the **spreadsheet** shared with the SA as Editor (the script is
+  bound, so container permissions are the only permissions) and the Apps
+  Script API enabled on the key's GCP project. clasp reads it through `--adc`,
+  which is a *global* flag and so covers `deploy`, not just `push`
+- `CLASP_CREDENTIALS` — a personal `clasp login`. Works, but Google expires
+  the reauth proof: it died with `invalid_rapt` six days after being minted on
+  2026-08-13, and only a browser session can clear that. The workflow warns
+  when running on this path
+
+Service accounts *cannot own* Apps Script projects — access comes only from
+sharing. Older sources say the Apps Script API rejects service accounts
+outright; that was true before clasp 3.x added `--adc`.
 
 Step 3 is the one that gets skipped. Saving never changes what the web app
 serves — only a new version does. **Never "New deployment"**: it mints a new

@@ -5,19 +5,53 @@
 # INERT UNTIL CONFIGURED. Without the secrets below it skips with a green tick
 # rather than failing — an always-red workflow is worse than no workflow.
 #
-# One-time setup (about ten minutes, on your own machine):
+# ---------------------------------------------------------------------------
+# TWO WAYS TO AUTHENTICATE. The workflow prefers the first.
+# ---------------------------------------------------------------------------
 #
-#   1. Turn on the Apps Script API:  https://script.google.com/home/usersettings
-#   2. npm i -g @google/clasp && clasp login
-#   3. cat ~/.clasprc.json          -> repo secret  CLASP_CREDENTIALS
-#   4. Open the Apps Script editor -> Project Settings -> copy the Script ID
+# A. SERVICE ACCOUNT  (GCP_SA_KEY)  — preferred, no expiry clock
+#
+#    A personal clasp login carries a REAUTH clock. Google Workspace can force
+#    periodic reauthentication on these scopes, and when the proof lapses the
+#    refresh token starts failing with "invalid_rapt" — which is what silently
+#    stopped the 2.10.0 deploy six days after the token was minted. No amount
+#    of care here prevents that; only a human at a browser can clear it.
+#
+#    A service account has no interactive session, so it has nothing to
+#    reauthenticate. clasp 3.x reads one through Google's application default
+#    credentials with the global --adc flag, which covers deploy as well as
+#    push — the flag being global is what makes this viable, since a push that
+#    cannot deploy changes nothing about what the URL serves.
+#
+#      1. GCP console -> IAM & Admin -> Service Accounts -> Create
+#         Name it something legible, e.g. aquamentor-deploy. No roles needed:
+#         its access comes from the Drive share in step 3, not from IAM.
+#      2. Keys -> Add key -> Create new key -> JSON. Download it.
+#      3. Share the SPREADSHEET with the service account's email as EDITOR.
+#         The script is BOUND to the sheet, so its permissions come from the
+#         container — a service account cannot own a script, only be given
+#         access to one.
+#      4. Enable the Apps Script API on that same GCP project:
+#         https://console.cloud.google.com/apis/library/script.googleapis.com
+#      5. Paste the whole JSON key -> repo secret  GCP_SA_KEY
+#
+# B. PERSONAL LOGIN  (CLASP_CREDENTIALS)  — the fallback, expires
+#
+#      1. Turn on the Apps Script API:  https://script.google.com/home/usersettings
+#      2. npm i -g @google/clasp && clasp login
+#      3. cat ~/.clasprc.json          -> repo secret  CLASP_CREDENTIALS
+#
+# Either way, both of these are also required:
+#
+#      Apps Script editor -> Project Settings -> Script ID
 #                                   -> repo secret  APPS_SCRIPT_ID
-#   5. Deployment ID from Deploy > Manage deployments (starts AKfycb…)
+#      Deploy > Manage deployments, the id starting AKfycb…
 #                                   -> repo secret  APPS_SCRIPT_DEPLOYMENT_ID
 #
-# Step 5 matters: passing the EXISTING deployment id updates that deployment in
-# place. Omitting it mints a brand-new URL and leaves config.js pointing at the
-# old one — the exact failure that cost several rounds of debugging by hand.
+# That last one matters: passing the EXISTING deployment id updates that
+# deployment in place. Omitting it mints a brand-new URL and leaves config.js
+# pointing at the old one — the exact failure that cost several rounds of
+# debugging by hand.
 
 name: Deploy Apps Script
 
@@ -40,23 +74,40 @@ jobs:
       - name: Check whether this repo is configured for clasp
         id: gate
         env:
+          SA_KEY: ${{ secrets.GCP_SA_KEY }}
           CREDS: ${{ secrets.CLASP_CREDENTIALS }}
           SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
           DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
         run: |
-          missing=""
           report () {
-            if [ -z "$2" ]; then
-              echo "  $1: MISSING"
-              missing="$missing $1"
-            else
-              echo "  $1: present (${#2} chars)"
-            fi
+            if [ -z "$2" ]; then echo "  $1: absent"
+            else echo "  $1: present (${#2} chars)"; fi
           }
           echo "Repository secrets visible to this workflow:"
+          report GCP_SA_KEY                "$SA_KEY"
           report CLASP_CREDENTIALS         "$CREDS"
           report APPS_SCRIPT_ID            "$SCRIPT_ID"
           report APPS_SCRIPT_DEPLOYMENT_ID "$DEPLOYMENT_ID"
+          echo ""
+
+          # The service account is preferred wherever both exist: it is the one
+          # that cannot lapse. The personal login stays wired so that removing
+          # a working path is never the price of adding a better one.
+          if [ -n "$SA_KEY" ]; then
+            AUTH=sa
+            echo "Auth: service account (GCP_SA_KEY) — no reauth clock."
+          elif [ -n "$CREDS" ]; then
+            AUTH=oauth
+            echo "Auth: personal clasp login (CLASP_CREDENTIALS)."
+            echo "::warning::This credential carries a reauth clock and will eventually fail with invalid_rapt. Add GCP_SA_KEY to be rid of it — see the header of this workflow."
+          else
+            AUTH=none
+          fi
+
+          missing=""
+          [ "$AUTH" = "none" ] && missing="$missing GCP_SA_KEY-or-CLASP_CREDENTIALS"
+          [ -z "$SCRIPT_ID" ] && missing="$missing APPS_SCRIPT_ID"
+          [ -z "$DEPLOYMENT_ID" ] && missing="$missing APPS_SCRIPT_DEPLOYMENT_ID"
 
           if [ -n "$missing" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
@@ -68,7 +119,8 @@ jobs:
             echo "  * names are case-sensitive and must match exactly"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "All three present — proceeding."
+            echo "auth=$AUTH" >> "$GITHUB_OUTPUT"
+            echo "Configured — proceeding."
           fi
 
       - uses: actions/setup-node@v4
@@ -86,9 +138,29 @@ jobs:
 
       - name: Install clasp and authenticate
         if: steps.gate.outputs.configured == 'true'
+        env:
+          AUTH: ${{ steps.gate.outputs.auth }}
         run: |
           npm install -g @google/clasp
-          printf '%s' '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
+          clasp --version
+
+          if [ "$AUTH" = "sa" ]; then
+            # Application default credentials: a key file on disk, plus the env
+            # var google-auth-library looks for. --adc is a GLOBAL clasp flag,
+            # so it applies to deploy as well as push — which is the whole
+            # point. A push that cannot deploy changes nothing about what the
+            # web app serves, so an auth mode that only covered push would be
+            # no better than no automation at all.
+            printf '%s' '${{ secrets.GCP_SA_KEY }}' > "$HOME/sa-key.json"
+            chmod 600 "$HOME/sa-key.json"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$HOME/sa-key.json" >> "$GITHUB_ENV"
+            echo "CLASP_FLAGS=--adc" >> "$GITHUB_ENV"
+          else
+            printf '%s' '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
+            chmod 600 ~/.clasprc.json
+            echo "CLASP_FLAGS=" >> "$GITHUB_ENV"
+          fi
+
           printf '{"scriptId":"%s","rootDir":"apps-script"}' \
             '${{ secrets.APPS_SCRIPT_ID }}' > .clasp.json
 
@@ -112,7 +184,39 @@ jobs:
       # credential file is still a credential.
       - name: Validate the credentials before using them
         if: steps.gate.outputs.configured == 'true'
+        env:
+          AUTH: ${{ steps.gate.outputs.auth }}
         run: |
+          if [ "$AUTH" = "sa" ]; then
+            # The service account's own failure mode is different: the JSON is
+            # usually fine, but it is the wrong KIND of key, or the sheet was
+            # never shared with the principal it names. Check the shape, then
+            # print enough of the identity to tell whether the share went to
+            # this account — masked, because these logs are public.
+            node -e '
+              const fs = require("fs");
+              const raw = fs.readFileSync(process.env.HOME + "/sa-key.json", "utf8");
+              let k;
+              try { k = JSON.parse(raw); }
+              catch (e) {
+                console.log(`::error::GCP_SA_KEY is not valid JSON — ${e.message}`);
+                console.log(`length ${raw.length}, last character ${JSON.stringify(raw.trimEnd().slice(-1))} — it should be "}"`);
+                console.log("Paste the downloaded key file whole, braces included.");
+                process.exit(1);
+              }
+              const miss = ["type", "client_email", "private_key"].filter((f) => !k[f]);
+              if (miss.length || k.type !== "service_account") {
+                console.log(`::error::GCP_SA_KEY is not a service-account key (missing ${miss.join(", ") || "nothing"}, type "${k.type}")`);
+                console.log("Download it from IAM & Admin > Service Accounts > Keys > Add key > JSON.");
+                process.exit(1);
+              }
+              const [local, domain] = String(k.client_email).split("@");
+              console.log(`Service-account key parses cleanly (${raw.length} chars).`);
+              console.log(`Acting as ${local.slice(0, 4)}…@${domain}`);
+              console.log("The SPREADSHEET must be shared with that address as Editor.");'
+            exit 0
+          fi
+
           node -e '
             const fs = require("fs");
             const path = process.env.HOME + "/.clasprc.json";
@@ -145,7 +249,7 @@ jobs:
       - name: Fetch the live manifest so the push cannot clobber it
         if: steps.gate.outputs.configured == 'true'
         run: |
-          clasp pull --force || echo "pull failed — will fall back to a default manifest"
+          clasp $CLASP_FLAGS pull --force || echo "pull failed — will fall back to a default manifest"
 
           # clasp pulls Apps Script sources as .js, so Code.gs comes back as
           # Code.js and the two then map to the same remote file — "Conflicting
@@ -174,7 +278,7 @@ jobs:
           cat apps-script/appsscript.json
           echo ""
           echo "Files clasp considers in scope:"
-          clasp status || true
+          clasp $CLASP_FLAGS status || true
 
       - name: Push and deploy
         if: steps.gate.outputs.configured == 'true'
@@ -188,29 +292,64 @@ jobs:
           # like a code failure sitting under a step called "Push and deploy".
           # It is not: the credentials simply aged out and only a human with the
           # Google session can mint new ones. Name that, and name both exits.
+          # Whatever went wrong, the web app is still serving the previous
+          # version — so every branch here has to end by saying so, and by
+          # naming the by-hand route out. A red run that leaves someone
+          # guessing whether production moved is the failure this workflow
+          # exists to prevent.
+          by_hand () {
+            echo ""
+            echo "Nothing was pushed — the web app is still serving the previous version."
+            echo ""
+            echo "To ship this build by hand: Apps Script editor, paste Code.gs, Save,"
+            echo "then Deploy > Manage deployments > Edit > New version."
+          }
+
           explain () {
             if grep -q "invalid_rapt\|invalid_grant" /tmp/clasp.log; then
+              # Only the personal login can hit this. Google expires the reauth
+              # proof on these scopes and only a human at a browser can clear it.
               echo "::error::CLASP_CREDENTIALS has expired — Google requires periodic reauth on these scopes."
-              echo ""
-              echo "Nothing was pushed and the web app is still serving the previous version."
+              by_hand
               echo ""
               echo "To refresh it (on your own machine):"
               echo "    clasp login"
               echo "    cat ~/.clasprc.json | pbcopy"
               echo "then paste into Settings > Secrets and variables > Actions > CLASP_CREDENTIALS."
               echo ""
-              echo "Or ship this one by hand — Apps Script editor: paste Code.gs, Save,"
-              echo "then Deploy > Manage deployments > Edit > New version."
+              echo "Better: add GCP_SA_KEY instead and this stops happening — see"
+              echo "the header of this workflow. A service account has no session"
+              echo "to reauthenticate."
+
+            elif grep -qi "permission\|forbidden\|403\|not found\|404" /tmp/clasp.log; then
+              # The service account's characteristic failure: it authenticated
+              # fine, it just cannot see the script. A service account cannot
+              # own a script, and this one is BOUND to the spreadsheet, so its
+              # access comes from the Drive share rather than from any IAM role.
+              echo "::error::Authenticated, but the script is not reachable."
+              by_hand
+              echo ""
+              echo "If using GCP_SA_KEY, check in this order:"
+              echo "  1. the SPREADSHEET is shared with the service account as EDITOR"
+              echo "     (the script is bound to the sheet — sharing the sheet is what"
+              echo "     grants access to the script; there is nothing to share directly)"
+              echo "  2. the Apps Script API is enabled on the key's GCP project:"
+              echo "     https://console.cloud.google.com/apis/library/script.googleapis.com"
+              echo "  3. APPS_SCRIPT_ID matches Project Settings > Script ID"
+
+            else
+              echo "::error::clasp failed — see the output above."
+              by_hand
             fi
             exit 1
           }
 
-          clasp push --force 2>&1 | tee /tmp/clasp.log || explain
+          clasp $CLASP_FLAGS push --force 2>&1 | tee /tmp/clasp.log || explain
           STAMP=$(grep -m1 -oP "BUILD:\s+\K[0-9-]+ [0-9:]+ UTC" apps-script/Code.gs || echo "manual")
           if [ -n "$DEPLOYMENT_ID" ]; then
             # Update the EXISTING deployment. Creating a new one would mint a
             # fresh /exec URL that config.js does not point at.
-            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$STAMP" 2>&1 | tee /tmp/clasp.log || explain
+            clasp $CLASP_FLAGS deploy --deploymentId "$DEPLOYMENT_ID" --description "$STAMP" 2>&1 | tee /tmp/clasp.log || explain
           else
             echo "::warning::APPS_SCRIPT_DEPLOYMENT_ID not set — pushed the code but did NOT deploy it."
             echo "::warning::The web app keeps serving the previous version until you deploy by hand."
