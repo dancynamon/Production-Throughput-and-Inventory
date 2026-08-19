@@ -181,12 +181,36 @@ jobs:
         env:
           DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
         run: |
-          clasp push --force
+          set -o pipefail
+
+          # Google expires the reauth proof on these scopes periodically, and
+          # clasp reports it as a bare JSON blob — "invalid_rapt" — which reads
+          # like a code failure sitting under a step called "Push and deploy".
+          # It is not: the credentials simply aged out and only a human with the
+          # Google session can mint new ones. Name that, and name both exits.
+          explain () {
+            if grep -q "invalid_rapt\|invalid_grant" /tmp/clasp.log; then
+              echo "::error::CLASP_CREDENTIALS has expired — Google requires periodic reauth on these scopes."
+              echo ""
+              echo "Nothing was pushed and the web app is still serving the previous version."
+              echo ""
+              echo "To refresh it (on your own machine):"
+              echo "    clasp login"
+              echo "    cat ~/.clasprc.json | pbcopy"
+              echo "then paste into Settings > Secrets and variables > Actions > CLASP_CREDENTIALS."
+              echo ""
+              echo "Or ship this one by hand — Apps Script editor: paste Code.gs, Save,"
+              echo "then Deploy > Manage deployments > Edit > New version."
+            fi
+            exit 1
+          }
+
+          clasp push --force 2>&1 | tee /tmp/clasp.log || explain
           STAMP=$(grep -m1 -oP "BUILD:\s+\K[0-9-]+ [0-9:]+ UTC" apps-script/Code.gs || echo "manual")
           if [ -n "$DEPLOYMENT_ID" ]; then
             # Update the EXISTING deployment. Creating a new one would mint a
             # fresh /exec URL that config.js does not point at.
-            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$STAMP"
+            clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "$STAMP" 2>&1 | tee /tmp/clasp.log || explain
           else
             echo "::warning::APPS_SCRIPT_DEPLOYMENT_ID not set — pushed the code but did NOT deploy it."
             echo "::warning::The web app keeps serving the previous version until you deploy by hand."
