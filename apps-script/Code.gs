@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-13 21:40 UTC      version 2.9.0
+ *  BUILD:  2026-08-13 22:34 UTC      version 2.10.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.9.0';
+var BACKEND_VERSION = '2.10.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-13 21:40 UTC';
+var BUILD_STAMP = '2026-08-13 22:34 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -393,6 +393,67 @@ function planningRows() {
 /* ============================================================================
  *  1. SETUP
  * ========================================================================== */
+/* The material catalogue the code knows about.
+ *
+ * Lifted out of setup() so the upgrade path can reach it too: setup() only
+ * ever seeds a MISSING tab, so a material added to this list after the sheet
+ * was built would otherwise never appear — which is exactly how M044 (the
+ * strap) ended up referenced by the BOM with no row to deduct from.
+ * addMissingReferencedMaterials() closes that gap. */
+var MATERIAL_HEADERS = ['MaterialID', 'MaterialName', 'Unit', 'OnHand', 'ReorderPoint', 'Status', 'Category', 'Notes'];
+
+var MATERIAL_ROWS = [
+    ['M001', 'Glue Pods',                'Boxes',         5,    1,    '', 'Glue & Mesh',      ''],
+    ['M002', 'Nylon Mesh',               'Boxes',         12,   2,    '', 'Glue & Mesh',      '~250 tubes per box (XRT-50)'],
+    ['M003', 'Patch Material',           'Rolls',         0.5,  0.25, '', 'End Patches',      '54"x60yd roll ≈ 9,720 tubes (2x 2"x3" patches/tube)'],
+    ['M004', 'Cyanoacrylate (CA glue)',  'lbs',           78,   10,   '', 'End Patches',      '44 lb ≈ 3,500 tubes'],
+    ['M005', 'Accelerant',               'Gallons',       8,    2,    '', 'End Patches',      '5 gal ≈ 3,500 tubes'],
+    ['M006', 'Raycryl B43293',           '50 Gal Drums',  16,   5,    '', 'Ink & Coating',    ''],
+    ['M007', 'Tego',                     '',              '',   '',   '', 'Ink & Coating',    'Marked "Exp." — check if expired'],
+    ['M008', 'Siltech C4405',            '',              '',   '',   '', 'Ink & Coating',    'Marked "Full" — needs a count'],
+    ['M009', 'Chromatint 3208 PR170',    '50 Gal Drums',  1,    0.25, '', 'Ink & Coating',    ''],
+    ['M010', 'Ammonia',                  'Litres',        2,    0,    '', 'Ink & Coating',    ''],
+    ['M011', 'Eversorb AQ1',             '',              '',   '',   '', 'Ink & Coating',    'Needs a count'],
+    ['M012', 'Acrysol SCT275',           '',              '',   '',   '', 'Ink & Coating',    'Needs a count'],
+    ['M013', 'Yellow Paint',             '50 Gal Drum',   1,    0,    '', 'Ink & Coating',    ''],
+    ['M014', '1" Red PP Webbing',        'Yards',         96,   1000, '', 'Webbing & Thread', ''],
+    ['M015', '1" Black PP Webbing',      'Yards',         109,  1000, '', 'Webbing & Thread', ''],
+    ['M016', '1" Yellow PP Webbing',     'Yards',         9,    100,  '', 'Webbing & Thread', ''],
+    ['M017', '1-1/2" Black PP Webbing',  'Yards',         4,    100,  '', 'Webbing & Thread', ''],
+    ['M018', '1-1/2" Buckles (M&F)',     'Each',          '',   50,   '', 'Webbing & Thread', 'Needs a count'],
+    ['M019', '2" Black PP Webbing',      'Yards',         50,   1000, '', 'Webbing & Thread', ''],
+    ['M020', '2" Red PP Webbing',        'Yards',         5,    200,  '', 'Webbing & Thread', ''],
+    ['M021', '2" Blue PP Webbing',       'Yards',         3,    200,  '', 'Webbing & Thread', ''],
+    ['M022', 'Tek-70 Black Thread',      'Spools',        1,    1000, '', 'Webbing & Thread', 'Reorder point looks high — confirm'],
+    ['M023', '1" D-Rings',               'Each',          3500, 100,  '', 'Webbing & Thread', ''],
+    ['M024', '2" Tri-Glides',            'Each',          4000, 100,  '', 'Webbing & Thread', ''],
+    ['M025', '1" Male Buckles',          'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
+    ['M026', '1" Female Buckles',        'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
+    ['M027', '2" Male Buckles',          'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
+    ['M028', '2" Female Buckles',        'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
+    ['M029', 'Brass Buckle',             'Each',          80,   40,   '', 'Webbing & Thread', ''],
+    ['M030', 'Brass O-Ring',             'Each',          200,  50,   '', 'Webbing & Thread', ''],
+    ['M031', 'PolyBags (50")',           'Box (500/box)', 4,    2,    '', 'Packaging',        ''],
+    ['M032', 'Rubber Bands',             'Boxes',         3,    0,    '', 'Packaging',        ''],
+    ['M033', 'Rescue Tube Custom Boxes', 'Boxes',         '',   0,    '', 'Packaging',        'Marked "on way" — awaiting delivery'],
+    ['M034', 'EVA Foam (2# black)',      'sheet',         '',   10,   '', 'Foam',             'From COGS (7.5 tubes/sheet) — needs count'],
+    ['M035', 'Foam Fast 74 Adhesive',    'lb',            '',   30,   '', 'Glue & Mesh',      'From COGS — needs count'],
+    ['M036', 'WB Urethane Paint (Red)',  'gal',           '',   10,   '', 'Ink & Coating',    'From COGS (Flexabar WB2571) — needs count'],
+    ['M037', 'UV White Ink (print)',     'unit',          '',   1,    '', 'Ink & Coating',    'ESTIMATE 0.007 unit/tube (COGS top-down) — send real ink-per-batch to refine'],
+    // ---- Shapes & kickboards ----
+    ['M038', '4# 1.5" Foam',             'sq ft',         '',   200,  '', 'Foam',             'Shapes/kickboards deduct by area. Receive a sheet as its sq ft. Confirm kickboard foam.'],
+    // ---- Lifeguard chair lumber (8-ft boards) ----
+    ['M039', 'Lumber 1x4 (.75x3.5x96)',  'boards',        '',   50,   '', 'Chair Lumber',     'Count needed'],
+    ['M040', 'Lumber 1.25x4 (1.125x3.5)','boards',        '',   40,   '', 'Chair Lumber',     'Count needed'],
+    ['M041', 'Lumber 2x4 (1.5x3.5x96)',  'boards',        '',   60,   '', 'Chair Lumber',     'Count needed'],
+    ['M042', 'Lumber 1x6 (.75x5.5x97)',  'boards',        '',   20,   '', 'Chair Lumber',     'Count needed'],
+    // ---- Lifeguard chair hardware ----
+    ['M043', 'Chair Hardware Kit',       'kits',          '',   20,   '', 'Chair Hardware',   '1 kit per chair (bolts/nuts/washers/screws). Itemize later if wanted.'],
+    // Sub-assemblies. Produced by the Strap line (Products.OutputMaterial),
+    // consumed by the tube lines at "Straps Attached".
+    ['M044', 'Shoulder Strap w/ 6\' Tow Line', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per tube, any size'],
+];
+
 function setup() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var kept = [], created = [];
@@ -421,59 +482,7 @@ function setup() {
   // M001–M033 from your "Raw Material Inventory" sheet (3/1/2023 counts; blank
   // = not yet counted). M034–M037 come from the COGS build (foam, adhesive,
   // paint, ink) — they aren't on the count sheet yet, so count/receive them.
-  seed(TAB.materials,
-    ['MaterialID', 'MaterialName', 'Unit', 'OnHand', 'ReorderPoint', 'Status', 'Category', 'Notes'],
-    [
-      ['M001', 'Glue Pods',                'Boxes',         5,    1,    '', 'Glue & Mesh',      ''],
-      ['M002', 'Nylon Mesh',               'Boxes',         12,   2,    '', 'Glue & Mesh',      '~250 tubes per box (XRT-50)'],
-      ['M003', 'Patch Material',           'Rolls',         0.5,  0.25, '', 'End Patches',      '54"x60yd roll ≈ 9,720 tubes (2x 2"x3" patches/tube)'],
-      ['M004', 'Cyanoacrylate (CA glue)',  'lbs',           78,   10,   '', 'End Patches',      '44 lb ≈ 3,500 tubes'],
-      ['M005', 'Accelerant',               'Gallons',       8,    2,    '', 'End Patches',      '5 gal ≈ 3,500 tubes'],
-      ['M006', 'Raycryl B43293',           '50 Gal Drums',  16,   5,    '', 'Ink & Coating',    ''],
-      ['M007', 'Tego',                     '',              '',   '',   '', 'Ink & Coating',    'Marked "Exp." — check if expired'],
-      ['M008', 'Siltech C4405',            '',              '',   '',   '', 'Ink & Coating',    'Marked "Full" — needs a count'],
-      ['M009', 'Chromatint 3208 PR170',    '50 Gal Drums',  1,    0.25, '', 'Ink & Coating',    ''],
-      ['M010', 'Ammonia',                  'Litres',        2,    0,    '', 'Ink & Coating',    ''],
-      ['M011', 'Eversorb AQ1',             '',              '',   '',   '', 'Ink & Coating',    'Needs a count'],
-      ['M012', 'Acrysol SCT275',           '',              '',   '',   '', 'Ink & Coating',    'Needs a count'],
-      ['M013', 'Yellow Paint',             '50 Gal Drum',   1,    0,    '', 'Ink & Coating',    ''],
-      ['M014', '1" Red PP Webbing',        'Yards',         96,   1000, '', 'Webbing & Thread', ''],
-      ['M015', '1" Black PP Webbing',      'Yards',         109,  1000, '', 'Webbing & Thread', ''],
-      ['M016', '1" Yellow PP Webbing',     'Yards',         9,    100,  '', 'Webbing & Thread', ''],
-      ['M017', '1-1/2" Black PP Webbing',  'Yards',         4,    100,  '', 'Webbing & Thread', ''],
-      ['M018', '1-1/2" Buckles (M&F)',     'Each',          '',   50,   '', 'Webbing & Thread', 'Needs a count'],
-      ['M019', '2" Black PP Webbing',      'Yards',         50,   1000, '', 'Webbing & Thread', ''],
-      ['M020', '2" Red PP Webbing',        'Yards',         5,    200,  '', 'Webbing & Thread', ''],
-      ['M021', '2" Blue PP Webbing',       'Yards',         3,    200,  '', 'Webbing & Thread', ''],
-      ['M022', 'Tek-70 Black Thread',      'Spools',        1,    1000, '', 'Webbing & Thread', 'Reorder point looks high — confirm'],
-      ['M023', '1" D-Rings',               'Each',          3500, 100,  '', 'Webbing & Thread', ''],
-      ['M024', '2" Tri-Glides',            'Each',          4000, 100,  '', 'Webbing & Thread', ''],
-      ['M025', '1" Male Buckles',          'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
-      ['M026', '1" Female Buckles',        'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
-      ['M027', '2" Male Buckles',          'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
-      ['M028', '2" Female Buckles',        'Each',          '',   100,  '', 'Webbing & Thread', 'Needs a count'],
-      ['M029', 'Brass Buckle',             'Each',          80,   40,   '', 'Webbing & Thread', ''],
-      ['M030', 'Brass O-Ring',             'Each',          200,  50,   '', 'Webbing & Thread', ''],
-      ['M031', 'PolyBags (50")',           'Box (500/box)', 4,    2,    '', 'Packaging',        ''],
-      ['M032', 'Rubber Bands',             'Boxes',         3,    0,    '', 'Packaging',        ''],
-      ['M033', 'Rescue Tube Custom Boxes', 'Boxes',         '',   0,    '', 'Packaging',        'Marked "on way" — awaiting delivery'],
-      ['M034', 'EVA Foam (2# black)',      'sheet',         '',   10,   '', 'Foam',             'From COGS (7.5 tubes/sheet) — needs count'],
-      ['M035', 'Foam Fast 74 Adhesive',    'lb',            '',   30,   '', 'Glue & Mesh',      'From COGS — needs count'],
-      ['M036', 'WB Urethane Paint (Red)',  'gal',           '',   10,   '', 'Ink & Coating',    'From COGS (Flexabar WB2571) — needs count'],
-      ['M037', 'UV White Ink (print)',     'unit',          '',   1,    '', 'Ink & Coating',    'ESTIMATE 0.007 unit/tube (COGS top-down) — send real ink-per-batch to refine'],
-      // ---- Shapes & kickboards ----
-      ['M038', '4# 1.5" Foam',             'sq ft',         '',   200,  '', 'Foam',             'Shapes/kickboards deduct by area. Receive a sheet as its sq ft. Confirm kickboard foam.'],
-      // ---- Lifeguard chair lumber (8-ft boards) ----
-      ['M039', 'Lumber 1x4 (.75x3.5x96)',  'boards',        '',   50,   '', 'Chair Lumber',     'Count needed'],
-      ['M040', 'Lumber 1.25x4 (1.125x3.5)','boards',        '',   40,   '', 'Chair Lumber',     'Count needed'],
-      ['M041', 'Lumber 2x4 (1.5x3.5x96)',  'boards',        '',   60,   '', 'Chair Lumber',     'Count needed'],
-      ['M042', 'Lumber 1x6 (.75x5.5x97)',  'boards',        '',   20,   '', 'Chair Lumber',     'Count needed'],
-      // ---- Lifeguard chair hardware ----
-      ['M043', 'Chair Hardware Kit',       'kits',          '',   20,   '', 'Chair Hardware',   '1 kit per chair (bolts/nuts/washers/screws). Itemize later if wanted.'],
-      // Sub-assemblies. Produced by the Strap line (Products.OutputMaterial),
-      // consumed by the tube lines at "Straps Attached".
-      ['M044', 'Shoulder Strap w/ 6\' Tow Line', 'each', '', 50, '', 'Sub-assembly', 'Made at the Strap station; 1 per tube, any size'],
-    ]);
+  seed(TAB.materials, MATERIAL_HEADERS, MATERIAL_ROWS);
   setColumnFormula(ss, TAB.materials, 6 /*F*/,
     '=IF(D{r}="","",IF(D{r}<=E{r},"⚠ REORDER","OK"))');
 
@@ -598,6 +607,102 @@ function whatAmIRunning() {
   return text;
 }
 
+/* Append any material the recipes reference but RawMaterials does not have.
+ *
+ * A missing row is not a loud failure. submitDay() looks each material up by
+ * ID and simply skips it when there is no row, so the deduction quietly does
+ * not happen. M044 is the case in point: the strap line consumed webbing and
+ * produced nothing, and every tube that had straps attached deducted a strap
+ * that did not exist — for weeks, with no error anywhere. setup() cannot fix
+ * it either, since it only ever seeds a tab that is MISSING.
+ *
+ * Only REFERENCED materials are added, never the whole catalogue. A material
+ * the BOM or a product's OutputMaterial points at provably has to exist; one
+ * nobody references may have been deleted deliberately, and re-adding it would
+ * be overruling a decision rather than repairing a gap.
+ *
+ * OnHand is left BLANK, not 0. The quantity is genuinely unknown — blank reads
+ * as "never counted" everywhere in the app, where 0 would read as "counted,
+ * and there are none", which is a different and much more confident claim. */
+function addMissingReferencedMaterials() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TAB.materials);
+  if (!sh) return [];
+
+  var have = {};
+  readObjects(TAB.materials).forEach(function (m) {
+    var id = String(m.MaterialID || '').trim();
+    if (id) have[id] = true;
+  });
+
+  var wanted = {};
+  readObjects(TAB.bom).forEach(function (r) {
+    var id = String(r.MaterialID || '').trim();
+    if (id) wanted[id] = true;
+  });
+  readObjects(TAB.products).forEach(function (p) {
+    var id = String(p.OutputMaterial || '').trim();
+    if (id) wanted[id] = true;
+  });
+
+  var seedById = {};
+  MATERIAL_ROWS.forEach(function (r) { seedById[r[0]] = r; });
+
+  var added = [];
+  Object.keys(wanted).forEach(function (id) {
+    if (have[id]) return;
+    var seed = seedById[id];
+    appendByHeader(sh, seed
+      ? { MaterialID: seed[0], MaterialName: seed[1], Unit: seed[2], OnHand: '',
+          ReorderPoint: seed[4], Status: '', Category: seed[6], Notes: seed[7] }
+      : { MaterialID: id, MaterialName: id, Unit: '', OnHand: '',
+          ReorderPoint: '', Status: '', Category: 'Uncategorised',
+          Notes: 'Added automatically — a recipe references this material.' });
+    added.push(id);
+  });
+
+  // The Status cell is a formula per row, so a freshly appended row has none.
+  if (added.length) {
+    setColumnFormula(ss, TAB.materials, 6 /*F*/,
+      '=IF(D{r}="","",IF(D{r}<=E{r},"\u26a0 REORDER","OK"))');
+  }
+  return added;
+}
+
+/* Fill in a BLANK Family cell from the catalogue, so products group.
+ *
+ * addColumns() can append the Family column but has no way to know what
+ * belongs in it, so a sheet that was upgraded rather than rebuilt ends up with
+ * the header and a column of empty cells — and getConfig() reads a blank
+ * Family as "Other", which silently collapses every group into one. That is
+ * indistinguishable from the grouping feature simply not working.
+ *
+ * Only blank cells are written. A family someone re-typed by hand is theirs. */
+function backfillProductFamilies() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TAB.products);
+  if (!sh) return 0;
+
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return 0;
+  var headers = values[0];
+  var idCol = headers.indexOf('ProductID'), famCol = headers.indexOf('Family');
+  if (idCol === -1 || famCol === -1) return 0;
+
+  var famById = {};
+  PRODUCT_ROWS.forEach(function (r) { famById[r[0]] = r[PRODUCT_HEADERS.indexOf('Family')]; });
+
+  var filled = 0;
+  for (var i = 1; i < values.length; i++) {
+    var id = String(values[i][idCol] || '').trim();
+    if (!id || String(values[i][famCol] || '').trim() !== '') continue;
+    if (!famById[id]) continue;
+    sh.getRange(i + 1, famCol + 1).setValue(famById[id]);
+    filled++;
+  }
+  return filled;
+}
+
 /* Bring an older sheet up to the current schema.
  *
  * Deliberately additive: it only ever APPENDS missing columns and creates
@@ -641,6 +746,14 @@ function applySchemaUpgrades() {
   addColumns(TAB.products, ['OutputMaterial', 'Family']);
   addColumns(TAB.materials, COUNT_COLUMNS);
   addColumns(TAB.stagelog, ['Hours']);
+
+  var addedMaterials = addMissingReferencedMaterials();
+  if (addedMaterials.length) {
+    did.push('added missing material row(s) ' + addedMaterials.join(', ') + ' to RawMaterials');
+  }
+
+  var familiesFilled = backfillProductFamilies();
+  if (familiesFilled) did.push('filled ' + familiesFilled + ' blank Family cell(s)');
 
   if (!ss.getSheetByName(TAB.countlog)) {
     writeTab(ss, TAB.countlog, COUNTLOG_HEADERS, []);
@@ -997,7 +1110,8 @@ function submitDay(p) {
       }
     });
 
-    var logged = [], consumed = {}, warnings = [], produced = [], duplicates = [], now = new Date();
+    var logged = [], consumed = {}, warnings = [], produced = [], duplicates = [];
+    var missingMaterials = {}, now = new Date();
 
     valid.forEach(function (stage) {
       var qty = Number(counts[stage]) || 0;
@@ -1023,8 +1137,13 @@ function submitDay(p) {
       // line would consume webbing and create nothing, while the tube line
       // consumed straps that never existed.
       if (stage === valid[valid.length - 1] && product.OutputMaterial) {
-        var outRi = rowOf[String(product.OutputMaterial).trim()];
-        if (outRi !== undefined) {
+        var outId = String(product.OutputMaterial).trim();
+        var outRi = rowOf[outId];
+        if (outRi === undefined) {
+          warnings.push('No RawMaterials row for ' + outId + ' — the ' + qty
+            + ' made were NOT added to stock. Run Aquamentor \u2192 Add missing '
+            + 'columns (safe upgrade) to create it.');
+        } else {
           var made = round2((Number(matRows[outRi][3]) || 0) + qty);
           matRows[outRi][3] = made;
           matSheet.getRange(outRi + 1, 4).setValue(made);
@@ -1035,7 +1154,18 @@ function submitDay(p) {
 
       bom.filter(function (r) { return r.Stage === stage; }).forEach(function (r) {
         var ri = rowOf[r.MaterialID];
-        if (ri === undefined) return;
+        if (ri === undefined) {
+          /* A recipe pointing at a material with no row deducts nothing, and
+           * used to do so in total silence — which is how the strap went
+           * missing from stock for weeks. Say it out loud instead. */
+          if (!missingMaterials[r.MaterialID]) {
+            missingMaterials[r.MaterialID] = true;
+            warnings.push('No RawMaterials row for ' + r.MaterialID
+              + ' — nothing was deducted for it. Run Aquamentor \u2192 Add '
+              + 'missing columns (safe upgrade) to create it.');
+          }
+          return;
+        }
         var used = (Number(r.QtyPerUnit) || 0) * qty;
         var before = Number(matRows[ri][3]) || 0;
         var after = round2(before - used);

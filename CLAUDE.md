@@ -77,6 +77,7 @@ node apps-script/test-metrics.js    # runway, throughput
 node apps-script/test-wip.js        # opening-WIP walk, double-count guard
 node apps-script/test-strap.js      # strap sub-assembly totals
 node apps-script/test-inventory.js  # count history order, drift runs
+node apps-script/test-schema.js     # additive repairs, idempotence
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -85,11 +86,18 @@ assert on them rather than trusting the parser.
 
 ## Open items
 
-- Materials stocktake never done — eight materials sit negative from a missing
-  opening baseline, not a recipe error
+- Materials stocktake never done — twelve materials sit negative from a missing
+  opening baseline, not a recipe error. Twelve more have never had a number at
+  all (blank OnHand). The first count of any material produces a meaningless
+  variance; drift only becomes readable from the second count on
 - WIP baselines not yet recorded for any product
 - `MANAGER_PIN` still the default `2468`
 - Cloudflare Access / custom domain discussed, not set up
+- `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
+  so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
+  now appends any recipe-referenced material that is missing, and submitDay
+  warns instead of skipping silently. Same class of gap filled every blank
+  `Family` cell — the column existed, the values never landed
 - Strap is one size-independent SKU (`STRAP6` -> `M044`), confirmed by Dan.
   Its recipe uses the measured 50" webbing quantities; a real per-strap
   measurement would refine `STRAP_RECIPE` in `Code.gs`
