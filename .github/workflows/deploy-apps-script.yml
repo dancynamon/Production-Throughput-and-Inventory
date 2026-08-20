@@ -337,6 +337,29 @@ jobs:
               echo "     https://console.cloud.google.com/apis/library/script.googleapis.com"
               echo "  3. APPS_SCRIPT_ID matches Project Settings > Script ID"
 
+            elif grep -qi "has not enabled the Apps Script API" /tmp/clasp.log; then
+              # The Apps Script API gates on a PER-USER toggle, checked against
+              # whoever is calling. A service account has no user settings page
+              # and so cannot turn it on — this is the real substance behind the
+              # old "the Apps Script API does not work with service accounts"
+              # advice, and clasp's own docs do not mention it. Hit on the first
+              # real run, 2026-08-19.
+              echo "::error::The caller has not enabled the Apps Script API — and if that caller is a service account, it cannot."
+              by_hand
+              echo ""
+              echo "This is a per-USER setting, not the project-level API enablement:"
+              echo "    https://script.google.com/home/usersettings"
+              echo "A service account has no such page. Options, cheapest first:"
+              echo ""
+              echo "  1. Drop GCP_SA_KEY and go back to CLASP_CREDENTIALS, then remove"
+              echo "     the reason it expires: Admin console > Security > Access and"
+              echo "     data control > Google Cloud session control > never expire."
+              echo "     That is what generates the invalid_rapt this was meant to dodge."
+              echo "  2. Domain-wide delegation, so the service account impersonates a"
+              echo "     real user who HAS enabled it. Needs Workspace admin and more"
+              echo "     moving parts than clasp exposes directly."
+              echo "  3. Keep shipping Code.gs by hand. It changes rarely."
+
             else
               echo "::error::clasp failed — see the output above."
               by_hand

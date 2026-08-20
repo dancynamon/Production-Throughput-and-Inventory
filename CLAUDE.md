@@ -63,8 +63,23 @@ skips green while unconfigured. Always needs `APPS_SCRIPT_ID` and
   when running on this path
 
 Service accounts *cannot own* Apps Script projects — access comes only from
-sharing. Older sources say the Apps Script API rejects service accounts
-outright; that was true before clasp 3.x added `--adc`.
+sharing.
+
+**The service-account path is blocked, tried 2026-08-19.** Sharing the sheet
+with the SA as Editor is not sufficient: the Apps Script API also gates on a
+**per-user** toggle at `script.google.com/home/usersettings`, checked against
+whoever is calling, and a service account has no such page. clasp pushes fail
+with *"User has not enabled the Apps Script API"*. This is the real substance
+behind the older "the API rejects service accounts" advice — `--adc` exists
+and does cover `deploy`, but it cannot get past this. Ways round it, none
+taken yet:
+
+1. remove the reason the personal login expires — Admin console → Security →
+   Access and data control → **Google Cloud session control** → never expire.
+   That policy is what mints the `invalid_rapt`
+2. domain-wide delegation so the SA impersonates a user who has enabled it —
+   needs Workspace admin and more moving parts than clasp exposes
+3. keep pasting `Code.gs` by hand; it changes rarely
 
 Step 3 is the one that gets skipped. Saving never changes what the web app
 serves — only a new version does. **Never "New deployment"**: it mints a new
