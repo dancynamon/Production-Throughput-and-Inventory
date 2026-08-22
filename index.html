@@ -28,6 +28,7 @@
   <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
   <button class="tab" data-screen="wip" data-mgr="1">WIP</button>
+  <button class="tab" data-screen="buy" data-mgr="1">Buy</button>
 </nav>
 
 <main>
@@ -125,6 +126,18 @@
       <button type="submit" id="wipBtn" class="btn-primary">Record Opening WIP</button>
     </form>
     <div id="wipResult" class="result" hidden></div>
+  </section>
+
+  <!-- ============ BUY (what the committed work needs) ============ -->
+  <section id="screen-buy" class="screen">
+    <p class="stock-hint">What the work already on the floor is going to eat,
+      against what is on the shelf. Add a planned build below to see what that
+      would need on top. <b>Short</b> means the pipeline needs more than you
+      have — those are the purchase orders.</p>
+
+    <div id="buyPlan" class="plan"></div>
+    <div id="buyPools"></div>
+    <div id="buyRows"><div class="muted">Loading…</div></div>
   </section>
 </main>
 

@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.9.0';
+  var APP_VERSION = '2.11.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -445,6 +445,7 @@
     el('screen-' + name).classList.add('screen--active');
     if (name === 'overview') loadOverview();
     if (name === 'inventory') loadInventory();
+    if (name === 'buy') loadBuy();
     if (name === 'wip') buildWipRows();
     if (name === 'day') loadToday();
   }
@@ -859,6 +860,182 @@
       })
       .catch(function (err) { toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Record Opening WIP'; });
+  });
+
+
+  /* ---- Buy: what the committed work needs ------------------------------- */
+  /* The Overview's reorder list answers "what is low". This answers the
+   * question that actually precedes a purchase order: "what does the work I
+   * have already started need, and do I have it?"
+   *
+   * Committed demand comes from the backend and needs no assumptions — those
+   * units are physically on the floor. The planned column is Dan's, typed in
+   * here, and recomputes locally against the per-unit recipes so a what-if
+   * costs nothing. Uncounted materials are shown but never called short: you
+   * cannot be short of a quantity nobody has ever established. */
+  var BUY = { materials: [], perUnit: {}, products: [], pools: [], plan: {} };
+
+  function loadBuy() {
+    var wrap = el('buyRows');
+    wrap.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'purchasing' }, 25000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load');
+      BUY.materials = d.materials || [];
+      BUY.perUnit = d.perUnit || {};
+      BUY.products = d.products || [];
+      BUY.pools = d.pools || [];
+      renderBuyPlan(d.familyOrder || []);
+      renderPools();
+      renderBuy();
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      wrap.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message)
+        + (stale ? '<br>The Apps Script backend is older than this app — paste '
+                 + 'Code.gs and cut a new deployment version.' : '') + '</div>';
+    });
+  }
+
+  function renderBuyPlan(order) {
+    var byFam = {};
+    BUY.products.forEach(function (p) {
+      (byFam[p.family || 'Other'] = byFam[p.family || 'Other'] || []).push(p);
+    });
+    var fams = (order || []).filter(function (f) { return byFam[f]; })
+      .concat(Object.keys(byFam).filter(function (f) { return (order || []).indexOf(f) === -1; }));
+
+    el('buyPlan').innerHTML =
+      '<div class="plan__head">Planning to build <span class="plan__hint">on top of what is already started</span></div>'
+      + '<div class="plan__grid">'
+      + fams.map(function (f) {
+          return byFam[f].map(function (p) {
+            return '<label class="plan__row"><span>' + escapeHtml(p.name) + '</span>'
+              + '<input class="plan__input" type="number" inputmode="numeric" min="0" step="1" '
+              + 'placeholder="0" data-plan="' + escapeHtml(p.id) + '" value="'
+              + escapeHtml(BUY.plan[p.id] === undefined ? '' : BUY.plan[p.id]) + '"></label>';
+          }).join('');
+        }).join('')
+      + '</div>';
+  }
+
+  function renderPools() {
+    if (!BUY.pools.length) { el('buyPools').innerHTML = ''; return; }
+    // Called out rather than folded in: these blanks could still become either
+    // variant, so charging their downstream materials to one would be a guess
+    // and charging them to both would double the order.
+    el('buyPools').innerHTML = '<div class="pool">'
+      + BUY.pools.map(function (p) {
+          return '<b>' + fmt(p.units) + '</b> ' + escapeHtml(p.feeder)
+            + ' not yet committed to a variant — their downstream materials are '
+            + 'not counted below. Plan them above to include them.';
+        }).join('<br>')
+      + '</div>';
+  }
+
+  /* Planned demand for one material: every planned quantity times that
+   * product's whole per-unit recipe. */
+  function plannedFor(materialId) {
+    var total = 0;
+    Object.keys(BUY.plan).forEach(function (pid) {
+      var n = Number(BUY.plan[pid]);
+      if (!isFinite(n) || n <= 0) return;
+      var per = (BUY.perUnit[pid] || {})[materialId];
+      if (per) total += n * per;
+    });
+    return Math.round(total * 100) / 100;
+  }
+
+  function renderBuy() {
+    var rows = BUY.materials.map(function (m) {
+      var planned = plannedFor(m.id);
+      var need = Math.round((m.committed + planned) * 100) / 100;
+      var short = m.counted ? Math.round((need - m.onHand) * 100) / 100 : null;
+      return { m: m, planned: planned, need: need, short: short };
+    });
+
+    // Shortest first — the buy list, in the order it costs you.
+    rows.sort(function (a, b) {
+      var as = a.short === null ? -1e12 : a.short, bs = b.short === null ? -1e12 : b.short;
+      if (bs !== as) return bs - as;
+      return b.need - a.need;
+    });
+
+    var buying = rows.filter(function (r) { return r.short !== null && r.short > 0; });
+    var uncounted = rows.filter(function (r) { return r.short === null && r.need > 0; });
+    var fine = rows.filter(function (r) { return r.short !== null && r.short <= 0 && r.need > 0; });
+    var idle = rows.filter(function (r) { return r.need === 0; });
+
+    var html = '';
+    html += '<div class="buy-tally"><b>' + buying.length + '</b> to order'
+         + (uncounted.length ? ' · <b>' + uncounted.length + '</b> unknown (never counted)' : '')
+         + ' · <b>' + fine.length + '</b> covered</div>';
+
+    if (buying.length) {
+      html += buySection('Order these', buying,
+        'The pipeline needs more than the shelf holds.');
+    } else {
+      html += '<div class="buy-none">Nothing short — everything in progress is covered.</div>';
+    }
+    if (uncounted.length) {
+      html += buySection('Needed, but never counted', uncounted,
+        'These are consumed by work in progress and have no stock figure, so no '
+        + 'shortfall can be computed. Count them on the Inventory tab.');
+    }
+    if (fine.length) html += buySection('Covered', fine, '');
+    if (idle.length) {
+      html += '<details class="buy-rest"><summary>' + idle.length
+           + (idle.length === 1 ? ' material ' : ' materials ')
+           + 'nothing in progress needs</summary>'
+           + idle.map(buyRow).join('') + '</details>';
+    }
+    el('buyRows').innerHTML = html;
+  }
+
+  function buySection(title, list, note) {
+    return '<div class="buy-sec"><div class="buy-sec__h">' + escapeHtml(title)
+      + ' <span>' + list.length + '</span></div>'
+      + (note ? '<p class="buy-sec__note">' + escapeHtml(note) + '</p>' : '')
+      + list.map(buyRow).join('') + '</div>';
+  }
+
+  function buyRow(r) {
+    var m = r.m;
+    var why = (m.sources || []).map(function (s) {
+      return fmt(s.units) + ' ' + escapeHtml(s.name) + ' at ' + escapeHtml(s.stage);
+    }).join(' · ');
+
+    var verdict;
+    if (r.short === null) {
+      verdict = '<span class="buy-unknown">never counted</span>';
+    } else if (r.short > 0) {
+      // Order up to the reorder point where that is the bigger number — buying
+      // exactly the shortfall leaves you at zero the day it arrives.
+      var upTo = Math.max(r.short, Math.round((r.need + m.reorderPoint - m.onHand) * 100) / 100);
+      verdict = '<span class="buy-short">short ' + fmt(r.short) + '</span>'
+        + '<small>order ' + fmt(upTo) + ' ' + escapeHtml(m.unit || '') + '</small>';
+    } else {
+      verdict = '<span class="buy-ok">covered</span>'
+        + '<small>' + fmt(-r.short) + ' spare</small>';
+    }
+
+    return '<div class="buy-row' + (r.short > 0 ? ' buy-row--short' : '') + '">'
+      + '<div class="buy-row__main"><div class="buy-row__name">' + escapeHtml(m.name)
+      +   ' <span class="buy-row__id">' + escapeHtml(m.id) + '</span></div>'
+      +   (why ? '<div class="buy-row__why">' + why + '</div>' : '')
+      + '</div>'
+      + '<div class="buy-row__n"><span class="inv-lbl">Have</span><b'
+      +   (m.onHand < 0 ? ' class="inv-neg"' : '') + '>'
+      +   (m.counted ? fmt(m.onHand) : '—') + '</b></div>'
+      + '<div class="buy-row__n"><span class="inv-lbl">In progress</span><b>' + fmt(m.committed) + '</b></div>'
+      + '<div class="buy-row__n"><span class="inv-lbl">Planned</span><b>' + fmt(r.planned) + '</b></div>'
+      + '<div class="buy-row__v">' + verdict + '</div>'
+      + '</div>';
+  }
+
+  el('buyPlan').addEventListener('input', function (e) {
+    var pid = e.target.getAttribute && e.target.getAttribute('data-plan');
+    if (!pid) return;
+    BUY.plan[pid] = e.target.value;
+    renderBuy();
   });
 
   /* ---- Utils ------------------------------------------------------------- */

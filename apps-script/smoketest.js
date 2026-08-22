@@ -24,6 +24,22 @@ const server = http.createServer((req, res) => {
 
 const STAGES = ['Cut','Glued','Meshed','Patched','Paint 1','Paint 2','Printed','Straps Attached','Boxed'];
 
+// Shaped like computePurchasing(): one short, one uncounted, one covered, one idle.
+const PURCHASING = [
+  { id:'M033', name:'Rescue Tube Custom Boxes', unit:'Boxes', category:'Packaging',
+    onHand:0, counted:true, reorderPoint:20, lastCountedAt:null, committed:30, after:-30,
+    sources:[{productId:'XRT50EXO',name:'XRT-50 Exotube',stage:'Boxed',units:151,need:30}] },
+  { id:'M044', name:"Shoulder Strap w/ 6' Tow Line", unit:'each', category:'Sub-assembly',
+    onHand:0, counted:false, reorderPoint:50, lastCountedAt:null, committed:30, after:-30,
+    sources:[{productId:'XRT50EXO',name:'XRT-50 Exotube',stage:'Straps Attached',units:30,need:30}] },
+  { id:'M002', name:'Nylon Mesh', unit:'Boxes', category:'Glue & Mesh',
+    onHand:11.65, counted:true, reorderPoint:2, lastCountedAt:null, committed:0.5, after:11.15,
+    sources:[{productId:'XRT50EXO',name:'XRT-50 Exotube',stage:'Meshed',units:125,need:0.5}] },
+  { id:'M029', name:'Brass Buckle', unit:'Each', category:'Webbing & Thread',
+    onHand:80, counted:true, reorderPoint:40, lastCountedAt:'2026-08-10', committed:0, after:80, sources:[] }
+];
+const PER_UNIT = { XRT50EXO:{ M033:0.0833, M044:1, M002:0.004 }, LGC30:{ M043:1 } };
+
 // Shaped exactly like getInventory().materials: one material drifting, one
 // never counted and negative from a missing opening baseline, one ordinary.
 const INVENTORY = [
@@ -69,6 +85,11 @@ const INVENTORY = [
     else if (action === 'inventory') data = { ok:true, materials:INVENTORY,
       summary:{ materials:3, neverCounted:1, negative:1, low:1, drifting:1,
                 lastCountAt:'2026-08-10', lastCountBy:'Dan', daysSinceLastCount:3 } };
+    else if (action === 'purchasing') data = { ok:true, materials:PURCHASING, perUnit:PER_UNIT,
+      pools:[{feeder:'BLANK50',units:70}],
+      products:[{id:'XRT50EXO',name:'XRT-50 Exotube',family:'Rescue Tubes'},
+                {id:'LGC30',name:'Lifeguard Chair 30"',family:'Lifeguard Chairs'}],
+      familyOrder:['Rescue Tubes','Lifeguard Chairs'] };
     else if (action === 'count') data = { ok:true, message:'Reconciled 1 material.',
       counted:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards',estimated:100,counted:88,variance:12,variancePct:12}],
       unknown:[] };
@@ -136,6 +157,33 @@ const INVENTORY = [
   await page.click('#invBtn');
   await page.waitForSelector('#invResult .result__ok', { timeout:5000 });
   console.log('COUNT:', (await page.textContent('#invResult')).replace(/\s+/g,' ').trim().slice(0,130));
+
+  /* ---- Buy panel --------------------------------------------------------- */
+  await page.click('.tab[data-screen="buy"]');
+  await page.waitForSelector('#buyRows .buy-row', { timeout:5000 });
+  const order = await page.$$eval('.buy-sec', (secs) =>
+    secs.map((s) => s.querySelector('.buy-sec__h').textContent.trim().split(' ').slice(0,2).join(' ')));
+  console.log('buy sections:', JSON.stringify(order));
+
+  // Shortest first — the buy list has to lead with what stops the line.
+  const firstShort = await page.textContent('.buy-sec .buy-row .buy-row__name');
+  if (!/Custom Boxes/.test(firstShort)) errors.push('buy list did not lead with the shortfall: ' + firstShort);
+
+  // A material nobody ever counted cannot be called short.
+  const strapRow = await page.textContent('#buyRows .buy-row:has-text("Shoulder Strap")');
+  if (!/never counted/.test(strapRow)) errors.push('uncounted material was given a shortfall: ' + strapRow);
+
+  // Planning 100 more tubes must move the numbers without a round trip.
+  const before = await page.textContent('.buy-sec .buy-row .buy-row__v');
+  await page.fill('[data-plan="XRT50EXO"]', '100');
+  const after = await page.textContent('.buy-sec .buy-row .buy-row__v');
+  console.log('boxes shortfall — committed only:', before.replace(/\s+/g,' ').trim(),
+              '| plus 100 planned:', after.replace(/\s+/g,' ').trim());
+  if (before === after) errors.push('planned build did not change the shortfall');
+
+  // The uncommitted blank pool is stated, not silently folded into a variant.
+  const pool = await page.textContent('#buyPools');
+  if (!/70/.test(pool) || !/not yet committed/.test(pool)) errors.push('pool not surfaced: ' + pool);
 
   await browser.close(); server.close();
   if (errors.length) { console.error('PAGE ERRORS:', errors); process.exit(1); }

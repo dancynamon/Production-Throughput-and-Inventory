@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-13 22:34 UTC      version 2.10.0
+ *  BUILD:  2026-08-19 15:05 UTC      version 2.11.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.10.0';
+var BACKEND_VERSION = '2.11.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-13 22:34 UTC';
+var BUILD_STAMP = '2026-08-19 15:05 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -868,6 +868,7 @@ function doGet(e) {
     else if (action === 'receive')   result = receiveStock(p);
     else if (action === 'count')     result = submitCount(p);
     else if (action === 'metrics')   result = getMetrics();
+    else if (action === 'purchasing') result = computePurchasing();
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
     else result = { ok: false, error: 'Unknown action: ' + action };
@@ -1318,6 +1319,128 @@ function submitCount(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* What to buy, and why.
+ *
+ * The Overview already flags a material below its reorder point, but "below
+ * reorder" is a nag, not a decision — it says nothing about whether that
+ * material is about to stop the line or sit on the shelf for a month. The
+ * question a purchase order actually answers is "how much of this does the
+ * work I have already committed to consume, and do I have that much?"
+ *
+ * COMMITTED demand is computed from work already in the pipeline. A tube
+ * sitting at Patched will consume Patched, Paint 1, Paint 2, Printed, Straps
+ * and Boxed on its way out, so it owes every material those stages eat. That
+ * needs no forecast and no assumption: the units are physically on the floor
+ * and they are going somewhere.
+ *
+ *   committed(material) = SUM over products, over stages i>=1 of
+ *                           waiting[i] x (materials consumed by stages i..end)
+ *
+ * Stage 0 is deliberately excluded. On a variant line its queue is the SHARED
+ * blank pool — a 50" blank can still become either an Exotube or a Standard,
+ * and charging its downstream materials to both would double-count every one
+ * of them. Those blanks are reported separately as an uncommitted pool, so the
+ * number is visible without being silently double-booked. On a Blank or Shape
+ * line stage 0's input is raw foam, which is not tracked as WIP at all.
+ *
+ * perUnit is the whole recipe for one finished unit, handed to the app so a
+ * "what if we build 200 more" plan recomputes as it is typed rather than
+ * costing a round trip per keystroke.
+ */
+function computePurchasing() {
+  var lineMap  = productLineMap();
+  var overview = computeOverview();
+  var stock    = getStock().materials;
+
+  // bom[productId][stage][materialId] = qty per unit
+  var bom = {};
+  readObjects(TAB.bom).forEach(function (r) {
+    var pid = String(r.ProductID || '').trim();
+    var st  = String(r.Stage || '').trim();
+    var mid = String(r.MaterialID || '').trim();
+    if (!pid || !st || !mid) return;
+    bom[pid] = bom[pid] || {};
+    bom[pid][st] = bom[pid][st] || {};
+    bom[pid][st][mid] = (bom[pid][st][mid] || 0) + (Number(r.QtyPerUnit) || 0);
+  });
+
+  var committed = {};     // materialId -> qty owed to work in progress
+  var sources   = {};     // materialId -> [{productId, name, units, need}]
+  var perUnit   = {};     // productId  -> {materialId: qty for one finished unit}
+  var pools     = [];     // blanks not yet committed to a variant
+
+  overview.forEach(function (pr) {
+    var pid = pr.productId;
+    var stages = stagesForLine(lineMap[pid] || 'Blank');
+    var recipe = bom[pid] || {};
+
+    /* remaining[i] = everything stages i..end consume, per unit. Built by
+     * walking BACKWARDS so each stage is the one after it plus its own. */
+    var remaining = [];
+    var acc = {};
+    for (var i = stages.length - 1; i >= 0; i--) {
+      var here = recipe[stages[i]] || {};
+      var next = {};
+      Object.keys(acc).forEach(function (m) { next[m] = acc[m]; });
+      Object.keys(here).forEach(function (m) { next[m] = (next[m] || 0) + here[m]; });
+      acc = next;
+      remaining[i] = acc;
+    }
+    perUnit[pid] = remaining[0] || {};
+
+    pr.stages.forEach(function (row, idx) {
+      if (idx === 0) {
+        // The shared pool, reported but never charged to a variant.
+        if (pr.feedsFrom && row.waiting > 0) {
+          pools.push({ feeder: pr.feedsFrom, forProduct: pid,
+                       name: pr.name, units: row.waiting });
+        }
+        return;
+      }
+      var units = Number(row.waiting) || 0;
+      if (units <= 0) return;
+      var need = remaining[idx] || {};
+      Object.keys(need).forEach(function (mid) {
+        var qty = round2(units * need[mid]);
+        if (!qty) return;
+        committed[mid] = round2((committed[mid] || 0) + qty);
+        (sources[mid] = sources[mid] || []).push({
+          productId: pid, name: pr.name, stage: row.stage, units: units, need: qty
+        });
+      });
+    });
+  });
+
+  var materials = stock.map(function (m) {
+    var owed = committed[m.id] || 0;
+    var src = (sources[m.id] || []).sort(function (a, b) { return b.need - a.need; });
+    return {
+      id: m.id, name: m.name, unit: m.unit, category: m.category,
+      onHand: m.onHand, counted: m.counted, reorderPoint: m.reorderPoint,
+      lastCountedAt: m.lastCountedAt,
+      committed: owed,
+      // Negative means the work in progress needs more than the shelf holds.
+      after: round2(m.onHand - owed),
+      sources: src.slice(0, 4)
+    };
+  });
+
+  // Dedupe the pool list: one entry per feeder, not one per variant drawing
+  // from it — the same blanks are visible from both.
+  var seen = {}, uniquePools = [];
+  pools.forEach(function (p) {
+    if (seen[p.feeder]) return;
+    seen[p.feeder] = true;
+    uniquePools.push({ feeder: p.feeder, units: p.units });
+  });
+
+  return { ok: true, materials: materials, perUnit: perUnit, pools: uniquePools,
+           products: overview.map(function (pr) {
+             return { id: pr.productId, name: pr.name, family: pr.family };
+           }),
+           familyOrder: FAMILY_ORDER };
 }
 
 /* Latest opening-WIP baseline per product, already converted from countable

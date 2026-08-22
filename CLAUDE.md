@@ -107,6 +107,7 @@ node apps-script/test-wip.js        # opening-WIP walk, double-count guard
 node apps-script/test-strap.js      # strap sub-assembly totals
 node apps-script/test-inventory.js  # count history order, drift runs
 node apps-script/test-schema.js     # additive repairs, idempotence
+node apps-script/test-purchasing.js # committed demand, shared-pool guard
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
