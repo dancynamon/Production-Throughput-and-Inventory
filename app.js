@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.11.0';
+  var APP_VERSION = '2.12.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -419,6 +419,7 @@
     document.querySelectorAll('.tab[data-mgr]').forEach(function (t) { t.style.display = mgr ? '' : 'none'; });
     el('mgrBtn').textContent = mgr ? '🔓' : '🔒';
     el('mgrBtn').title = mgr ? 'Manager mode (tap to lock)' : 'Manager access';
+    el('mgrHint').hidden = mgr;
     if (!mgr) {  // if an employee somehow lands on a manager screen, bounce to Log My Day
       var active = document.querySelector('.screen--active');
       if (active && active.id !== 'screen-day') selectScreen('day');
@@ -443,6 +444,7 @@
     var tab = document.querySelector('.tab[data-screen="' + name + '"]');
     if (tab) tab.classList.add('tab--active');
     el('screen-' + name).classList.add('screen--active');
+    if (name === 'summary') loadSummary();
     if (name === 'overview') loadOverview();
     if (name === 'inventory') loadInventory();
     if (name === 'buy') loadBuy();
@@ -862,6 +864,124 @@
       .then(function () { btn.disabled = false; btn.textContent = 'Record Opening WIP'; });
   });
 
+
+
+  /* ---- Summary: the top layer over everything else ----------------------- */
+  /* Three screens each answer their own question well, and none of them
+   * answers the first one anybody asks. This is that layer.
+   *
+   * It ends with how much of itself to believe. Most of these numbers
+   * currently rest on figures nobody has established — materials never
+   * counted, products with no opening WIP, days logged without hours — and a
+   * dashboard that showed them without saying so would be worse than none,
+   * because it would be believed. */
+  function loadSummary() {
+    var body = el('sumBody');
+    body.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'summary' }, 30000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load summary');
+      body.innerHTML = renderSummary(d);
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      body.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message)
+        + (stale ? '<br>The Apps Script backend is older than this app — paste '
+                 + 'Code.gs and cut a new deployment version.' : '') + '</div>';
+    });
+  }
+
+  function sumCard(title, meta, inner) {
+    return '<div class="sum-card"><div class="sum-card__h">' + escapeHtml(title)
+      + (meta ? '<span>' + meta + '</span>' : '') + '</div>' + inner + '</div>';
+  }
+
+  function renderSummary(d) {
+    var p = d.production, pipe = d.pipeline, inv = d.inventory, buy = d.buying, t = d.trust;
+    var html = '';
+
+    /* --- Production --------------------------------------------------- */
+    var peak = Math.max(1, Math.max.apply(null, p.days.map(function (x) {
+      return Math.max(x.started, x.finished);
+    }).concat([1])));
+    var bars = p.days.map(function (x) {
+      return '<div class="spark__col" title="' + escapeHtml(x.date) + '">'
+        + '<div class="spark__bars">'
+        +   '<i class="spark__in" style="height:' + Math.round(x.started / peak * 100) + '%"></i>'
+        +   '<i class="spark__out" style="height:' + Math.round(x.finished / peak * 100) + '%"></i>'
+        + '</div><span>' + escapeHtml(x.date.slice(5)) + '</span></div>';
+    }).join('');
+
+    html += sumCard('Last 7 days', 'since ' + escapeHtml(p.since),
+      '<div class="sum-figs">'
+      + fig(p.started, 'entered the shop', 'new units cut or started')
+      + fig(p.finished, 'finished goods', 'off the end of a line, ready to ship')
+      + fig(p.activeDays, 'days worked', p.events + ' entries logged')
+      + '</div>'
+      + (p.days.length
+          ? '<div class="spark">' + bars + '</div>'
+            + '<div class="spark__key"><i class="spark__in"></i> started '
+            + '<i class="spark__out"></i> finished</div>'
+          : '<p class="sum-note">Nothing logged in the last 7 days.</p>'));
+
+    /* --- What is on the floor ------------------------------------------ */
+    var big = pipe.biggest;
+    html += sumCard('On the floor', pipe.productsTracked + ' products',
+      '<div class="sum-figs">'
+      + fig(pipe.wipTotal, 'units in progress', 'waiting between stations')
+      + fig(pipe.starvedStages, 'stages starved', 'want more than is queued')
+      + '</div>'
+      + (big ? '<p class="sum-note"><b>Biggest pile:</b> ' + fmt(big.units) + ' '
+             + escapeHtml(big.name) + ' waiting at <b>' + escapeHtml(big.stage)
+             + '</b> — that is where the line is stuck.</p>' : '')
+      + ((buy.pools || []).length
+          ? '<p class="sum-note">' + buy.pools.map(function (x) {
+              return fmt(x.units) + ' ' + escapeHtml(x.feeder)
+                + ' not yet committed to a variant.';
+            }).join(' ') + '</p>' : ''));
+
+    /* --- Stock and buying ---------------------------------------------- */
+    html += sumCard('Stock', inv.lastCountAt
+        ? 'last counted ' + escapeHtml(inv.lastCountAt)
+          + (inv.daysSinceLastCount === null ? '' : ' · ' + fmt(inv.daysSinceLastCount) + 'd ago')
+        : 'never counted',
+      '<div class="sum-figs">'
+      + fig(buy.short, 'to order', 'pipeline needs more than the shelf holds', buy.short > 0)
+      + fig(inv.negative, 'below zero', 'no opening baseline', inv.negative > 0)
+      + fig(inv.neverCounted, 'never counted', 'of ' + fmt(inv.materials) + ' materials', inv.neverCounted > 0)
+      + '</div>'
+      + (buy.biggest
+          ? '<p class="sum-note"><b>Worst shortfall:</b> ' + escapeHtml(buy.biggest.name)
+            + ', short ' + fmt(buy.biggest.short) + ' ' + escapeHtml(buy.biggest.unit || '')
+            + '. See the Buy tab.</p>'
+          : '<p class="sum-note">Nothing counted is short of what the pipeline needs.</p>'));
+
+    /* --- How much of this to believe ------------------------------------ */
+    html += sumCard('How much of this to trust', '',
+      '<div class="trust">'
+      + trustRow('Materials with a real count', t.materialsCounted, t.materialsTotal,
+          'Everything above about stock is an estimate until these are counted.')
+      + trustRow('Products with an opening WIP baseline', t.productsWithBaseline, t.productsTracked,
+          'Without one, "in progress" assumes the floor was empty when logging began.')
+      + trustRow('Day entries carrying hours', t.rowsWithHours, t.stageLogRows,
+          'Hours are what turn "we did 60" into "we can do 60 a day".')
+      + '</div>');
+
+    return html;
+  }
+
+  function fig(n, label, note, warn) {
+    return '<div class="sum-fig' + (warn ? ' sum-fig--warn' : '') + '">'
+      + '<b>' + fmt(n) + '</b><span>' + escapeHtml(label) + '</span>'
+      + (note ? '<small>' + escapeHtml(note) + '</small>' : '') + '</div>';
+  }
+
+  function trustRow(label, have, total, why) {
+    var pct = total ? Math.round(have / total * 100) : 0;
+    return '<div class="trust__row">'
+      + '<div class="trust__top"><span>' + escapeHtml(label) + '</span>'
+      + '<b>' + fmt(have) + ' / ' + fmt(total) + '</b></div>'
+      + '<div class="trust__bar"><i style="width:' + pct + '%"></i></div>'
+      + '<small>' + escapeHtml(why) + '</small></div>';
+  }
 
   /* ---- Buy: what the committed work needs ------------------------------- */
   /* The Overview's reorder list answers "what is low". This answers the

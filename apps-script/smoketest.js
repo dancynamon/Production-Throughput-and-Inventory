@@ -85,6 +85,20 @@ const INVENTORY = [
     else if (action === 'inventory') data = { ok:true, materials:INVENTORY,
       summary:{ materials:3, neverCounted:1, negative:1, low:1, drifting:1,
                 lastCountAt:'2026-08-10', lastCountBy:'Dan', daysSinceLastCount:3 } };
+    else if (action === 'summary') data = { ok:true, generatedAt:'2026-08-23',
+      production:{ windowDays:7, since:'2026-08-17', started:150, finished:2, events:6,
+        activeDays:2, hours:5,
+        days:[{date:'2026-08-19',started:100,finished:0,events:4},
+              {date:'2026-08-23',started:50,finished:2,events:2}],
+        products:[{id:'BLANK50',name:'50" Blank',family:'Rescue Tubes',started:150,finished:60}] },
+      pipeline:{ wipTotal:437, biggest:{productId:'XRT50EXO',name:'XRT-50 Exotube',stage:'Boxed',units:151},
+        starvedStages:8, productsTracked:21, productsWithoutBaseline:['50" Blank','XRT-50 Exotube'] },
+      inventory:{ materials:44, neverCounted:12, negative:12, low:14, drifting:0,
+        lastCountAt:null, daysSinceLastCount:null },
+      buying:{ short:3, biggest:{id:'M038',name:'4# 1.5" Foam',unit:'sq ft',short:492},
+        pools:[{feeder:'BLANK50',units:70}] },
+      trust:{ stageLogRows:19, rowsWithHours:1, productsTracked:21, productsWithBaseline:0,
+        materialsTotal:44, materialsCounted:0 } };
     else if (action === 'purchasing') data = { ok:true, materials:PURCHASING, perUnit:PER_UNIT,
       pools:[{feeder:'BLANK50',units:70}],
       products:[{id:'XRT50EXO',name:'XRT-50 Exotube',family:'Rescue Tubes'},
@@ -157,6 +171,24 @@ const INVENTORY = [
   await page.click('#invBtn');
   await page.waitForSelector('#invResult .result__ok', { timeout:5000 });
   console.log('COUNT:', (await page.textContent('#invResult')).replace(/\s+/g,' ').trim().slice(0,130));
+
+  /* ---- Summary ----------------------------------------------------------- */
+  await page.click('.tab[data-screen="summary"]');
+  await page.waitForSelector('#sumBody .sum-card', { timeout:5000 });
+  const cards = await page.$$eval('.sum-card__h', (h) => h.map((x) => x.firstChild.textContent.trim()));
+  console.log('summary cards:', JSON.stringify(cards));
+  const sumTxt = (await page.textContent('#sumBody')).replace(/\s+/g,' ');
+  // The headline pair has to be entered-vs-finished, not a sum of stages.
+  // textContent puts no space between adjacent elements, so the number and its
+  // label arrive glued together — match on that rather than on rendered layout.
+  if (!/150\s*entered the shop/.test(sumTxt)) errors.push('entered figure missing: ' + sumTxt.slice(0,200));
+  if (!/2\s*finished goods/.test(sumTxt)) errors.push('finished figure missing');
+  // Seven bars, two per day.
+  const bars = await page.$$('.spark__col');
+  if (bars.length !== 2) errors.push('expected one column per logged day, got ' + bars.length);
+  // The trust block must state what is missing, not hide it.
+  if (!/0 \/ 44/.test(sumTxt)) errors.push('trust block did not report uncounted materials');
+  if (!/0 \/ 21/.test(sumTxt)) errors.push('trust block did not report missing baselines');
 
   /* ---- Buy panel --------------------------------------------------------- */
   await page.click('.tab[data-screen="buy"]');

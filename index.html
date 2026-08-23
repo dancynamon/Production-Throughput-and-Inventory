@@ -24,6 +24,7 @@
 
 <nav class="tabs">
   <button class="tab tab--active" data-screen="day">Log My Day</button>
+  <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
@@ -49,10 +50,20 @@
     </form>
     <div id="dayResult" class="result" hidden></div>
 
+    <div id="mgrHint" class="mgr-hint" hidden>
+      Manager? Tap <b>🔒</b> at the top right to unlock Summary, Overview,
+      Receive, Inventory, WIP and Buy on this device.
+    </div>
+
     <div id="todayCard" class="ov-card" hidden>
       <div class="ov-card__head">Today's totals <span class="ov-card__meta" id="todayMeta"></span></div>
       <div id="todayBody"></div>
     </div>
+  </section>
+
+  <!-- ============ SUMMARY (the top layer over everything else) ============ -->
+  <section id="screen-summary" class="screen">
+    <div id="sumBody"><div class="muted">Loading…</div></div>
   </section>
 
   <!-- ============ OVERVIEW ============ -->

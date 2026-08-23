@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-19 15:05 UTC      version 2.11.0
+ *  BUILD:  2026-08-23 20:40 UTC      version 2.12.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.11.0';
+var BACKEND_VERSION = '2.12.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-19 15:05 UTC';
+var BUILD_STAMP = '2026-08-23 20:40 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -869,6 +869,7 @@ function doGet(e) {
     else if (action === 'count')     result = submitCount(p);
     else if (action === 'metrics')   result = getMetrics();
     else if (action === 'purchasing') result = computePurchasing();
+    else if (action === 'summary')   result = getSummary();
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
     else result = { ok: false, error: 'Unknown action: ' + action };
@@ -916,6 +917,154 @@ function getStock() {
     };
   });
   return { ok: true, materials: mats };
+}
+
+/* One screen that answers "how are we doing", assembled from the parts that
+ * already exist.
+ *
+ * Overview is the pipeline, Inventory is the shelf, Buy is the purchase list —
+ * each answers its own question well and none of them answers the first
+ * question anyone actually asks. This is that top layer, and it is deliberately
+ * thin: every number here is computed by the same function that owns it
+ * elsewhere, so the summary can never quietly disagree with the screen it
+ * summarises.
+ *
+ * The data-quality block is not filler. Half of these numbers are currently
+ * built on figures nobody has established — materials never counted, products
+ * with no opening WIP, days logged with no hours. A dashboard that showed the
+ * numbers without showing how much of them is guesswork would be worse than
+ * no dashboard, because it would be believed.
+ */
+function getSummary() {
+  var today = new Date();
+  var since = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6);
+  var lineMap = productLineMap();
+
+  var productName = {}, productFamily = {}, hasFeeder = {}, isFeeder = {};
+  readObjects(TAB.products).forEach(function (p) {
+    productName[p.ProductID] = p.ProductName;
+    productFamily[p.ProductID] = String(p.Family || '').trim() || 'Other';
+    var f = String(p.FeedsFrom || '').trim();
+    if (f) { hasFeeder[p.ProductID] = true; isFeeder[f] = true; }
+  });
+
+  /* ---- Production over the last 7 days --------------------------------- */
+  var byDay = {}, byProduct = {}, events = 0, hoursLogged = 0;
+  readObjects(TAB.stagelog).forEach(function (r) {
+    var pid = r.ProductID, stage = r.Stage;
+    if (!pid || !stage) return;
+    var d = fmtDate(r.WorkDate);
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+    if (!m) return;
+    var when = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (when < since) return;
+
+    var stages = stagesForLine(lineMap[pid] || 'Blank');
+    var qty = Number(r.Qty) || 0;
+    var isFirst = stage === stages[0];
+    var isLast  = stage === stages[stages.length - 1];
+
+    events++;
+    hoursLogged += Number(r.Hours) || 0;
+    /* The HEADLINE counts units entering and leaving the SHOP, which is not
+     * the same as entering and leaving a line.
+     *
+     * A 50" blank is started when it is Cut. When that same blank is later
+     * Meshed it starts the Exotube line — but no new object came into the
+     * building, and adding both counts the same piece of foam twice. Likewise
+     * a Glued blank is not a finished good; it is a tube waiting to happen.
+     *
+     * So: new units are the first stage of products NOTHING feeds, and
+     * finished goods are the last stage of products that feed nothing. The
+     * per-product figures below stay line-relative, because at that level
+     * "how many did the Exo line start" is exactly the right question. */
+    var day = byDay[d] || (byDay[d] = { date: d, started: 0, finished: 0, events: 0 });
+    day.events++;
+    if (isFirst && !hasFeeder[pid]) day.started += qty;
+    if (isLast  && !isFeeder[pid])  day.finished += qty;
+
+    var p = byProduct[pid] || (byProduct[pid] = { id: pid, name: productName[pid] || pid,
+                                                 family: productFamily[pid] || 'Other',
+                                                 started: 0, finished: 0 });
+    if (isFirst) p.started += qty;
+    if (isLast)  p.finished += qty;
+  });
+
+  var days = Object.keys(byDay).sort().map(function (k) { return byDay[k]; });
+  var products = Object.keys(byProduct).map(function (k) { return byProduct[k]; })
+    .sort(function (a, b) { return (b.finished - a.finished) || (b.started - a.started); });
+
+  /* ---- Pipeline --------------------------------------------------------- */
+  var overview = computeOverview();
+  var wipTotal = 0, biggest = null, starved = 0, noBaseline = [];
+  overview.forEach(function (pr) {
+    if (!pr.baselineAt) noBaseline.push(pr.name);
+    pr.stages.forEach(function (st, idx) {
+      // Stage 0 of a variant is the shared blank pool — counted once, against
+      // the feeder, not again against every variant drawing from it.
+      if (idx === 0) return;
+      var w = Number(st.waiting) || 0;
+      if (st.starved) starved++;
+      if (w <= 0) return;
+      wipTotal += w;
+      if (!biggest || w > biggest.units) {
+        biggest = { productId: pr.productId, name: pr.name, stage: st.stage, units: w };
+      }
+    });
+  });
+
+  /* ---- Inventory --------------------------------------------------------- */
+  var inv = getInventory({ history: 1 });
+  var invSummary = inv.summary;
+
+  /* ---- Buying ------------------------------------------------------------ */
+  var buy = computePurchasing();
+  var shortList = buy.materials.filter(function (m) {
+    return m.counted && m.after < 0;
+  }).sort(function (a, b) { return a.after - b.after; });
+
+  /* ---- How much of this can be trusted ---------------------------------- */
+  var allRows = readObjects(TAB.stagelog);
+  var withBaseline = overview.filter(function (p) { return p.baselineAt; }).length;
+  var counted = inv.materials.filter(function (m) { return m.lastCountedAt; }).length;
+
+  return {
+    ok: true,
+    generatedAt: fmtDate(today),
+    backendVersion: BACKEND_VERSION,
+    production: {
+      windowDays: 7, since: fmtDate(since),
+      started:  days.reduce(function (n, d) { return n + d.started; }, 0),
+      finished: days.reduce(function (n, d) { return n + d.finished; }, 0),
+      events: events, activeDays: days.length, hours: round2(hoursLogged),
+      days: days, products: products
+    },
+    pipeline: {
+      wipTotal: wipTotal, biggest: biggest, starvedStages: starved,
+      productsTracked: overview.length,
+      productsWithoutBaseline: noBaseline
+    },
+    inventory: {
+      materials: invSummary.materials, neverCounted: invSummary.neverCounted,
+      negative: invSummary.negative, low: invSummary.low, drifting: invSummary.drifting,
+      lastCountAt: invSummary.lastCountAt, daysSinceLastCount: invSummary.daysSinceLastCount
+    },
+    buying: {
+      short: shortList.length,
+      biggest: shortList.length ? { id: shortList[0].id, name: shortList[0].name,
+                                    unit: shortList[0].unit,
+                                    short: round2(-shortList[0].after) } : null,
+      pools: buy.pools
+    },
+    trust: {
+      stageLogRows: allRows.length,
+      rowsWithHours: allRows.filter(function (r) { return Number(r.Hours) > 0; }).length,
+      productsTracked: overview.length,
+      productsWithBaseline: withBaseline,
+      materialsTotal: invSummary.materials,
+      materialsCounted: counted
+    }
+  };
 }
 
 /* Everything the Inventory panel needs in one round trip.

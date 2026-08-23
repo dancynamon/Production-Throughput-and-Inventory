@@ -423,3 +423,56 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
   .buy-row__main{ grid-column:1/-1 }
   .buy-row__v{ grid-column:3; text-align:right }
 }
+
+/* ---- Summary: the top layer ---------------------------------------------- */
+.mgr-hint{
+  margin-top:18px; padding:12px 14px; font-size:.88rem; color:var(--ink);
+  background:#fff6e5; border:1px solid var(--gold); border-radius:var(--radius);
+}
+.sum-card{
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius); margin-bottom:16px; overflow:hidden;
+}
+.sum-card__h{
+  font-weight:700; color:#fff; background:var(--navy); padding:11px 14px;
+  display:flex; justify-content:space-between; align-items:baseline; gap:10px;
+  flex-wrap:wrap; font-size:.95rem;
+}
+.sum-card__h span{ font-weight:500; font-size:.76rem; color:var(--gold) }
+
+.sum-figs{ display:flex; flex-wrap:wrap; gap:2px 0; padding:4px 0 }
+.sum-fig{
+  flex:1 1 110px; padding:10px 14px; display:flex; flex-direction:column; gap:1px;
+  border-right:1px solid var(--border);
+}
+.sum-fig:last-child{ border-right:none }
+.sum-fig b{ font-size:1.5rem; font-weight:700; color:var(--navy); font-variant-numeric:tabular-nums; line-height:1.1 }
+.sum-fig span{ font-size:.8rem; font-weight:600; color:var(--ink) }
+.sum-fig small{ font-size:.68rem; color:var(--muted); line-height:1.3 }
+.sum-fig--warn b{ color:var(--low) }
+.sum-note{ margin:0; padding:10px 14px 12px; font-size:.82rem; color:var(--muted); border-top:1px solid var(--border) }
+.sum-note b{ color:var(--ink) }
+
+/* Seven days of in-versus-out. Two bars a day rather than a line: the gap
+   between what started and what finished is the thing worth seeing. */
+.spark{ display:flex; align-items:flex-end; gap:6px; padding:12px 14px 4px; height:110px }
+.spark__col{ flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; height:100% }
+.spark__bars{ flex:1; display:flex; align-items:flex-end; gap:3px; width:100% ; justify-content:center }
+.spark__col span{ font-size:9px; color:var(--muted); font-variant-numeric:tabular-nums }
+.spark__in,.spark__out{ display:inline-block; width:9px; border-radius:2px 2px 0 0; min-height:2px }
+.spark__in{ background:var(--navy-light) }
+.spark__out{ background:var(--gold) }
+.spark__key{ padding:0 14px 12px; font-size:11px; color:var(--muted) }
+.spark__key i{ width:9px; height:9px; border-radius:2px; display:inline-block; margin:0 3px 0 8px }
+.spark__key i:first-child{ margin-left:0 }
+
+/* How much of the above to believe. */
+.trust{ padding:12px 14px 14px }
+.trust__row{ margin-bottom:14px }
+.trust__row:last-child{ margin-bottom:0 }
+.trust__top{ display:flex; justify-content:space-between; gap:10px; font-size:.83rem; align-items:baseline }
+.trust__top span{ color:var(--ink); font-weight:600 }
+.trust__top b{ color:var(--navy); font-variant-numeric:tabular-nums; white-space:nowrap }
+.trust__bar{ height:6px; background:var(--bg-alt,#eeedea); border-radius:3px; overflow:hidden; margin:5px 0 4px }
+.trust__bar i{ display:block; height:100%; background:var(--gold) }
+.trust small{ font-size:.72rem; color:var(--muted); line-height:1.35; display:block }
