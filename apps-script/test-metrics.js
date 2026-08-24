@@ -91,5 +91,32 @@ check('units/day spreads over every day logged (200/3)', cut.unitsPerDay, 66.67)
 check('units/hour uses ONLY the entries that carried hours (150/5)', cut.unitsPerHour, 30);
 check('hours are not invented for entries that lacked them', cut.hoursLogged, 5);
 
+/* --- Negative stock is not negative capacity ----------------------------- */
+/* Real case from the live sheet: EVA Foam sat at -18.39 sheets because no
+ * opening baseline was ever entered, and the Overview reported "-138
+ * buildable". Dividing a hole by a recipe produces arithmetic, not a plan. */
+const NEG_MATS = [
+  { MaterialID: 'MF', MaterialName: 'EVA Foam', Unit: 'sheet', OnHand: -18.39, ReorderPoint: 10 },
+  { MaterialID: 'MG', MaterialName: 'Glue', Unit: 'lb', OnHand: 100, ReorderPoint: 1 }
+];
+const NEG_BOM = [
+  { ProductID: 'BLANK50', Stage: 'Cut', MaterialID: 'MF', QtyPerUnit: 0.1333 },
+  { ProductID: 'BLANK50', Stage: 'Glued', MaterialID: 'MG', QtyPerUnit: 0.15 }
+];
+const NEG_PRODUCTS = [
+  { ProductID: 'BLANK50', ProductName: '50" Blank', Line: 'Blank', Active: 'YES' }
+];
+sandbox.readObjects = (tab) => ({
+  RawMaterials: NEG_MATS, BOM: NEG_BOM, Products: NEG_PRODUCTS,
+  StageLog: [], Planning: [], WipBaseline: []
+}[tab] || []);
+
+const neg = sandbox.computeRunway().BLANK50;
+check('a negative balance floors at zero, never negative capacity', neg.buildable, 0);
+check('the material in the hole is named, with how deep',
+  neg.negative.map((n) => [n.name, n.owed]), [['EVA Foam', 18.39]]);
+check('a healthy material is not reported as in the hole',
+  neg.negative.filter((n) => n.id === 'MG').length, 0);
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

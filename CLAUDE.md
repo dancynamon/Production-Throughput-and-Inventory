@@ -48,8 +48,11 @@ There is no GitHub↔Apps Script sync (no clasp). Copy-paste is the only bridge.
    longer fatal — but running it by hand makes the change visible immediately
 3. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy**
 
-`.github/workflows/deploy-apps-script.yml` automates 1 and 3 via clasp. It
-skips green while unconfigured. Always needs `APPS_SCRIPT_ID` and
+`.github/workflows/deploy-apps-script.yml` automates 1 and 3 via clasp, but is
+**manual-only (`workflow_dispatch`) since 2026-08-23** — both auth paths are
+dead (see below), so firing on push just mailed Dan a failure for a deploy
+nobody was waiting on. Restore the `push` trigger if either path starts working.
+It skips green while unconfigured. Always needs `APPS_SCRIPT_ID` and
 `APPS_SCRIPT_DEPLOYMENT_ID`, plus **one** of:
 
 - `GCP_SA_KEY` — a service-account JSON key. Preferred: no reauth clock.

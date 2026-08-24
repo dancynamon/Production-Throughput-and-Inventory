@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-23 20:40 UTC      version 2.12.0
+ *  BUILD:  2026-08-23 21:15 UTC      version 2.12.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -115,12 +115,12 @@ var MANAGER_PIN = '2468';
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.12.0';
+var BACKEND_VERSION = '2.12.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-23 20:40 UTC';
+var BUILD_STAMP = '2026-08-23 21:15 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1738,19 +1738,30 @@ function computeRunway() {
         var need = needs[mid], mat = stock[mid];
         if (!mat || !(need > 0)) return;
         if (mat.onHand === null) { uncounted.push({ id: mid, name: mat.name }); return; }
-        var canMake = Math.floor(mat.onHand / need);
+        /* Floored at zero. A negative balance divided by a positive recipe
+         * yields "-138 buildable", which is not a smaller number of tubes —
+         * it is not a number of tubes at all. The honest reading is zero, plus
+         * the fact that the shelf is already in the hole, which `owed` carries
+         * so the app can say so instead of printing arithmetic at someone. */
+        var canMake = Math.max(0, Math.floor(mat.onHand / need));
+        var short = mat.onHand < 0 ? round2(-mat.onHand) : 0;
         detail.push({ id: mid, name: mat.name, unit: mat.unit,
-                      onHand: mat.onHand, perUnit: round2(need), canMake: canMake });
+                      onHand: mat.onHand, perUnit: round2(need),
+                      canMake: canMake, owed: short });
         if (buildable === null || canMake < buildable) {
           buildable = canMake;
           constraint = { id: mid, name: mat.name, unit: mat.unit,
-                         onHand: mat.onHand, perUnit: round2(need) };
+                         onHand: mat.onHand, perUnit: round2(need), owed: short };
         }
       });
 
       detail.sort(function (a, b) { return a.canMake - b.canMake; });
+      // Materials already in the hole. These are not a shortage to plan around;
+      // they are a count that never happened, and the app should say which.
+      var negative = detail.filter(function (d) { return d.owed > 0; })
+        .map(function (d) { return { id: d.id, name: d.name, unit: d.unit, owed: d.owed }; });
       out[pr.ProductID] = {
-        buildable: buildable, constraint: constraint,
+        buildable: buildable, constraint: constraint, negative: negative,
         uncounted: uncounted, materials: detail.slice(0, 5)
       };
     });

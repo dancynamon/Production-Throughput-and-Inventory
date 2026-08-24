@@ -55,10 +55,18 @@
 
 name: Deploy Apps Script
 
+# MANUAL ONLY, since 2026-08-23.
+#
+# This used to fire on every push touching Code.gs. Both auth paths are
+# currently dead — the personal login expires with invalid_rapt, and the
+# service account cannot pass the Apps Script API's per-user gate (see the
+# header above) — so every push produced a failure email for a deploy nobody
+# was waiting on. An automation that only generates noise is worse than none.
+#
+# Nothing here is deleted: the moment either auth path works, put the push
+# trigger back and it resumes. Until then Code.gs ships by hand, which takes
+# about two minutes and happens a couple of times a week.
 on:
-  push:
-    branches: [main]
-    paths: ['apps-script/Code.gs']
   workflow_dispatch:
 
 jobs:

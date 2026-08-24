@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.12.0';
+  var APP_VERSION = '2.12.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -332,6 +332,19 @@
           html += '<div class="runway">';
           if (rw.buildable === null) {
             html += '<span class="runway__none">No counted materials — runway unknown</span>';
+          } else if (rw.negative && rw.negative.length) {
+            /* A material below zero is not a shortage you can plan around, it
+             * is a count that never happened — the recipe has been deducting
+             * against an opening balance nobody set. Saying "0 buildable"
+             * alone would read as "we are out of foam", which is probably
+             * false and would send someone to buy foam they already have. */
+            html += '<span class="runway__n">0</span> buildable — <b>'
+                 + escapeHtml(rw.negative[0].name) + '</b> is '
+                 + fmt(rw.negative[0].owed) + ' ' + escapeHtml(rw.negative[0].unit || '')
+                 + ' below zero'
+                 + (rw.negative.length > 1 ? ', and ' + (rw.negative.length - 1) + ' more' : '')
+                 + '<div class="runway__warn">Below zero means never counted, not empty. '
+                 + 'Count it on the Inventory tab and this becomes a real number.</div>';
           } else {
             html += '<span class="runway__n">' + fmt(rw.buildable) + '</span> buildable'
                  + (rw.constraint ? ' · limited by <b>' + escapeHtml(rw.constraint.name) + '</b> ('
