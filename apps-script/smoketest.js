@@ -187,7 +187,9 @@ const INVENTORY = [
   /* ---- Capacity + promise ------------------------------------------------- */
   await page.click('.tab[data-screen="capacity"]');
   await page.waitForSelector('#capBody .ov-card', { timeout:5000 });
-  const bn = await page.$$eval('.cap-bn td:first-child', (t) => t.map((x) => x.textContent.trim().split(' ')[0]));
+  // The stage name is the cell's first text node; the bottleneck pill that
+  // follows it is a separate element, so read the node rather than splitting.
+  const bn = await page.$$eval('.cap-bn td:first-child', (t) => t.map((x) => x.firstChild.textContent.trim()));
   if (JSON.stringify(bn) !== '["Assemble"]') errors.push('bottleneck row wrong: ' + JSON.stringify(bn));
   await page.selectOption('#promProduct', 'LGC30');
   await page.fill('#promQty', '20');

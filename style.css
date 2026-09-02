@@ -513,6 +513,15 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
   border:1.5px solid var(--gold); padding:11px 14px; border-radius:var(--radius);
   font-size:.88rem;
 }
-.cap-table td small{ display:block; font-size:.68rem; font-weight:500; color:var(--muted); line-height:1.2 }
+/* Never hide a column. The card clips overflow for its rounded corners, so
+   the table gets its own scroll container as a last resort — but the point
+   of the sizes below is that at 390px it should not need one. */
+.cap-wrap{ overflow-x:auto }
+.cap-table{ font-size:.88rem }
+.cap-table th, .cap-table td{ padding:8px 9px }
+.cap-table th:first-child, .cap-table td:first-child{ padding-left:14px }
+.cap-table th:last-child, .cap-table td:last-child{ padding-right:14px }
+.cap-table td small{ display:block; font-size:.66rem; font-weight:500; color:var(--muted); line-height:1.2 }
 .cap-table td small:first-child{ display:inline; margin-left:1px }
+.cap-flag{ display:block; width:max-content; margin-top:3px }
 .cap-hr{ margin-top:1px }
