@@ -71,7 +71,7 @@ const INVENTORY = [
     const url = new URL(route.request().url());
     const action = url.searchParams.get('action'); const cb = url.searchParams.get('callback');
     let data;
-    if (action === 'config') data = { ok:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
+    if (action === 'config') data = { ok:true, pinIsDefault:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
       employees:['Maria','James'],
       products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube'},{id:'SHP24',name:'Shape 24x24',line:'Shape'}],
       materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards'}] };
@@ -85,6 +85,18 @@ const INVENTORY = [
     else if (action === 'inventory') data = { ok:true, materials:INVENTORY,
       summary:{ materials:3, neverCounted:1, negative:1, low:1, drifting:1,
                 lastCountAt:'2026-08-10', lastCountBy:'Dan', daysSinceLastCount:3 } };
+    else if (action === 'capacity') data = { ok:true, familyOrder:['Lifeguard Chairs'],
+      coverage:{ stageLogRows:19, rowsWithHours:1 },
+      products:[{ id:'LGC30', name:'Lifeguard Chair 30"', family:'Lifeguard Chairs', feedsFrom:null,
+        baselineAt:null, finished:0, lineRate:6,
+        bottleneck:{ stage:'Assemble', unitsPerDay:6, unitsPerHour:null, daysObserved:2 },
+        wipInLine:40, aheadOfBottleneck:28, ratedStages:2, totalStages:3, confidence:'partial',
+        buildable:10, constraint:{ name:'Chair Hardware Kit' }, negative:[], uncounted:[],
+        stages:[
+          { stage:'Cut', completed:40, waiting:null, unitsPerHour:5, unitsPerDay:20, daysObserved:2, daysToClear:null, isBottleneck:false },
+          { stage:'Assemble', completed:12, waiting:28, unitsPerHour:null, unitsPerDay:6, daysObserved:2, daysToClear:4.67, isBottleneck:true },
+          { stage:'Box', completed:0, waiting:12, unitsPerHour:null, unitsPerDay:null, daysObserved:0, daysToClear:null, isBottleneck:false }
+        ] }] };
     else if (action === 'summary') data = { ok:true, generatedAt:'2026-08-23',
       production:{ windowDays:7, since:'2026-08-17', started:150, finished:2, events:6,
         activeDays:2, hours:5,
@@ -171,6 +183,22 @@ const INVENTORY = [
   await page.click('#invBtn');
   await page.waitForSelector('#invResult .result__ok', { timeout:5000 });
   console.log('COUNT:', (await page.textContent('#invResult')).replace(/\s+/g,' ').trim().slice(0,130));
+
+  /* ---- Capacity + promise ------------------------------------------------- */
+  await page.click('.tab[data-screen="capacity"]');
+  await page.waitForSelector('#capBody .ov-card', { timeout:5000 });
+  const bn = await page.$$eval('.cap-bn td:first-child', (t) => t.map((x) => x.textContent.trim().split(' ')[0]));
+  if (JSON.stringify(bn) !== '["Assemble"]') errors.push('bottleneck row wrong: ' + JSON.stringify(bn));
+  await page.selectOption('#promProduct', 'LGC30');
+  await page.fill('#promQty', '20');
+  const prom = (await page.textContent('#promOut')).replace(/\s+/g,' ');
+  // (28 ahead + 20 new) / 6 per day = 8 working days.
+  if (!/8 working days/.test(prom)) errors.push('promise arithmetic wrong: ' + prom);
+  // 20 asked, 10 buildable: the material warning must fire.
+  if (!/Only 10 buildable/.test(prom)) errors.push('material limit not flagged: ' + prom);
+  console.log('PROMISE:', prom.slice(0, 120));
+  // The PIN nag shows to a manager while the default is in force.
+  if (await page.$eval('#pinBanner', (b) => b.hidden)) errors.push('PIN banner hidden while default PIN in force');
 
   /* ---- Summary ----------------------------------------------------------- */
   await page.click('.tab[data-screen="summary"]');

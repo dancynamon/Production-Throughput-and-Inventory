@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.12.1';
+  var APP_VERSION = '2.13.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -96,6 +96,8 @@
       buildFacts.sheetId = data.sheetId || null;
       buildFacts.buildStamp = data.buildStamp || null;
       renderBuildInfo();
+      buildFacts.pinIsDefault = !!data.pinIsDefault;
+      showPinNag();
       LINES = data.lines || {};
       PLINE = {};
       (data.products || []).forEach(function (p) { PLINE[p.id] = p.line || 'Blank'; });
@@ -124,7 +126,15 @@
    * Apps Script deployment it talks to, and which spreadsheet that deployment
    * is bound to. `backend`, `sheet` and `sheetId` arrive from ?action=config,
    * so they stay blank until the Apps Script side is redeployed. */
-  var buildFacts = { backend: null, sheet: null, sheetId: null, buildStamp: null };
+  var buildFacts = { backend: null, sheet: null, sheetId: null, buildStamp: null, pinIsDefault: false };
+
+  /* Nag for as long as the PIN is the one printed in a public repo. Only a
+   * manager can act on it, so it shows only in manager mode — and it has to
+   * be re-evaluated on unlock, not just on load, or the person who just typed
+   * the default PIN is the one person who never sees the warning about it. */
+  function showPinNag() {
+    el('pinBanner').hidden = !(buildFacts.pinIsDefault && localStorage.getItem('aq_role') === 'mgr');
+  }
 
   function apiLabel() {
     if (!API) return 'not set';
@@ -433,6 +443,7 @@
     el('mgrBtn').textContent = mgr ? '🔓' : '🔒';
     el('mgrBtn').title = mgr ? 'Manager mode (tap to lock)' : 'Manager access';
     el('mgrHint').hidden = mgr;
+    showPinNag();
     if (!mgr) {  // if an employee somehow lands on a manager screen, bounce to Log My Day
       var active = document.querySelector('.screen--active');
       if (active && active.id !== 'screen-day') selectScreen('day');
@@ -459,6 +470,7 @@
     el('screen-' + name).classList.add('screen--active');
     if (name === 'summary') loadSummary();
     if (name === 'overview') loadOverview();
+    if (name === 'capacity') loadCapacity();
     if (name === 'inventory') loadInventory();
     if (name === 'buy') loadBuy();
     if (name === 'wip') buildWipRows();
@@ -995,6 +1007,131 @@
       + '<div class="trust__bar"><i style="width:' + pct + '%"></i></div>'
       + '<small>' + escapeHtml(why) + '</small></div>';
   }
+
+
+  /* ---- Capacity: rates, bottlenecks, and when an order could ship -------- */
+  /* Every line has one stage that sets its pace. Nothing upstream of it can
+   * make the line faster, and everything queued up to it has to pass through
+   * it first — so "when could 200 ship" is: what is ahead of the bottleneck,
+   * plus the 200, divided by the bottleneck's observed pace.
+   *
+   * The pace is in OBSERVED days — days on which that stage did work — and
+   * the promise converts to calendar days by assuming Monday to Friday. That
+   * assumption is stated on screen, as is how thin the data behind the rate
+   * is: a rate from two afternoons is a rate the way one swallow is a summer. */
+  var CAP = { products: [], byId: {} };
+
+  function loadCapacity() {
+    var body = el('capBody');
+    body.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'capacity' }, 30000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load capacity');
+      CAP.products = d.products || [];
+      CAP.byId = {};
+      CAP.products.forEach(function (p) { CAP.byId[p.id] = p; });
+      fillSelectGrouped(el('promProduct'), CAP.products.map(function (p) {
+        return { value: p.id, label: p.name, family: p.family };
+      }), 'Select a product', d.familyOrder || []);
+      renderCapacity(d);
+      renderPromise();
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      body.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message)
+        + (stale ? '<br>The Apps Script backend is older than this app — paste '
+                 + 'Code.gs and cut a new deployment version.' : '') + '</div>';
+    });
+  }
+
+  var CONF = {
+    none:    ['no rate yet',     'Nothing logged for this line.'],
+    partial: ['partly known',    'Some stages have never been logged — the real bottleneck may be one of them.'],
+    thin:    ['thin data',       'Every stage has a rate, but from fewer than five days.'],
+    ok:      ['five+ days',      '']
+  };
+
+  function renderCapacity(d) {
+    var html = '', lastFam = null;
+    CAP.products.forEach(function (p) {
+      if (p.family !== lastFam) { html += '<div class="ov-family">' + escapeHtml(p.family) + '</div>'; lastFam = p.family; }
+      var conf = CONF[p.confidence] || CONF.none;
+      html += '<div class="ov-card"><div class="ov-card__head">' + escapeHtml(p.name)
+        + '<span class="ov-card__meta">'
+        + (p.lineRate === null
+            ? 'no rate yet'
+            : '<b>' + fmt(p.lineRate) + '/day</b> · set by ' + escapeHtml(p.bottleneck.stage))
+        + ' · <span class="cap-conf cap-conf--' + escapeHtml(p.confidence) + '">' + conf[0] + '</span>'
+        + '</span></div>';
+      if (conf[1]) html += '<p class="cap-note">' + escapeHtml(conf[1]) + '</p>';
+      html += '<table class="ov-table"><thead><tr><th>Stage</th><th>/hr</th><th>/day</th><th>Days seen</th><th>Queued</th><th>Days to clear</th></tr></thead><tbody>';
+      p.stages.forEach(function (s) {
+        html += '<tr' + (s.isBottleneck ? ' class="cap-bn"' : '') + '><td>' + escapeHtml(s.stage)
+          + (s.isBottleneck ? ' <span class="ov-flag">bottleneck</span>' : '') + '</td>'
+          + '<td>' + (s.unitsPerHour === null ? '—' : fmt(s.unitsPerHour)) + '</td>'
+          + '<td>' + (s.unitsPerDay === null ? '—' : fmt(s.unitsPerDay)) + '</td>'
+          + '<td>' + (s.daysObserved || 0) + '</td>'
+          + '<td>' + (s.waiting === null ? '—' : fmt(s.waiting)) + '</td>'
+          + '<td>' + (s.daysToClear === null ? (s.waiting > 0 ? '<span class="cap-unk">no pace</span>' : '—') : fmt(s.daysToClear)) + '</td></tr>';
+      });
+      html += '</tbody></table></div>';
+    });
+    var cov = d.coverage || {};
+    html += '<p class="cap-cov">' + fmt(cov.stageLogRows || 0) + ' entries logged, '
+      + fmt(cov.rowsWithHours || 0) + ' with hours. Per-hour rates need hours; '
+      + 'per-day rates need days. Both need weeks.</p>';
+    el('capBody').innerHTML = html;
+  }
+
+  /* Calendar date N working days out, Monday to Friday. */
+  function addWorkDays(from, n) {
+    var d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+    var left = Math.ceil(n);
+    while (left > 0) {
+      d.setDate(d.getDate() + 1);
+      if (d.getDay() !== 0 && d.getDay() !== 6) left--;
+    }
+    return d;
+  }
+
+  function renderPromise() {
+    var out = el('promOut');
+    var p = CAP.byId[el('promProduct').value], qty = Number(el('promQty').value);
+    if (!p || !(qty > 0)) { out.className = 'promise__out muted'; out.textContent = 'Pick a product and a quantity.'; return; }
+    out.className = 'promise__out';
+
+    var parts = [];
+    if (p.lineRate === null) {
+      out.innerHTML = '<b>Can\'t say yet.</b> No stage of ' + escapeHtml(p.name)
+        + ' has been logged, so there is no pace to divide by. A week of Log My Day fixes that.';
+      return;
+    }
+    var days = (p.aheadOfBottleneck + qty) / p.lineRate;
+    var when = addWorkDays(new Date(), days);
+    parts.push('<div class="promise__big"><b>' + fmt(Math.ceil(days)) + ' working days</b> → '
+      + when.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + '</div>');
+    parts.push('<div class="promise__why">' + fmt(p.aheadOfBottleneck) + ' already queued ahead of <b>'
+      + escapeHtml(p.bottleneck.stage) + '</b> + ' + fmt(qty) + ' new, at '
+      + fmt(p.lineRate) + '/day. Mon–Fri assumed.</div>');
+
+    // Materials: the other thing that can say no.
+    if (p.negative && p.negative.length) {
+      parts.push('<div class="promise__flag promise__flag--warn">Materials unknown — <b>'
+        + escapeHtml(p.negative[0].name) + '</b> is below zero (never counted). Count it before promising.</div>');
+    } else if (p.buildable !== null && p.buildable < qty) {
+      parts.push('<div class="promise__flag promise__flag--warn">Only <b>' + fmt(p.buildable)
+        + '</b> buildable from stock — limited by ' + escapeHtml(p.constraint.name)
+        + '. Order material or the date above is fiction.</div>');
+    } else if (p.uncounted && p.uncounted.length) {
+      parts.push('<div class="promise__flag">Some materials have never been counted ('
+        + p.uncounted.map(function (u) { return escapeHtml(u.name); }).join(', ') + '), so stock is not checked for them.</div>');
+    }
+    var conf = CONF[p.confidence] || CONF.none;
+    if (p.confidence !== 'ok') {
+      parts.push('<div class="promise__flag">Rate is <b>' + conf[0] + '</b>. ' + escapeHtml(conf[1]) + '</div>');
+    }
+    out.innerHTML = parts.join('');
+  }
+  el('promProduct').addEventListener('change', renderPromise);
+  el('promQty').addEventListener('input', renderPromise);
 
   /* ---- Buy: what the committed work needs ------------------------------- */
   /* The Overview's reorder list answers "what is low". This answers the

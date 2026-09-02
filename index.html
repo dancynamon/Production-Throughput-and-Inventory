@@ -26,6 +26,7 @@
   <button class="tab tab--active" data-screen="day">Log My Day</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
+  <button class="tab" data-screen="capacity" data-mgr="1">Capacity</button>
   <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
   <button class="tab" data-screen="wip" data-mgr="1">WIP</button>
@@ -52,7 +53,7 @@
 
     <div id="mgrHint" class="mgr-hint" hidden>
       Manager? Tap <b>🔒</b> at the top right to unlock Summary, Overview,
-      Receive, Inventory, WIP and Buy on this device.
+      Capacity, Receive, Inventory, WIP and Buy on this device.
     </div>
 
     <div id="todayCard" class="ov-card" hidden>
@@ -70,6 +71,25 @@
   <section id="screen-overview" class="screen">
     <p class="stock-hint">Live pipeline — work-in-progress at each stage and suggested next-day goals.</p>
     <div id="overviewBody"><div class="muted">Loading…</div></div>
+  </section>
+
+  <!-- ============ CAPACITY (rates, bottlenecks, order promising) ============ -->
+  <section id="screen-capacity" class="screen">
+    <p class="stock-hint">How fast each line actually runs, from what has been
+      logged, and the one stage setting its pace. Rates are per <b>observed
+      day</b> — a day that stage did work — so a line only becomes trustworthy
+      after a couple of weeks of logging, ideally with hours.</p>
+
+    <div class="promise">
+      <div class="promise__h">When could an order ship?</div>
+      <div class="promise__row">
+        <select id="promProduct"></select>
+        <input id="promQty" type="number" inputmode="numeric" min="1" step="1" placeholder="qty">
+      </div>
+      <div id="promOut" class="promise__out muted">Pick a product and a quantity.</div>
+    </div>
+
+    <div id="capBody"><div class="muted">Loading…</div></div>
   </section>
 
   <!-- ============ RECEIVE ============ -->
@@ -158,6 +178,10 @@
   <div id="buildDetails" class="buildinfo__details" hidden></div>
 </footer>
 
+<div id="pinBanner" class="pin-banner" hidden>
+  <strong>Manager PIN is still the default.</strong> It is printed in a public
+  repository. In the sheet: <b>Aquamentor → Set manager PIN…</b>
+</div>
 <div id="setupBanner" class="setup-banner" hidden>
   <strong>Almost there.</strong> Paste your Google Apps Script Web-App URL into
   <code>config.js</code> (<code>API_URL</code>). See <code>README.md</code>.

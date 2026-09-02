@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-23 21:15 UTC      version 2.12.1
+ *  BUILD:  2026-08-24 14:10 UTC      version 2.13.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -106,21 +106,53 @@ var COUNTLOG_HEADERS = ['Timestamp', 'MaterialID', 'MaterialName', 'Unit',
 // Appended to RawMaterials by upgradeSchema() on an existing sheet.
 var COUNT_COLUMNS = ['LastCounted', 'LastCountedAt', 'LastVariance'];
 
-// Manager PIN — the three owners type this to unlock the full site (Overview,
-// Receive). Employees never see it; it lives here on the server, not in the
-// public app code. CHANGE THIS to your own code.
-var MANAGER_PIN = '2468';
+/* Manager PIN — unlocks the manager tabs. Employees never see it.
+ *
+ * It no longer lives in this file. This file is in a public repository, so
+ * anything typed here is published; the real PIN sits in Script Properties,
+ * which only the sheet's owner can read, and is set from the Aquamentor menu.
+ * DEFAULT_PIN is what applies until that has been done once — and the app
+ * says so, loudly, for as long as it is still in force. */
+var DEFAULT_PIN = '2468';
+
+function managerPin() {
+  try {
+    var p = PropertiesService.getScriptProperties().getProperty('MANAGER_PIN');
+    if (p && String(p).trim()) return String(p).trim();
+  } catch (e) { /* no properties service (tests, or a very old runtime) */ }
+  return DEFAULT_PIN;
+}
+function pinIsDefault() { return managerPin() === DEFAULT_PIN; }
+
+/* Menu: Aquamentor -> Set manager PIN. Digits only, four or more, stored in
+ * Script Properties. The old PIN is not asked for: whoever can open this menu
+ * already owns the sheet, which is more access than the PIN protects. */
+function setManagerPin() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Set manager PIN',
+    'Digits only, at least 4. This replaces the PIN the app asks for.'
+    + (pinIsDefault() ? '\n\nThe PIN is currently the DEFAULT, which is public.' : ''),
+    ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var pin = String(r.getResponseText() || '').trim();
+  if (!/^\d{4,}$/.test(pin)) {
+    ui.alert('Not set', 'The PIN must be digits only and at least 4 long.', ui.ButtonSet.OK);
+    return;
+  }
+  PropertiesService.getScriptProperties().setProperty('MANAGER_PIN', pin);
+  SpreadsheetApp.getActive().toast('Manager PIN updated. Phones will need it next time they unlock.', 'Aquamentor', 8);
+}
 
 // Reported to the app and shown in its footer, so you can tell which backend a
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.12.1';
+var BACKEND_VERSION = '2.13.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-23 21:15 UTC';
+var BUILD_STAMP = '2026-08-24 14:10 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -576,6 +608,7 @@ function whatAmIRunning() {
   } catch (e2) { say('Schema applied for', '(unreadable)'); }
   say('Lines defined in code', typeof LINES === 'undefined'
     ? '(undefined)' : Object.keys(LINES).join(', '));
+  say('Manager PIN', pinIsDefault() ? 'DEFAULT (public) — set it from the Aquamentor menu' : 'set (custom)');
   say('migrateToVariantLines', typeof migrateToVariantLines === 'function' ? 'present' : 'MISSING');
   say('resetAllTabs', typeof resetAllTabs === 'function' ? 'present' : 'MISSING');
 
@@ -870,8 +903,9 @@ function doGet(e) {
     else if (action === 'metrics')   result = getMetrics();
     else if (action === 'purchasing') result = computePurchasing();
     else if (action === 'summary')   result = getSummary();
+    else if (action === 'capacity')  result = computeCapacity();
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
-    else if (action === 'auth')      result = { ok: String(p.pin || '') === MANAGER_PIN };
+    else if (action === 'auth')      result = { ok: String(p.pin || '') === managerPin() };
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -900,6 +934,8 @@ function getConfig() {
   return { ok: true, products: products, employees: employees, materials: materials,
            lines: lines, stages: stageNames(), familyOrder: FAMILY_ORDER,
            backendVersion: BACKEND_VERSION, buildStamp: BUILD_STAMP,
+           // Surfaced so the app can nag while the PIN is still the published one.
+           pinIsDefault: pinIsDefault(),
            sheetName: ss.getName(), sheetId: ss.getId() };
 }
 
@@ -1768,6 +1804,84 @@ function computeRunway() {
   return out;
 }
 
+/* Capacity: how fast each line actually runs, and what that means for the
+ * work queued in front of it.
+ *
+ * Every line has one stage that sets its pace — the bottleneck — and nothing
+ * upstream of it can make the line faster. Everything here is derived from
+ * the throughput actually observed in StageLog, so it is only as good as the
+ * logging: a stage nobody has logged has no rate, and a line with an unrated
+ * stage has a bottleneck that is only the slowest of the stages we know
+ * about. That distinction is carried in `confidence` and shown, because a
+ * rate from one good afternoon is not a rate.
+ *
+ * daysToClear is Little's Law at one station: the queue in front of a stage
+ * divided by that stage's observed pace. aheadOfBottleneck is what an order
+ * has to wait behind, since everything queued up to and including the
+ * bottleneck must pass through it first. Both are in OBSERVED DAYS — days on
+ * which that stage did work — which is the only kind of day the data knows.
+ */
+function computeCapacity() {
+  var m = getMetrics();
+
+  var products = m.products.map(function (pr) {
+    var rated = pr.stages.filter(function (s) { return s.unitsPerDay !== null && s.unitsPerDay > 0; });
+
+    var bottleneck = null, bottleneckIdx = -1;
+    pr.stages.forEach(function (s, i) {
+      if (s.unitsPerDay === null || !(s.unitsPerDay > 0)) return;
+      if (!bottleneck || s.unitsPerDay < bottleneck.unitsPerDay) { bottleneck = s; bottleneckIdx = i; }
+    });
+
+    var wipInLine = 0, ahead = 0;
+    pr.stages.forEach(function (s, i) {
+      if (i === 0) return;                       // the shared pool is not this line's
+      var w = Number(s.waiting) || 0;
+      if (w <= 0) return;
+      wipInLine += w;
+      if (bottleneckIdx >= 0 && i <= bottleneckIdx) ahead += w;
+    });
+
+    var minDays = rated.length
+      ? Math.min.apply(null, rated.map(function (s) { return s.daysObserved || 0; })) : 0;
+    var confidence = !rated.length ? 'none'
+      : rated.length < pr.stages.length ? 'partial'
+      : minDays < 5 ? 'thin' : 'ok';
+
+    return {
+      id: pr.id, name: pr.name, family: pr.family, feedsFrom: pr.feedsFrom,
+      baselineAt: pr.baselineAt, finished: pr.finished,
+      lineRate: bottleneck ? bottleneck.unitsPerDay : null,
+      bottleneck: bottleneck ? { stage: bottleneck.stage, unitsPerDay: bottleneck.unitsPerDay,
+                                 unitsPerHour: bottleneck.unitsPerHour,
+                                 daysObserved: bottleneck.daysObserved } : null,
+      wipInLine: wipInLine,
+      aheadOfBottleneck: ahead,
+      ratedStages: rated.length, totalStages: pr.stages.length,
+      confidence: confidence,
+      buildable: pr.runway ? pr.runway.buildable : null,
+      constraint: pr.runway ? pr.runway.constraint : null,
+      negative: pr.runway ? (pr.runway.negative || []) : [],
+      uncounted: pr.runway ? (pr.runway.uncounted || []) : [],
+      stages: pr.stages.map(function (s, i) {
+        var w = i === 0 ? null : (Number(s.waiting) || 0);
+        var days = null;
+        if (w === 0) days = 0;
+        else if (w > 0 && s.unitsPerDay > 0) days = round2(w / s.unitsPerDay);
+        return {
+          stage: s.stage, completed: s.completed, waiting: w,
+          unitsPerHour: s.unitsPerHour, unitsPerDay: s.unitsPerDay,
+          daysObserved: s.daysObserved, hoursLogged: s.hoursLogged,
+          daysToClear: days,
+          isBottleneck: i === bottleneckIdx
+        };
+      })
+    };
+  });
+
+  return { ok: true, products: products, coverage: m.coverage, familyOrder: FAMILY_ORDER };
+}
+
 /* Measured throughput per (product, stage), straight from StageLog.
  *
  * unitsPerHour is the number worth planning with, but it only exists for
@@ -1988,6 +2102,7 @@ function onOpen() {
     .addItem('Set up / repair missing tabs', 'setup')
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
+    .addItem('Set manager PIN…', 'setManagerPin')
     .addSeparator()
     .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')

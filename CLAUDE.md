@@ -112,6 +112,8 @@ node apps-script/test-inventory.js  # count history order, drift runs
 node apps-script/test-schema.js     # additive repairs, idempotence
 node apps-script/test-purchasing.js # committed demand, shared-pool guard
 node apps-script/test-summary.js    # shop-level vs line-level counting
+node apps-script/test-capacity.js   # bottleneck, Little's Law, confidence
+node apps-script/test-pin.js        # PIN from Script Properties, never code
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -125,7 +127,8 @@ assert on them rather than trusting the parser.
   all (blank OnHand). The first count of any material produces a meaningless
   variance; drift only becomes readable from the second count on
 - WIP baselines not yet recorded for any product
-- `MANAGER_PIN` still the default `2468`
+- Manager PIN lives in Script Properties since 2.13.0 (menu: Set manager PIN…);
+  `DEFAULT_PIN` 2468 applies until set, and the app nags managers until then
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
