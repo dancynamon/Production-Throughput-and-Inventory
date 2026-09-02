@@ -1062,12 +1062,14 @@
         + ' · <span class="cap-conf cap-conf--' + escapeHtml(p.confidence) + '">' + conf[0] + '</span>'
         + '</span></div>';
       if (conf[1]) html += '<p class="cap-note">' + escapeHtml(conf[1]) + '</p>';
-      html += '<table class="ov-table"><thead><tr><th>Stage</th><th>/hr</th><th>/day</th><th>Days seen</th><th>Queued</th><th>Days to clear</th></tr></thead><tbody>';
+      // Five columns, not six: a phone is 390px wide and the sixth column —
+      // days to clear, the one that matters — was the one falling off the edge.
+      html += '<table class="ov-table cap-table"><thead><tr><th>Stage</th><th>Rate</th><th>Days seen</th><th>Queued</th><th>Days to clear</th></tr></thead><tbody>';
       p.stages.forEach(function (s) {
         html += '<tr' + (s.isBottleneck ? ' class="cap-bn"' : '') + '><td>' + escapeHtml(s.stage)
           + (s.isBottleneck ? ' <span class="ov-flag">bottleneck</span>' : '') + '</td>'
-          + '<td>' + (s.unitsPerHour === null ? '—' : fmt(s.unitsPerHour)) + '</td>'
-          + '<td>' + (s.unitsPerDay === null ? '—' : fmt(s.unitsPerDay)) + '</td>'
+          + '<td>' + (s.unitsPerDay === null ? '—' : fmt(s.unitsPerDay) + '<small>/day</small>')
+          + (s.unitsPerHour === null ? '' : '<small class="cap-hr">' + fmt(s.unitsPerHour) + '/hr</small>') + '</td>'
           + '<td>' + (s.daysObserved || 0) + '</td>'
           + '<td>' + (s.waiting === null ? '—' : fmt(s.waiting)) + '</td>'
           + '<td>' + (s.daysToClear === null ? (s.waiting > 0 ? '<span class="cap-unk">no pace</span>' : '—') : fmt(s.daysToClear)) + '</td></tr>';

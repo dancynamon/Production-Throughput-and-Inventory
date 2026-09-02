@@ -34,6 +34,13 @@
 </nav>
 
 <main>
+  <!-- In flow, not fixed: a fixed banner would sit on top of the Inventory
+       tab's Record Count bar, which is the one control a manager most needs. -->
+  <div id="pinBanner" class="pin-banner" hidden>
+    <strong>Manager PIN is still the default.</strong> It is printed in a public
+    repository. In the sheet: <b>Aquamentor → Set manager PIN…</b>
+  </div>
+
   <!-- ============ LOG MY DAY ============ -->
   <section id="screen-day" class="screen screen--active">
     <form id="dayForm" autocomplete="off">
@@ -178,10 +185,6 @@
   <div id="buildDetails" class="buildinfo__details" hidden></div>
 </footer>
 
-<div id="pinBanner" class="pin-banner" hidden>
-  <strong>Manager PIN is still the default.</strong> It is printed in a public
-  repository. In the sheet: <b>Aquamentor → Set manager PIN…</b>
-</div>
 <div id="setupBanner" class="setup-banner" hidden>
   <strong>Almost there.</strong> Paste your Google Apps Script Web-App URL into
   <code>config.js</code> (<code>API_URL</code>). See <code>README.md</code>.
