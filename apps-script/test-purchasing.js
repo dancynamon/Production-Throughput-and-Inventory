@@ -116,6 +116,27 @@ check('what is left after the pipeline is served',
 /* --- Supplier passes through so the buy list can group by it ------------- */
 check('supplier rides along on each material (blank when unset)', by.GLUE.supplier, '');
 
+/* --- Burn and order-by ----------------------------------------------------- */
+// The Exo line has one Meshed day in the fixture (30 in a day -> 30/day), the
+// Standard line has no rows at all. So GLUE burns 30 × 2 = 60/day from Exo,
+// and the Standard line is named as one it cannot see — unknown, not zero.
+// 5 on hand ÷ 60 -> 0.08 days of stock; no lead time -> no order-by date.
+check('burn comes from the rated line only, and the blind line is named',
+  [by.GLUE.dailyBurn, by.GLUE.daysOfStock, by.GLUE.orderBy, by.GLUE.burnUnknownFor.sort()],
+  [60, 0.08, null, ['XRT-50 Std']]);
+check('lead days is null when the column is blank', by.GLUE.leadDays, null);
+// Now stock GLUE at 120 with a 3-day lead: 120 ÷ 60 = 2 days of stock.
+const savedRO = sandbox.readObjects;
+sandbox.readObjects = (tab) => (tab === 'RawMaterials'
+  ? MATERIALS.map((m) => (m.MaterialID === 'GLUE' ? { ...m, OnHand: 120, LeadDays: 3 } : m))
+  : savedRO(tab));
+const rated = Object.fromEntries(sandbox.computePurchasing().materials.map((m) => [m.id, m]));
+check('burn = line rate × per-unit recipe, summed over rated lines', rated.GLUE.dailyBurn, 60);
+check('days of stock = on hand ÷ burn (120 ÷ 60)', rated.GLUE.daysOfStock, 2);
+check('order-by days = days of stock − lead days, floored (2 − 3 → −1)', rated.GLUE.orderByDays, -1);
+check('an already-late order-by is today, never a past date', rated.GLUE.orderBy, sandbox.fmtDate(new Date()));
+sandbox.readObjects = savedRO;
+
 /* --- Attribution ---------------------------------------------------------- */
 check('the demand names the product that caused it',
   by.BOX.sources.map((s) => [s.productId, s.need]), [['XRT50EXO', 30]]);

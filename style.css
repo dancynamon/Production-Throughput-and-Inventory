@@ -616,3 +616,24 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 /* ---- You, today ------------------------------------------------------------ */
 .today-you{ padding:10px 14px; font-size:.86rem; color:var(--ink); border-bottom:1px solid var(--border); background:#fbfaf6 }
 .today-you b{ color:var(--navy) }
+
+/* ---- Per-stage notes -------------------------------------------------------- */
+.stage-head{ grid-template-columns:1fr 84px 64px 30px }
+.stage-row{ grid-template-columns:1fr 84px 64px 30px !important }
+.stage-row__note-btn{
+  font:inherit; font-size:.9rem; background:none; border:1px solid var(--border);
+  border-radius:6px; color:var(--muted); padding:4px 0; cursor:pointer; line-height:1;
+}
+.stage-row__note-btn:active{ background:var(--border) }
+.stage-row__note{
+  grid-column:1/-1; width:100%; padding:8px 10px; font-size:.9rem;
+  border:1px solid var(--border); border-radius:8px; background:var(--bg);
+}
+.today-notes{ padding:10px 14px 12px; border-top:1px solid var(--border) }
+.today-notes__h{ font-size:.72rem; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-bottom:6px }
+.today-note{ font-size:.84rem; color:var(--ink); padding:4px 0 }
+.today-note b{ color:var(--navy) }
+.today-note small{ display:block; font-size:.72rem; color:var(--muted) }
+
+/* ---- Order-by on Buy ---------------------------------------------------- */
+.buy-late{ color:var(--low) !important }

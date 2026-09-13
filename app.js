@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.17.0';
+  var APP_VERSION = '2.18.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -210,18 +210,32 @@
     }
     // Hours is optional per stage. Left blank the day still records production,
     // it just can't contribute to a units/hour rate.
-    wrap.innerHTML = '<div class="stage-head"><span></span><span>done</span><span>hrs</span></div>'
+    wrap.innerHTML = '<div class="stage-head"><span></span><span>done</span><span>hrs</span><span></span></div>'
       + stages.map(function (s) {
           var st = escapeHtml(s);
-          return '<label class="stage-row"><span class="stage-row__name">' + st + '</span>'
+          // A note per stage, hidden behind the pencil so the common case
+          // (numbers only) stays three taps. "Boxed: ran out of tape" lands
+          // on that row in StageLog, not in a shared day note.
+          return '<div class="stage-row"><span class="stage-row__name">' + st + '</span>'
                + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
                + 'data-stage="' + st + '" placeholder="0">'
                + '<input class="stage-row__hours" type="number" inputmode="decimal" min="0" step="any" '
                + 'data-hours="' + st + '" placeholder="—">'
-               + '</label>';
+               + '<button type="button" class="stage-row__note-btn" data-note-for="' + st + '" title="Note for this stage">\u270e</button>'
+               + '<input class="stage-row__note" type="text" maxlength="200" data-note="' + st + '" '
+               + 'placeholder="Note for ' + st + '\u2026" hidden>'
+               + '</div>';
         }).join('');
   }
   el('product').addEventListener('change', buildStageInputs);
+  el('stageInputs').addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-note-for]');
+    if (!b) return;
+    var box = document.querySelector('#stageInputs [data-note="' + b.getAttribute('data-note-for') + '"]');
+    if (!box) return;
+    box.hidden = !box.hidden;
+    if (!box.hidden) box.focus();
+  });
 
   /* ---- Submit the day ---------------------------------------------------- */
   el('dayForm').addEventListener('submit', function (e) {
@@ -237,6 +251,13 @@
       // Only meaningful next to a count — hours with no output isn't a rate.
       if (inp.value !== '' && h > 0 && counts[stage]) hours[stage] = h;
     });
+    var stageNotes = {};
+    document.querySelectorAll('#stageInputs [data-note]').forEach(function (inp) {
+      var stage = inp.getAttribute('data-note');
+      var t = (inp.value || '').trim();
+      // A note without a count has no row to sit on — it goes with the day.
+      if (t && counts[stage]) stageNotes[stage] = t;
+    });
     var payload = {
       action: 'submitDay',
       workDate: el('workDate').value,
@@ -244,7 +265,8 @@
       productId: el('product').value,
       counts: JSON.stringify(counts),
       hours: JSON.stringify(hours),
-      notes: el('notes').value
+      notes: el('notes').value,
+      stageNotes: JSON.stringify(stageNotes)
     };
     // A double-tap and a genuine second batch are identical in the data, and
     // only the person at the phone knows which this is. Ask, don't block.
@@ -539,6 +561,14 @@
                + fmt(pr.finished) + ' finished</span></div>'
                + '<div class="today-chips">' + (chips || '<span class="muted">—</span>') + '</div></div>';
         }).join('');
+        if (d.notes && d.notes.length) {
+          body.innerHTML += '<div class="today-notes"><div class="today-notes__h">Notes</div>'
+            + d.notes.map(function (n) {
+                return '<div class="today-note"><b>' + escapeHtml(n.stage) + '</b> · '
+                  + escapeHtml(n.product) + ' — ' + escapeHtml(n.note)
+                  + (n.by ? '<small>' + escapeHtml(n.by) + '</small>' : '') + '</div>';
+              }).join('') + '</div>';
+        }
       }
       TODAY = {};
       (d.products || []).forEach(function (pr) {
@@ -1550,6 +1580,14 @@
 
     // Shortest first — the buy list, in the order it costs you.
     rows.sort(function (a, b) {
+      var aShort = a.short !== null && a.short > 0, bShort = b.short !== null && b.short > 0;
+      if (aShort !== bShort) return aShort ? -1 : 1;
+      // Both short: the one that must be ordered soonest first, then by size.
+      if (aShort) {
+        var ad = a.m.orderByDays === null || a.m.orderByDays === undefined ? 1e9 : a.m.orderByDays;
+        var bd = b.m.orderByDays === null || b.m.orderByDays === undefined ? 1e9 : b.m.orderByDays;
+        if (ad !== bd) return ad - bd;
+      }
       var as = a.short === null ? -1e12 : a.short, bs = b.short === null ? -1e12 : b.short;
       if (bs !== as) return bs - as;
       return b.need - a.need;
@@ -1622,6 +1660,24 @@
     }).join(' · ');
     if (m.supplier) why = 'from ' + escapeHtml(m.supplier) + (why ? ' · ' + why : '');
 
+    // When to place the order: days of stock at the observed burn, less the
+    // supplier's lead time. Working days throughout. Nothing shown until the
+    // material has a count and a burn; "pace unknown" names the product whose
+    // line has no rate yet rather than pretending.
+    var when = '', late = false;
+    if (m.daysOfStock !== null && m.daysOfStock !== undefined) {
+      var stock = Math.round(m.daysOfStock) + 'd of stock';
+      if (m.leadDays !== null && m.leadDays !== undefined && m.orderByDays !== null && m.orderByDays !== undefined) {
+        late = m.orderByDays <= 0;
+        when = (late ? 'order today' : 'order by ' + shortDate(m.orderBy)) + ' — ' + stock + ', ' + m.leadDays + 'd lead';
+      } else {
+        when = stock + (m.leadDays === null || m.leadDays === undefined ? ' · no lead time set' : '');
+      }
+    } else if (m.burnUnknownFor && m.burnUnknownFor.length) {
+      when = 'pace unknown — no rate yet for ' + escapeHtml(m.burnUnknownFor.join(', '));
+    }
+    var whenHtml = when ? '<small class="buy-when' + (late ? ' buy-late' : '') + '">' + when + '</small>' : '';
+
     var verdict;
     if (r.short === null) {
       verdict = '<span class="buy-unknown">never counted</span>';
@@ -1629,10 +1685,10 @@
       // Order up to the reorder point where that is the bigger number — buying
       // exactly the shortfall leaves you at zero the day it arrives.
       verdict = '<span class="buy-short">short ' + fmt(r.short) + '</span>'
-        + '<small>order ' + fmt(r.upTo) + ' ' + escapeHtml(m.unit || '') + '</small>';
+        + '<small>order ' + fmt(r.upTo) + ' ' + escapeHtml(m.unit || '') + '</small>' + whenHtml;
     } else {
       verdict = '<span class="buy-ok">covered</span>'
-        + '<small>' + fmt(-r.short) + ' spare</small>';
+        + '<small>' + fmt(-r.short) + ' spare</small>' + whenHtml;
     }
 
     return '<div class="buy-row' + (r.short > 0 ? ' buy-row--short' : '') + '">'
@@ -1671,6 +1727,13 @@
 
   /* ---- Utils ------------------------------------------------------------- */
   function fmt(n) { n = Number(n) || 0; return (Math.round(n * 100) / 100).toLocaleString(); }
+  // 'YYYY-MM-DD' -> 'Thu Sep 17'. Parsed as local so the day never shifts.
+  function shortDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ''));
+    if (!m) return String(iso || '');
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+  }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];

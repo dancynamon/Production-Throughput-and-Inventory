@@ -121,6 +121,8 @@ node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
 node apps-script/test-wipwalk.js    # whole floor under ONE timestamp
 node apps-script/test-replay.js     # same clientId twice logs once
 node apps-script/test-targets.js    # update in place, append missing, refuse bad
+node apps-script/test-digest.js     # digest HTML content, recipient fallback
+node apps-script/test-notes.js      # per-stage note lands on its own row
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma

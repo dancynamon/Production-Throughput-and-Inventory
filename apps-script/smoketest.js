@@ -27,6 +27,7 @@ const STAGES = ['Cut','Glued','Meshed','Patched','Paint 1','Paint 2','Printed','
 // Shaped like computePurchasing(): one short, one uncounted, one covered, one idle.
 const PURCHASING = [
   { id:'M033', name:'Rescue Tube Custom Boxes', unit:'Boxes', category:'Packaging', supplier:'Uline',
+    leadDays:5, dailyBurn:2.5, daysOfStock:0, burnUnknownFor:[], orderBy:'2026-09-13', orderByDays:-5,
     onHand:0, counted:true, reorderPoint:20, lastCountedAt:null, committed:30, after:-30,
     sources:[{productId:'XRT50EXO',name:'XRT-50 Exotube',stage:'Boxed',units:151,need:30}] },
   { id:'M044', name:"Shoulder Strap w/ 6' Tow Line", unit:'each', category:'Sub-assembly',
@@ -137,7 +138,8 @@ const INVENTORY = [
     else if (action === 'today') data = { ok:true, workDate:url.searchParams.get('workDate'),
       products:[{ productId:'XRT50', name:'XRT-50 Rescue Tube',
         rows:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}], started:112, finished:40 }],
-      people:[{ name:'Maria', entries:2, units:152, hours:0 }] };
+      people:[{ name:'Maria', entries:2, units:152, hours:0 }],
+      notes:[{ product:'XRT-50 Rescue Tube', stage:'Boxed', by:'Maria', note:'ran out of tape at 3pm' }] };
     else if (action === 'reverse') data = { ok:true, message:'Reversed', nowOnBooks:0,
       restored:[{ id:'M014', name:'1" Red PP Webbing', unit:'Yards', restored:71.2, onHand:78.2 }], removed:null, warnings:[] };
     else if (action === 'wipWalk') data = { ok:true, at:'2026-09-13', message:'Opening WIP recorded for 2 products at one moment.',
@@ -157,12 +159,20 @@ const INVENTORY = [
   console.log('stage inputs (tube):', (await page.$$('#stageInputs [data-stage]')).length);
   await page.fill('#stageInputs [data-stage="Cut"]','112');
   await page.fill('#stageInputs [data-stage="Boxed"]','40');
+  await page.click('[data-note-for="Boxed"]');
+  await page.fill('#stageInputs [data-note="Boxed"]', 'ran out of tape at 3pm');
+  const dayReq = page.waitForRequest((r) => r.url().includes('action=submitDay'), { timeout:5000 });
   // Today's totals already show Cut 112 / Boxed 40, so this is a "duplicate"
   // and the app asks first. Answer yes — the reverse test below is what
   // exercises taking it back.
   await page.evaluate(() => { window.confirm = () => true; });
   await page.click('#dayBtn');
+  const dq = JSON.parse(new URL((await dayReq).url()).searchParams.get('stageNotes'));
+  if (dq.Boxed !== 'ran out of tape at 3pm' || dq.Cut !== undefined) errors.push('stage notes payload wrong: ' + JSON.stringify(dq));
   await page.waitForSelector('#dayResult .result__ok', { timeout:5000 });
+  await page.waitForSelector('#todayBody .today-note', { timeout:5000 });
+  const noteTxt = (await page.textContent('#todayBody .today-note')).replace(/\s+/g,' ');
+  if (!/Boxed · XRT-50 Rescue Tube — ran out of tape at 3pm/.test(noteTxt)) errors.push('note not shown: ' + noteTxt);
   console.log('DAY:', (await page.textContent('#dayResult')).replace(/\s+/g,' ').trim().slice(0,120));
 
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
@@ -375,6 +385,8 @@ const INVENTORY = [
               '| plus 100 planned:', after.replace(/\s+/g,' ').trim());
   if (before === after) errors.push('planned build did not change the shortfall');
 
+  const firstVerdict = (await page.textContent('.buy-sec .buy-row .buy-row__v')).replace(/\s+/g,' ');
+  if (!/order today — 0d of stock, 5d lead/.test(firstVerdict)) errors.push('order-by not shown: ' + firstVerdict);
   // Shortfalls group by supplier, one PO each, with a copyable list.
   const sups = await page.$$eval('.buy-sup__h b', (b) => b.map((x) => x.textContent));
   if (JSON.stringify(sups) !== '["Uline"]') errors.push('supplier groups: ' + JSON.stringify(sups));

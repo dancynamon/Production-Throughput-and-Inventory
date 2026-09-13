@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-13 19:45 UTC      version 2.17.0
+ *  BUILD:  2026-09-13 21:00 UTC      version 2.18.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -186,12 +186,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.17.0';
+var BACKEND_VERSION = '2.18.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-13 19:45 UTC';
+var BUILD_STAMP = '2026-09-13 21:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -818,6 +818,7 @@ function applySchemaUpgrades() {
   addColumns(TAB.products, ['OutputMaterial', 'Family']);
   addColumns(TAB.materials, COUNT_COLUMNS);
   addColumns(TAB.materials, ['Supplier']);   // who to raise the PO on — Buy groups by it
+  addColumns(TAB.materials, ['LeadDays']);   // supplier lead time, so Buy can say order-by
   addColumns(TAB.stagelog, ['Hours']);
 
   var addedMaterials = addMissingReferencedMaterials();
@@ -992,6 +993,7 @@ function getStock() {
     return {
       id: m.MaterialID, name: m.MaterialName, unit: m.Unit, category: m.Category || '',
       supplier: String(m.Supplier || '').trim(),
+      leadDays: blankish(m.LeadDays) ? null : (Number(m.LeadDays) || 0),
       onHand: onHand, counted: counted, reorderPoint: reorder, low: counted && onHand <= reorder,
       // Reconciliation. onHand is the ESTIMATE; lastCounted is the last actual.
       lastCounted:   m.LastCounted === '' || m.LastCounted === undefined ? null : Number(m.LastCounted),
@@ -1260,6 +1262,14 @@ function getInventory(p) {
 
 function blankish(v) { return v === '' || v === null || v === undefined; }
 
+/* N working days after `from`, Monday to Friday. */
+function addWorkDaysServer(from, n) {
+  var d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  var left = Math.ceil(n);
+  while (left > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) left--; }
+  return d;
+}
+
 /* Whole days between a 'YYYY-MM-DD' string and `now`, both read as local dates.
  * Parsing the parts by hand rather than through Date(string), which reads a
  * bare date as UTC and can land a day out either side of the dateline. */
@@ -1278,10 +1288,12 @@ function daysSince(dateStr, now) {
 function getToday(p) {
   var workDate = String(p.workDate || '').trim();
   if (!workDate) return { ok: false, error: 'No work date' };
-  var lineMap = productLineMap(), byProduct = {}, byPerson = {};
+  var lineMap = productLineMap(), byProduct = {}, byPerson = {}, notes = [];
   readObjects(TAB.stagelog).forEach(function (r) {
     if (fmtDate(r.WorkDate) !== workDate) return;
     var pid = r.ProductID;
+    var noteText = String(r.Notes || '').trim();
+    if (noteText) notes.push({ product: r.ProductName, stage: r.Stage, by: String(r.Employee || ''), note: noteText });
     byProduct[pid] = byProduct[pid] || { name: r.ProductName, stages: {} };
     byProduct[pid].stages[r.Stage] = (byProduct[pid].stages[r.Stage] || 0) + (Number(r.Qty) || 0);
     // The shift-end line: what each person put on the books today. Units
@@ -1315,7 +1327,7 @@ function getToday(p) {
   var people = Object.keys(byPerson).map(function (k) {
     var P = byPerson[k]; return { name: P.name, entries: P.entries, units: P.units, hours: round2(P.hours) };
   }).sort(function (a, b) { return b.units - a.units; });
-  return { ok: true, workDate: workDate, products: products, people: people };
+  return { ok: true, workDate: workDate, products: products, people: people, notes: notes };
 }
 
 /*
@@ -1333,6 +1345,11 @@ function submitDay(p) {
   // Hours are OPTIONAL and per stage. A day logged without them still records
   // production; it just cannot contribute to a rate.
   try { hours = JSON.parse(p.hours || '{}'); } catch (e) { hours = {}; }
+  // Per-stage notes: "Paint 2: dryer down 2h" belongs on the Paint 2 row, not
+  // copied onto every stage the person logged. The shared note still applies
+  // to any stage without one of its own.
+  var stageNotes;
+  try { stageNotes = JSON.parse(p.stageNotes || '{}'); } catch (e3) { stageNotes = {}; }
 
   if (!workDate)  return { ok: false, error: 'Please pick the work date.' };
   if (!employee)  return { ok: false, error: 'Please pick who you are.' };
@@ -1405,12 +1422,13 @@ function submitDay(p) {
 
       var hrs = Number(hours[stage]);
       hrs = (isFinite(hrs) && hrs > 0) ? round2(hrs) : '';
+      var note = String(stageNotes[stage] || '').trim() || notes;
       appendByHeader(logSheet, {
         Timestamp: now, WorkDate: workDate, Employee: employee,
         ProductID: productId, ProductName: product.ProductName,
-        Stage: stage, Qty: qty, Hours: hrs, Notes: notes
+        Stage: stage, Qty: qty, Hours: hrs, Notes: note
       });
-      logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs });
+      logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs, note: note || null });
 
       // A sub-assembly's LAST stage PRODUCES stock. Without this the strap
       // line would consume webbing and create nothing, while the tube line
@@ -1695,11 +1713,37 @@ function computePurchasing() {
     });
   });
 
+  /* Burn: how fast each material leaves the shelf if every line runs at its
+   * observed pace. Line rate is the bottleneck's rate (computeCapacity), per
+   * unit is the whole recipe. No rate on a line means that line burns nothing
+   * here — it is not zero consumption, it is unknown, and the app says which. */
+  var burn = {}, burnUnknownFor = {};
+  computeCapacity().products.forEach(function (pr) {
+    var per = perUnit[pr.id] || {};
+    Object.keys(per).forEach(function (mid) {
+      if (pr.lineRate === null) { (burnUnknownFor[mid] = burnUnknownFor[mid] || []).push(pr.name); return; }
+      burn[mid] = round2((burn[mid] || 0) + pr.lineRate * per[mid]);
+    });
+  });
+  var today = new Date();
+
   var materials = stock.map(function (m) {
     var owed = committed[m.id] || 0;
     var src = (sources[m.id] || []).sort(function (a, b) { return b.need - a.need; });
+    var daily = burn[m.id] || 0;
+    var daysOfStock = (m.counted && daily > 0 && m.onHand > 0) ? round2(m.onHand / daily) : null;
+    // Order-by: the day the shelf runs dry, less the supplier's lead time.
+    // Working days, since the burn is in observed working days.
+    var orderBy = null, orderByDays = null;
+    if (daysOfStock !== null && m.leadDays !== null) {
+      orderByDays = Math.floor(daysOfStock - m.leadDays);
+      orderBy = fmtDate(addWorkDaysServer(today, Math.max(0, orderByDays)));
+    }
     return {
       id: m.id, name: m.name, unit: m.unit, category: m.category, supplier: m.supplier || '',
+      leadDays: m.leadDays, dailyBurn: daily, daysOfStock: daysOfStock,
+      burnUnknownFor: burnUnknownFor[m.id] || [],
+      orderBy: orderBy, orderByDays: orderByDays,
       onHand: m.onHand, counted: m.counted, reorderPoint: m.reorderPoint,
       lastCountedAt: m.lastCountedAt,
       committed: owed,
@@ -2078,6 +2122,118 @@ function setTarget(p) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* Monday-morning digest, sent by the sheet itself.
+ *
+ * The Summary tab answers "how are we doing" for whoever opens the app. The
+ * digest answers it for whoever does not — it lands in the inbox at 7am on
+ * Monday from a time-driven trigger owned by this script, no phone involved.
+ * The HTML is built by a pure function so it can be tested without sending
+ * anything; the send is a thin wrapper around MailApp.
+ *
+ * Menu: Aquamentor -> Email me the digest now / Turn on Monday digest / off.
+ * Recipients live in Script Properties (DIGEST_TO, comma-separated); with
+ * none set it goes to whoever installed the trigger.
+ */
+function buildDigestHtml(sum, buy, inv, appUrl) {
+  var p = sum.production, pipe = sum.pipeline, st = sum.inventory, t = sum.trust;
+  var esc = function (x) { return String(x === null || x === undefined ? '' : x)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  var n = function (x) { return round2(x).toLocaleString(); };
+  var h = [];
+  h.push('<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px;color:#1c2634">');
+  h.push('<h2 style="margin:0 0 4px;color:#0c1f3f">Aquamentor — week to ' + esc(sum.generatedAt) + '</h2>');
+  h.push('<p style="margin:0 0 16px;color:#5d6a7d">Last ' + p.windowDays + ' days, since ' + esc(p.since) + '.</p>');
+
+  h.push('<table cellpadding="8" style="border-collapse:collapse;width:100%;margin-bottom:16px">');
+  h.push('<tr><td style="border:1px solid #d9d6ce"><b style="font-size:22px;color:#0c1f3f">' + n(p.started) + '</b><br><span style="color:#5d6a7d">entered the shop</span></td>'
+       + '<td style="border:1px solid #d9d6ce"><b style="font-size:22px;color:#0c1f3f">' + n(p.finished) + '</b><br><span style="color:#5d6a7d">finished goods</span></td>'
+       + '<td style="border:1px solid #d9d6ce"><b style="font-size:22px;color:#0c1f3f">' + n(p.activeDays) + '</b><br><span style="color:#5d6a7d">days worked · ' + n(p.events) + ' entries</span></td></tr>');
+  h.push('</table>');
+
+  if (pipe.biggest) {
+    h.push('<p><b>On the floor:</b> ' + n(pipe.wipTotal) + ' units in progress. Biggest pile: '
+      + n(pipe.biggest.units) + ' ' + esc(pipe.biggest.name) + ' waiting at <b>' + esc(pipe.biggest.stage) + '</b>.</p>');
+  }
+
+  var short = (buy.materials || []).filter(function (m) { return m.counted && m.after < 0; })
+    .sort(function (a, b) { return a.after - b.after; }).slice(0, 8);
+  h.push('<h3 style="margin:18px 0 6px;color:#0c1f3f">To order</h3>');
+  if (!short.length) h.push('<p style="color:#5d6a7d">Nothing counted is short of what the pipeline needs.</p>');
+  else {
+    h.push('<table cellpadding="6" style="border-collapse:collapse;width:100%">');
+    short.forEach(function (m) {
+      h.push('<tr><td style="border-bottom:1px solid #eae7e0">' + esc(m.name)
+        + (m.supplier ? ' <span style="color:#5d6a7d">· ' + esc(m.supplier) + '</span>' : '') + '</td>'
+        + '<td style="border-bottom:1px solid #eae7e0;text-align:right;color:#a92e2a"><b>short ' + n(-m.after) + ' ' + esc(m.unit) + '</b></td></tr>');
+    });
+    h.push('</table>');
+  }
+
+  h.push('<h3 style="margin:18px 0 6px;color:#0c1f3f">Count next</h3>');
+  var byId = {}; (inv.materials || []).forEach(function (m) { byId[m.id] = m; });
+  var next = (inv.countNext || []).map(function (id) { return byId[id]; }).filter(Boolean);
+  h.push(next.length
+    ? '<p>' + next.map(function (m) { return esc(m.name) + (m.lastCountedAt ? '' : ' <span style="color:#a92e2a">(never)</span>'); }).join(' · ') + '</p>'
+    : '<p style="color:#5d6a7d">Everything is freshly counted.</p>');
+
+  h.push('<h3 style="margin:18px 0 6px;color:#0c1f3f">How much of this to trust</h3>');
+  h.push('<p style="color:#5d6a7d;margin:0">' + n(t.materialsCounted) + ' of ' + n(t.materialsTotal) + ' materials counted · '
+    + n(t.productsWithBaseline) + ' of ' + n(t.productsTracked) + ' products with a WIP baseline · '
+    + n(t.rowsWithHours) + ' of ' + n(t.stageLogRows) + ' entries carry hours.</p>');
+  if (appUrl) h.push('<p style="margin-top:18px"><a href="' + esc(appUrl) + '" style="color:#0c1f3f">Open the app</a></p>');
+  h.push('</div>');
+  return h.join('');
+}
+
+var APP_PUBLIC_URL = 'https://prod-through-inv-3.dan-daf.workers.dev';
+
+function digestRecipients() {
+  var to = '';
+  try { to = String(PropertiesService.getScriptProperties().getProperty('DIGEST_TO') || '').trim(); } catch (e) {}
+  if (to) return to;
+  try { return Session.getEffectiveUser().getEmail(); } catch (e2) { return ''; }
+}
+
+function sendWeeklyDigest() {
+  var to = digestRecipients();
+  if (!to) throw new Error('No recipient: set DIGEST_TO from the Aquamentor menu.');
+  var sum = getSummary(), buy = computePurchasing(), inv = getInventory({ history: 1 });
+  var html = buildDigestHtml(sum, buy, inv, APP_PUBLIC_URL);
+  var subject = 'Aquamentor week to ' + sum.generatedAt + ' — ' + round2(sum.production.finished)
+    + ' finished, ' + (sum.buying.short || 0) + ' to order';
+  MailApp.sendEmail({ to: to, subject: subject, htmlBody: html,
+    body: 'This digest is HTML; open it in a mail client that shows HTML.' });
+  return { to: to, subject: subject };
+}
+
+function emailDigestNow() {
+  var r = sendWeeklyDigest();
+  SpreadsheetApp.getActive().toast('Sent to ' + r.to, 'Aquamentor', 6);
+}
+function setDigestRecipients() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Digest recipients', 'Comma-separated email addresses. Blank = whoever turned the digest on.\nCurrently: ' + digestRecipients(), ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var to = String(r.getResponseText() || '').trim();
+  var props = PropertiesService.getScriptProperties();
+  if (to) props.setProperty('DIGEST_TO', to); else props.deleteProperty('DIGEST_TO');
+  SpreadsheetApp.getActive().toast('Digest goes to ' + digestRecipients(), 'Aquamentor', 6);
+}
+function digestTriggerOn() {
+  digestTriggerOff();   // never two
+  ScriptApp.newTrigger('sendWeeklyDigest').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(7).create();
+  SpreadsheetApp.getActive().toast('Monday 7am digest is on, to ' + digestRecipients(), 'Aquamentor', 6);
+}
+function digestTriggerOff() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendWeeklyDigest') ScriptApp.deleteTrigger(t);
+  });
+}
+function digestTriggerOffMenu() {
+  digestTriggerOff();
+  SpreadsheetApp.getActive().toast('Monday digest is off', 'Aquamentor', 6);
 }
 
 /* Latest opening-WIP baseline per product, already converted from countable
@@ -2544,6 +2700,11 @@ function onOpen() {
     .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
     .addItem('Set manager PIN…', 'setManagerPin')
     .addItem('Set a person\'s PIN…', 'setPersonPin')
+    .addSeparator()
+    .addItem('Email me the digest now', 'emailDigestNow')
+    .addItem('Turn on Monday 7am digest', 'digestTriggerOn')
+    .addItem('Turn off Monday digest', 'digestTriggerOffMenu')
+    .addItem('Set digest recipients…', 'setDigestRecipients')
     .addSeparator()
     .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
