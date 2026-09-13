@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.16.0';
+  var APP_VERSION = '2.17.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -407,7 +407,8 @@
           html += '<tr' + (s.starved ? ' class="ov-starved"' : '') + '><td>' + escapeHtml(s.stage) + '</td>'
                + '<td>' + fmt(s.completed) + '</td>'
                + '<td>' + (s.waiting === null ? '—' : fmt(s.waiting)) + '</td>'
-               + '<td>' + fmt(s.target) + '</td>'
+               + '<td><button type="button" class="ov-target" title="Tap to change" data-tpid="' + escapeHtml(pr.productId)
+               +   '" data-tstage="' + escapeHtml(s.stage) + '" data-tcur="' + fmt(s.target) + '">' + fmt(s.target) + '</button></td>'
                + '<td class="ov-goal">' + fmt(s.suggest) + (s.starved ? ' <span class="ov-flag">↑short</span>' : '') + '</td></tr>';
         });
         // Runway: what the material on hand can still support, and what runs
@@ -461,6 +462,25 @@
   }
   var OV = { showAll: false };
 
+  // Targets drift with the order book and "open the sheet, find the row" is
+  // enough friction that they don't get updated. A tap on the number is not.
+  el('overviewBody').addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('.ov-target') : null;
+    if (!t) return;
+    var pid = t.getAttribute('data-tpid'), stage = t.getAttribute('data-tstage'), cur = t.getAttribute('data-tcur');
+    var raw = window.prompt('Daily target for ' + stage + ' (' + pid + '):', cur);
+    if (raw === null) return;
+    var n = Number(raw);
+    if (!isFinite(n) || n < 0) { toast('Enter a number, 0 or more'); return; }
+    api({ action: 'setTarget', productId: pid, stage: stage, target: n }, 20000)
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Could not set target');
+        toast(stage + ' target ' + (d.was === null ? 'set to ' : fmt(d.was) + ' → ') + fmt(d.target));
+        loadOverview();
+      })
+      .catch(function (err) { toast('⚠ ' + err.message); });
+  });
+
   /* ---- Receive ----------------------------------------------------------- */
   el('recvForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -491,10 +511,18 @@
       if (!d.ok) return;
       var card = el('todayCard'), body = el('todayBody');
       el('todayMeta').textContent = d.workDate;
+      var me = el('employee').value;
+      var mine = (d.people || []).filter(function (p) { return p.name === me; })[0];
+      var youLine = me
+        ? '<div class="today-you">' + (mine
+            ? '<b>' + escapeHtml(me) + ', today:</b> ' + fmt(mine.units) + ' units across ' + mine.entries
+              + ' entr' + (mine.entries === 1 ? 'y' : 'ies') + (mine.hours ? ' · ' + fmt(mine.hours) + 'h logged' : ' · no hours logged')
+            : '<b>' + escapeHtml(me) + ':</b> nothing logged yet today') + '</div>'
+        : '';
       if (!d.products || !d.products.length) {
-        body.innerHTML = '<div class="muted" style="padding:12px">Nothing logged yet today.</div>';
+        body.innerHTML = youLine + '<div class="muted" style="padding:12px">Nothing logged yet today.</div>';
       } else {
-        body.innerHTML = d.products.map(function (pr) {
+        body.innerHTML = youLine + d.products.map(function (pr) {
           // Each chip is a button: tap to take some or all of it back. The
           // alternative — "delete the row in the sheet" — fixes the count and
           // leaves the materials deducted forever.
@@ -521,6 +549,7 @@
     }).catch(function () {});
   }
   el('workDate').addEventListener('change', loadToday);
+  el('employee').addEventListener('change', loadToday);
 
   el('todayBody').addEventListener('click', function (e) {
     var t = e.target.closest ? e.target.closest('[data-undo-stage]') : null;
@@ -535,7 +564,7 @@
     if (!(n > 0) || n > max) { toast('Enter 1 to ' + fmt(max)); return; }
     var reason = window.prompt('Why? (goes in the log)', 'double tap');
     if (reason === null || !reason.trim()) { toast('A reason is required'); return; }
-    api({ action: 'reverse', employee: who, by: who, productId: pid, workDate: el('workDate').value,
+    api({ action: 'reverse', employee: who, by: localStorage.getItem('aq_mgr_name') || who, productId: pid, workDate: el('workDate').value,
           stage: stage, qty: n, reason: reason.trim() }, 30000)
       .then(function (d) {
         if (!d.ok) throw new Error(d.error || 'Could not reverse');
@@ -551,7 +580,8 @@
     var mgr = localStorage.getItem('aq_role') === 'mgr';
     document.querySelectorAll('.tab[data-mgr]').forEach(function (t) { t.style.display = mgr ? '' : 'none'; });
     el('mgrBtn').textContent = mgr ? '🔓' : '🔒';
-    el('mgrBtn').title = mgr ? 'Manager mode (tap to lock)' : 'Manager access';
+    var mgrName = localStorage.getItem('aq_mgr_name');
+    el('mgrBtn').title = mgr ? 'Manager mode' + (mgrName ? ' — ' + mgrName : '') + ' (tap to lock)' : 'Manager access';
     el('mgrHint').hidden = mgr;
     showPinNag();
     if (!mgr) {  // if an employee somehow lands on a manager screen, bounce to Log My Day
@@ -561,13 +591,21 @@
   }
   el('mgrBtn').addEventListener('click', function () {
     if (localStorage.getItem('aq_role') === 'mgr') {
-      localStorage.removeItem('aq_role'); applyRole(); toast('Locked — employee view'); return;
+      localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); applyRole(); toast('Locked — employee view'); return;
     }
-    var pin = window.prompt('Manager PIN:');
+    // Name first, so a personal PIN can be checked against the right
+    // person. Blank name means the shared manager PIN, exactly as before.
+    var name = window.prompt('Your name (blank for the shared manager PIN):', localStorage.getItem('aq_mgr_name') || el('employee').value || '');
+    if (name == null) return;
+    var pin = window.prompt('PIN:');
     if (pin == null) return;
-    api({ action: 'auth', pin: pin }).then(function (d) {
-      if (d && d.ok) { localStorage.setItem('aq_role', 'mgr'); applyRole(); toast('Manager access unlocked'); }
-      else toast('Wrong PIN');
+    api({ action: 'auth', name: name.trim(), pin: pin }).then(function (d) {
+      if (d && d.ok) {
+        localStorage.setItem('aq_role', 'mgr');
+        if (d.name) localStorage.setItem('aq_mgr_name', d.name); else localStorage.removeItem('aq_mgr_name');
+        applyRole();
+        toast('Unlocked' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
+      } else toast('Wrong PIN');
     }).catch(function (err) { toast('⚠ ' + err.message); });
   });
 

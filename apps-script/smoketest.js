@@ -136,13 +136,16 @@ const INVENTORY = [
       unknown:[] };
     else if (action === 'today') data = { ok:true, workDate:url.searchParams.get('workDate'),
       products:[{ productId:'XRT50', name:'XRT-50 Rescue Tube',
-        rows:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}], started:112, finished:40 }] };
+        rows:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}], started:112, finished:40 }],
+      people:[{ name:'Maria', entries:2, units:152, hours:0 }] };
     else if (action === 'reverse') data = { ok:true, message:'Reversed', nowOnBooks:0,
       restored:[{ id:'M014', name:'1" Red PP Webbing', unit:'Yards', restored:71.2, onHand:78.2 }], removed:null, warnings:[] };
     else if (action === 'wipWalk') data = { ok:true, at:'2026-09-13', message:'Opening WIP recorded for 2 products at one moment.',
       products:[{ productId:'XRT50', name:'XRT-50 Rescue Tube', piles:[{stage:'Glued',qty:5}] },
                 { productId:'SHP24', name:'Shape 24x24', piles:[{stage:'Clean',qty:0}] }] };
-    else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468' };
+    else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468', name: url.searchParams.get('name') || '', personal: false };
+    else if (action === 'setTarget') data = { ok:true, productId:url.searchParams.get('productId'), stage:url.searchParams.get('stage'),
+      target:Number(url.searchParams.get('target')), was:60, appended:false };
     else data = { ok:false, error:'bad action' };
     route.fulfill({ contentType:'application/javascript', body:`${cb}(${JSON.stringify(data)});` });
   });
@@ -186,6 +189,11 @@ const INVENTORY = [
   await page.waitForFunction(() => document.querySelector('#queueBanner').hidden, { timeout:5000 });
   console.log('FLUSHED with clientId', stored[0].clientId);
 
+  /* ---- You, today ----------------------------------------------------------- */
+  await page.waitForSelector('#todayBody .today-you', { timeout:5000 });
+  const you = (await page.textContent('#todayBody .today-you')).replace(/\s+/g,' ');
+  if (!/Maria, today: 152 units across 2 entries/.test(you)) errors.push('you-line wrong: ' + you);
+
   /* ---- Reverse a mistaken entry from Today's totals ---------------------- */
   await page.waitForSelector('#todayBody .today-chip--undo', { timeout:5000 });
   page.once('dialog', async (d1) => { await d1.accept('40'); page.once('dialog', async (d2) => { await d2.accept('double tap'); }); });
@@ -196,12 +204,20 @@ const INVENTORY = [
   if (rq.searchParams.get('qty') !== '40' || rq.searchParams.get('reason') !== 'double tap') errors.push('reverse request wrong: ' + rq.search);
 
   // Unlock manager mode to reveal Overview, then check it renders.
-  await page.evaluate(() => { window.prompt = () => '2468'; });
+  await page.evaluate(() => { let n = 0; window.prompt = () => (n++ === 0 ? 'Maria' : '2468'); });
   await page.click('#mgrBtn');
   await page.waitForFunction(() => { var t = document.querySelector('.tab[data-screen="overview"]'); return t && getComputedStyle(t).display !== 'none'; }, { timeout:5000 });
   await page.click('.tab[data-screen="overview"]');
   await page.waitForSelector('#screen-overview .ov-card', { timeout:5000 });
   console.log('overview cards:', (await page.$$('#screen-overview .ov-card')).length, '| starved:', (await page.$$('.ov-starved')).length);
+  // Tap a target: prompt -> setTarget request with the new number.
+  await page.evaluate(() => { window.prompt = () => '45'; });
+  const tReq = page.waitForRequest((r) => r.url().includes('action=setTarget'), { timeout:5000 });
+  await page.click('.ov-target[data-tstage="Boxed"]');
+  const tq = new URL((await tReq).url()).searchParams;
+  console.log('TARGET:', tq.get('productId'), tq.get('stage'), tq.get('target'));
+  if (tq.get('target') !== '45' || tq.get('stage') !== 'Boxed') errors.push('setTarget request wrong');
+  await page.waitForSelector('#screen-overview .ov-card', { timeout:5000 });
   // Product cards only (the reorder card is always there): 1 active of 2.
   const activeCards = await page.$$eval('#screen-overview .ov-card__head', (h) => h.map((x) => x.firstChild.textContent.trim()));
   if (activeCards.includes('Shape 24x24')) errors.push('active-only did not hide the idle product');

@@ -61,5 +61,23 @@ check('per-stage detail is still reported for the chips',
 check('a cutting-only day shows work started and nothing finished',
   { started: blank.started, finished: blank.finished }, { started: 48, finished: 0 });
 
+/* --- The shift-end line: what each person logged today ------------------- */
+// The fixture rows carry no Employee, so nobody is tallied.
+check('rows with no employee produce no per-person line',
+  sandbox.getToday({ workDate: '2026-08-13' }).people, []);
+// With names on the rows: units are stage-events per PERSON (that is the
+// right frame for "what did I log today"), biggest first.
+const saved = sandbox.readObjects;
+sandbox.readObjects = (tab) => (tab === 'StageLog'
+  ? [ { WorkDate: '2026-08-13', Employee: 'Joe', ProductID: 'LGC30', ProductName: 'Chair', Stage: 'Cut', Qty: 1, Hours: 2 },
+      { WorkDate: '2026-08-13', Employee: 'Joe', ProductID: 'LGC30', ProductName: 'Chair', Stage: 'Box', Qty: 1, Hours: '' },
+      { WorkDate: '2026-08-13', Employee: 'Alex', ProductID: 'BLANK50', ProductName: 'Blank', Stage: 'Cut', Qty: 48, Hours: '' },
+      { WorkDate: '2026-08-12', Employee: 'Alex', ProductID: 'BLANK50', ProductName: 'Blank', Stage: 'Cut', Qty: 999, Hours: '' } ]
+  : saved(tab));
+check('per-person tally for the day, biggest first, other days excluded',
+  sandbox.getToday({ workDate: '2026-08-13' }).people,
+  [ { name: 'Alex', entries: 1, units: 48, hours: 0 }, { name: 'Joe', entries: 2, units: 2, hours: 2 } ]);
+sandbox.readObjects = saved;
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

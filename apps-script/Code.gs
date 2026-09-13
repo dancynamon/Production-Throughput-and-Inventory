@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-13 18:30 UTC      version 2.16.0
+ *  BUILD:  2026-09-13 19:45 UTC      version 2.17.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -124,6 +124,45 @@ function managerPin() {
 }
 function pinIsDefault() { return managerPin() === DEFAULT_PIN; }
 
+/* Per-person PINs, so a count or a reversal carries who did it.
+ *
+ * Stored hashed in Script Properties under PIN:<name>; the shared manager PIN
+ * keeps working as a fallback so nobody is locked out the day this ships —
+ * which also means the shared one is still a secret worth changing, and the
+ * banner keeps saying so until it is. */
+function pinHash(pin) {
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'aq|' + String(pin), Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { var h = (b < 0 ? b + 256 : b).toString(16); return h.length === 1 ? '0' + h : h; }).join('');
+}
+function checkPin(name, pin) {
+  name = String(name || '').trim(); pin = String(pin || '');
+  if (!pin) return { ok: false };
+  if (name) {
+    var stored = null;
+    try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; }
+    if (stored) return { ok: stored === pinHash(pin), name: name, personal: true };
+  }
+  // No personal PIN on file for that name (or no name): the shared one.
+  return { ok: pin === managerPin(), name: name || '', personal: false };
+}
+function setPersonPin() {
+  var ui = SpreadsheetApp.getUi();
+  var names = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return String(r.Name || '').trim(); }).filter(Boolean);
+  var r1 = ui.prompt('Set a person\'s PIN', 'Name, exactly as on the Employees tab:\n' + names.join(', '), ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var name = String(r1.getResponseText() || '').trim();
+  if (names.indexOf(name) === -1) { ui.alert('Not set', name + ' is not an active name on the Employees tab.', ui.ButtonSet.OK); return; }
+  var r2 = ui.prompt('PIN for ' + name, 'Digits only, at least 4. Leave blank to REMOVE their personal PIN.', ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var pin = String(r2.getResponseText() || '').trim();
+  var props = PropertiesService.getScriptProperties();
+  if (!pin) { props.deleteProperty('PIN:' + name); SpreadsheetApp.getActive().toast('Personal PIN removed for ' + name, 'Aquamentor', 6); return; }
+  if (!/^\d{4,}$/.test(pin)) { ui.alert('Not set', 'The PIN must be digits only and at least 4 long.', ui.ButtonSet.OK); return; }
+  props.setProperty('PIN:' + name, pinHash(pin));
+  SpreadsheetApp.getActive().toast('PIN set for ' + name, 'Aquamentor', 6);
+}
+
 /* Menu: Aquamentor -> Set manager PIN. Digits only, four or more, stored in
  * Script Properties. The old PIN is not asked for: whoever can open this menu
  * already owns the sheet, which is more access than the PIN protects. */
@@ -147,12 +186,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.16.0';
+var BACKEND_VERSION = '2.17.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-13 18:30 UTC';
+var BUILD_STAMP = '2026-09-13 19:45 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -910,8 +949,9 @@ function doGet(e) {
     else if (action === 'export')    result = exportTable(p);
     else if (action === 'reverse')   result = reverseEntry(p);
     else if (action === 'wipWalk')   result = submitWipWalk(p);
+    else if (action === 'setTarget') result = setTarget(p);
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
-    else if (action === 'auth')      result = { ok: String(p.pin || '') === managerPin() };
+    else if (action === 'auth')      result = checkPin(p.name, p.pin);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -1238,12 +1278,20 @@ function daysSince(dateStr, now) {
 function getToday(p) {
   var workDate = String(p.workDate || '').trim();
   if (!workDate) return { ok: false, error: 'No work date' };
-  var lineMap = productLineMap(), byProduct = {};
+  var lineMap = productLineMap(), byProduct = {}, byPerson = {};
   readObjects(TAB.stagelog).forEach(function (r) {
     if (fmtDate(r.WorkDate) !== workDate) return;
     var pid = r.ProductID;
     byProduct[pid] = byProduct[pid] || { name: r.ProductName, stages: {} };
     byProduct[pid].stages[r.Stage] = (byProduct[pid].stages[r.Stage] || 0) + (Number(r.Qty) || 0);
+    // The shift-end line: what each person put on the books today. Units
+    // are stage-events, deliberately — for a person "I logged 152 today" is
+    // the right frame, the shop-level started/finished pair is for the shop.
+    var who = String(r.Employee || '').trim();
+    if (who) {
+      var P = byPerson[who] || (byPerson[who] = { name: who, entries: 0, units: 0, hours: 0 });
+      P.entries++; P.units += Number(r.Qty) || 0; P.hours += Number(r.Hours) || 0;
+    }
   });
   var products = Object.keys(byProduct).map(function (pid) {
     var stages = stagesForLine(lineMap[pid] || 'Blank');
@@ -1264,7 +1312,10 @@ function getToday(p) {
       finished: byProduct[pid].stages[stages[stages.length - 1]] || 0
     };
   });
-  return { ok: true, workDate: workDate, products: products };
+  var people = Object.keys(byPerson).map(function (k) {
+    var P = byPerson[k]; return { name: P.name, entries: P.entries, units: P.units, hours: round2(P.hours) };
+  }).sort(function (a, b) { return b.units - a.units; });
+  return { ok: true, workDate: workDate, products: products, people: people };
 }
 
 /*
@@ -1979,6 +2030,56 @@ function submitWipWalk(p) {
   }
 }
 
+/* Set one stage's daily target from the app.
+ *
+ * Planning is one row per (product, stage). Targets drift with the season and
+ * the order book, and "open the sheet, find the row, edit the cell" is enough
+ * friction that they do not get updated — so the Overview keeps suggesting
+ * yesterday's plan. An existing row is updated in place; a missing one is
+ * appended, since a product added after Planning was seeded has none.
+ *
+ *   ?action=setTarget&productId=XRT50EXO&stage=Boxed&target=40
+ */
+function setTarget(p) {
+  var productId = String(p.productId || '').trim();
+  var stage     = String(p.stage || '').trim();
+  var target    = Number(p.target);
+  if (!productId || !stage) return { ok: false, error: 'Missing product or stage.' };
+  if (!isFinite(target) || target < 0) return { ok: false, error: 'Target must be a number, 0 or more.' };
+  target = Math.round(target);
+
+  var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
+  if (!product) return { ok: false, error: 'Unknown product: ' + productId };
+  if (stagesForLine(product.Line || 'Blank').indexOf(stage) === -1) {
+    return { ok: false, error: 'Unknown stage ' + stage + ' for ' + productId };
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName(TAB.planning);
+    if (!sh) return { ok: false, error: 'Planning tab is missing.' };
+    var values = sh.getDataRange().getValues();
+    var headers = values[0];
+    var cPid = headers.indexOf('ProductID'), cStage = headers.indexOf('Stage'), cT = headers.indexOf('DailyTarget');
+    if (cPid === -1 || cStage === -1 || cT === -1) return { ok: false, error: 'Planning tab has unexpected headers.' };
+
+    var was = null;
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][cPid]).trim() === productId && String(values[i][cStage]).trim() === stage) {
+        was = Number(values[i][cT]) || 0;
+        sh.getRange(i + 1, cT + 1).setValue(target);
+        return { ok: true, productId: productId, stage: stage, target: target, was: was, appended: false };
+      }
+    }
+    appendByHeader(sh, { ProductID: productId, ProductName: product.ProductName, Stage: stage, DailyTarget: target });
+    return { ok: true, productId: productId, stage: stage, target: target, was: null, appended: true };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* Latest opening-WIP baseline per product, already converted from countable
  * piles into the cumulative completions the chain math needs.
  *
@@ -2442,6 +2543,7 @@ function onOpen() {
     .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
     .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
     .addItem('Set manager PIN…', 'setManagerPin')
+    .addItem('Set a person\'s PIN…', 'setPersonPin')
     .addSeparator()
     .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')

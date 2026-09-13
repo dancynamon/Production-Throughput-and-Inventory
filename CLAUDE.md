@@ -120,6 +120,7 @@ node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
 node apps-script/test-wipwalk.js    # whole floor under ONE timestamp
 node apps-script/test-replay.js     # same clientId twice logs once
+node apps-script/test-targets.js    # update in place, append missing, refuse bad
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -134,7 +135,9 @@ assert on them rather than trusting the parser.
   variance; drift only becomes readable from the second count on
 - WIP baselines not yet recorded for any product
 - Manager PIN lives in Script Properties since 2.13.0 (menu: Set manager PIN…);
-  `DEFAULT_PIN` 2468 applies until set, and the app nags managers until then
+  `DEFAULT_PIN` 2468 applies until set, and the app nags managers until then.
+  Per-person PINs since 2.17.0 (menu: Set a person's PIN…), stored as SHA-256
+  under `PIN:<Name>`; unlock asks name + PIN, shared PIN stays as fallback
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

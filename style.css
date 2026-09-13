@@ -605,3 +605,14 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 
 /* ---- Overview toolbar ------------------------------------------------------ */
 .ov-toolbar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:.82rem; color:var(--muted); margin-bottom:8px }
+
+/* ---- Tap-to-edit targets --------------------------------------------------- */
+.ov-target{
+  font:inherit; font-variant-numeric:tabular-nums; color:var(--ink); background:none;
+  border:1px dashed var(--border); border-radius:6px; padding:2px 8px; cursor:pointer;
+}
+.ov-target:hover, .ov-target:focus-visible{ border-color:var(--navy-light); outline:none }
+
+/* ---- You, today ------------------------------------------------------------ */
+.today-you{ padding:10px 14px; font-size:.86rem; color:var(--ink); border-bottom:1px solid var(--border); background:#fbfaf6 }
+.today-you b{ color:var(--navy) }
