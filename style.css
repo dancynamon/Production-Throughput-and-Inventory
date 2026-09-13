@@ -636,4 +636,8 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .today-note small{ display:block; font-size:.72rem; color:var(--muted) }
 
 /* ---- Order-by on Buy ---------------------------------------------------- */
+.buy-when{
+  grid-column:1/-1; font-size:11.5px; font-weight:600; color:var(--muted);
+  text-align:left; margin-top:-2px;
+}
 .buy-late{ color:var(--low) !important }

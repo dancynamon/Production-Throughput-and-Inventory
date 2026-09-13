@@ -22,6 +22,11 @@ const server = http.createServer((req, res) => {
   res.end(fs.readFileSync(p));
 });
 
+// SHOTS=<dir> node apps-script/smoketest.js  -> phone-width screenshots of key
+// screens land in that folder. No-op otherwise.
+const SHOTS = process.env.SHOTS || '';
+const shot = async (page, name) => { if (SHOTS) await page.screenshot({ path: path.join(SHOTS, name + '.png'), fullPage: true }); };
+
 const STAGES = ['Cut','Glued','Meshed','Patched','Paint 1','Paint 2','Printed','Straps Attached','Boxed'];
 
 // Shaped like computePurchasing(): one short, one uncounted, one covered, one idle.
@@ -161,6 +166,7 @@ const INVENTORY = [
   await page.fill('#stageInputs [data-stage="Boxed"]','40');
   await page.click('[data-note-for="Boxed"]');
   await page.fill('#stageInputs [data-note="Boxed"]', 'ran out of tape at 3pm');
+  await shot(page, 'notes');
   const dayReq = page.waitForRequest((r) => r.url().includes('action=submitDay'), { timeout:5000 });
   // Today's totals already show Cut 112 / Boxed 40, so this is a "duplicate"
   // and the app asks first. Answer yes — the reverse test below is what
@@ -173,6 +179,7 @@ const INVENTORY = [
   await page.waitForSelector('#todayBody .today-note', { timeout:5000 });
   const noteTxt = (await page.textContent('#todayBody .today-note')).replace(/\s+/g,' ');
   if (!/Boxed · XRT-50 Rescue Tube — ran out of tape at 3pm/.test(noteTxt)) errors.push('note not shown: ' + noteTxt);
+  await shot(page, 'today-notes');
   console.log('DAY:', (await page.textContent('#dayResult')).replace(/\s+/g,' ').trim().slice(0,120));
 
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
@@ -385,8 +392,9 @@ const INVENTORY = [
               '| plus 100 planned:', after.replace(/\s+/g,' ').trim());
   if (before === after) errors.push('planned build did not change the shortfall');
 
-  const firstVerdict = (await page.textContent('.buy-sec .buy-row .buy-row__v')).replace(/\s+/g,' ');
-  if (!/order today — 0d of stock, 5d lead/.test(firstVerdict)) errors.push('order-by not shown: ' + firstVerdict);
+  const firstWhen = (await page.textContent('.buy-sec .buy-row .buy-when')).replace(/\s+/g,' ');
+  if (!/order today — 0d of stock, 5d lead/.test(firstWhen)) errors.push('order-by not shown: ' + firstWhen);
+  await shot(page, 'buy-orderby');
   // Shortfalls group by supplier, one PO each, with a copyable list.
   const sups = await page.$$eval('.buy-sup__h b', (b) => b.map((x) => x.textContent));
   if (JSON.stringify(sups) !== '["Uline"]') errors.push('supplier groups: ' + JSON.stringify(sups));

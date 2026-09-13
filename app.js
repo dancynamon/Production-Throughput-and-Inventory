@@ -1676,7 +1676,7 @@
     } else if (m.burnUnknownFor && m.burnUnknownFor.length) {
       when = 'pace unknown — no rate yet for ' + escapeHtml(m.burnUnknownFor.join(', '));
     }
-    var whenHtml = when ? '<small class="buy-when' + (late ? ' buy-late' : '') + '">' + when + '</small>' : '';
+    var whenHtml = when ? '<div class="buy-when' + (late ? ' buy-late' : '') + '">' + when + '</div>' : '';
 
     var verdict;
     if (r.short === null) {
@@ -1685,10 +1685,10 @@
       // Order up to the reorder point where that is the bigger number — buying
       // exactly the shortfall leaves you at zero the day it arrives.
       verdict = '<span class="buy-short">short ' + fmt(r.short) + '</span>'
-        + '<small>order ' + fmt(r.upTo) + ' ' + escapeHtml(m.unit || '') + '</small>' + whenHtml;
+        + '<small>order ' + fmt(r.upTo) + ' ' + escapeHtml(m.unit || '') + '</small>';
     } else {
       verdict = '<span class="buy-ok">covered</span>'
-        + '<small>' + fmt(-r.short) + ' spare</small>' + whenHtml;
+        + '<small>' + fmt(-r.short) + ' spare</small>';
     }
 
     return '<div class="buy-row' + (r.short > 0 ? ' buy-row--short' : '') + '">'
@@ -1702,6 +1702,7 @@
       + '<div class="buy-row__n"><span class="inv-lbl">In progress</span><b>' + fmt(m.committed) + '</b></div>'
       + '<div class="buy-row__n"><span class="inv-lbl">Planned</span><b>' + fmt(r.planned) + '</b></div>'
       + '<div class="buy-row__v">' + verdict + '</div>'
+      + whenHtml
       + '</div>';
   }
 
