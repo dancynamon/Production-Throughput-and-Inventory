@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-13 15:20 UTC      version 2.14.0
+ *  BUILD:  2026-09-13 17:05 UTC      version 2.15.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -147,12 +147,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.14.0';
+var BACKEND_VERSION = '2.15.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-13 15:20 UTC';
+var BUILD_STAMP = '2026-09-13 17:05 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -778,6 +778,7 @@ function applySchemaUpgrades() {
 
   addColumns(TAB.products, ['OutputMaterial', 'Family']);
   addColumns(TAB.materials, COUNT_COLUMNS);
+  addColumns(TAB.materials, ['Supplier']);   // who to raise the PO on — Buy groups by it
   addColumns(TAB.stagelog, ['Hours']);
 
   var addedMaterials = addMissingReferencedMaterials();
@@ -907,6 +908,7 @@ function doGet(e) {
     else if (action === 'receiving') result = getReceiving(p);
     else if (action === 'crew')      result = computeCrew(p);
     else if (action === 'export')    result = exportTable(p);
+    else if (action === 'reverse')   result = reverseEntry(p);
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === managerPin() };
     else result = { ok: false, error: 'Unknown action: ' + action };
@@ -948,6 +950,7 @@ function getStock() {
     var onHand = Number(m.OnHand) || 0, reorder = Number(m.ReorderPoint) || 0;
     return {
       id: m.MaterialID, name: m.MaterialName, unit: m.Unit, category: m.Category || '',
+      supplier: String(m.Supplier || '').trim(),
       onHand: onHand, counted: counted, reorderPoint: reorder, low: counted && onHand <= reorder,
       // Reconciliation. onHand is the ESTIMATE; lastCounted is the last actual.
       lastCounted:   m.LastCounted === '' || m.LastCounted === undefined ? null : Number(m.LastCounted),
@@ -1179,11 +1182,27 @@ function getInventory(p) {
     if (m.drifting) drifting++;
   });
 
+  /* Which five to count next. A stocktake that happens once is a baseline;
+   * one that happens five materials at a time, every week, is a system. The
+   * ranking is deliberately blunt: never counted beats stale, below zero and
+   * below reorder pull forward, and among equals the older count goes first.
+   * Nobody needs a cleverer order than that — they need a short one. */
+  var stale30 = 0;
+  var ranked = mats.map(function (m) {
+    var score = m.lastCountedAt ? (m.daysSinceCount || 0) : 1000;
+    if (m.onHand < 0) score += 100;
+    if (m.low) score += 50;
+    if (m.lastCountedAt && (m.daysSinceCount || 0) > 30) stale30++;
+    return { id: m.id, score: score };
+  }).sort(function (a, b) { return b.score - a.score; });
+
   return {
     ok: true,
     materials: mats,
+    countNext: ranked.slice(0, 5).map(function (r) { return r.id; }),
     summary: {
       materials: mats.length,
+      stale30: stale30,
       neverCounted: neverCounted,
       // Negative stock is not a count that went wrong, it is a count that never
       // happened: the recipe has been deducting against an opening balance
@@ -1609,7 +1628,7 @@ function computePurchasing() {
     var owed = committed[m.id] || 0;
     var src = (sources[m.id] || []).sort(function (a, b) { return b.need - a.need; });
     return {
-      id: m.id, name: m.name, unit: m.unit, category: m.category,
+      id: m.id, name: m.name, unit: m.unit, category: m.category, supplier: m.supplier || '',
       onHand: m.onHand, counted: m.counted, reorderPoint: m.reorderPoint,
       lastCountedAt: m.lastCountedAt,
       committed: owed,
@@ -1772,6 +1791,99 @@ function exportTable(p) {
     }));
   }
   return { ok: true, table: key, tab: TAB[tabKey], headers: headers, rows: rows };
+}
+
+/* Reverse part or all of a logged stage entry for a day.
+ *
+ * A double-tap and a genuine second batch look identical in the data, and
+ * until now the fix for the former was "delete the row in StageLog" — which
+ * fixes the count and leaves the materials deducted, quietly, forever. This
+ * does it properly: a NEGATIVE row goes into StageLog, so the sum comes right
+ * and the history keeps both the mistake and its correction, and the stage's
+ * recipe runs in reverse so the materials go back on the shelf. A last-stage
+ * reversal on a sub-assembly takes its output back out of stock too.
+ *
+ * Attributed to the ORIGINAL employee, on the ORIGINAL work date, so the
+ * person's totals and the day's totals correct themselves rather than a
+ * phantom negative day appearing under whoever pressed undo — who is named
+ * in the note instead. Hours are not touched: nobody knows which hours were
+ * the mistake, and a wrong rate from a slightly wrong denominator is a
+ * smaller lie than a rate from an invented one.
+ *
+ *   ?action=reverse&employee=Joe&productId=XRT50EXO&workDate=2026-09-13
+ *          &stage=Boxed&qty=40&reason=double%20tap&by=Dan
+ */
+function reverseEntry(p) {
+  var employee  = String(p.employee || '').trim();
+  var by        = String(p.by || employee).trim();
+  var productId = String(p.productId || '').trim();
+  var workDate  = String(p.workDate || '').trim();
+  var stage     = String(p.stage || '').trim();
+  var reason    = String(p.reason || '').trim();
+  var qty       = Number(p.qty);
+  if (!employee || !productId || !workDate || !stage) return { ok: false, error: 'Missing employee, product, date or stage.' };
+  if (!(qty > 0)) return { ok: false, error: 'Quantity to reverse must be greater than 0.' };
+  if (!reason)    return { ok: false, error: 'Say why — the reason goes in the log.' };
+
+  var valid = stagesForLine(productLineMap()[productId] || 'Blank');
+  if (valid.indexOf(stage) === -1) return { ok: false, error: 'Unknown stage ' + stage + ' for ' + productId };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
+    if (!product) return { ok: false, error: 'Unknown product: ' + productId };
+
+    // Can only take back what is actually on the books for that day.
+    var onBooks = 0;
+    readObjects(TAB.stagelog).forEach(function (r) {
+      if (r.ProductID === productId && r.Stage === stage && fmtDate(r.WorkDate) === workDate) {
+        onBooks += Number(r.Qty) || 0;
+      }
+    });
+    if (qty > onBooks + 1e-9) {
+      return { ok: false, error: 'Only ' + round2(onBooks) + ' logged for ' + stage + ' on ' + workDate + ' — cannot reverse ' + qty + '.' };
+    }
+
+    var matSheet = ss.getSheetByName(TAB.materials);
+    var matRows  = matSheet.getDataRange().getValues();
+    var rowOf = {};
+    for (var i = 1; i < matRows.length; i++) rowOf[matRows[i][0]] = i;
+    var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId && r.Stage === stage; });
+
+    appendByHeader(ss.getSheetByName(TAB.stagelog), {
+      Timestamp: new Date(), WorkDate: workDate, Employee: employee,
+      ProductID: productId, ProductName: product.ProductName,
+      Stage: stage, Qty: -qty, Hours: '',
+      Notes: 'REVERSED ' + qty + ' by ' + by + ': ' + reason
+    });
+
+    var restored = [], removed = null, warnings = [];
+    bom.forEach(function (r) {
+      var ri = rowOf[r.MaterialID];
+      if (ri === undefined) { warnings.push('No RawMaterials row for ' + r.MaterialID + ' — nothing restored for it.'); return; }
+      var back = round2((Number(r.QtyPerUnit) || 0) * qty);
+      var after = round2((Number(matRows[ri][3]) || 0) + back);
+      matRows[ri][3] = after;
+      matSheet.getRange(ri + 1, 4).setValue(after);
+      restored.push({ id: r.MaterialID, name: matRows[ri][1], unit: matRows[ri][2], restored: back, onHand: after });
+    });
+
+    if (stage === valid[valid.length - 1] && product.OutputMaterial) {
+      var outRi = rowOf[String(product.OutputMaterial).trim()];
+      if (outRi !== undefined) {
+        var left = round2((Number(matRows[outRi][3]) || 0) - qty);
+        matSheet.getRange(outRi + 1, 4).setValue(left);
+        removed = { id: matRows[outRi][0], name: matRows[outRi][1], unit: matRows[outRi][2], removed: qty, onHand: left };
+      }
+    }
+
+    return { ok: true, message: 'Reversed ' + qty + ' ' + stage + ' for ' + product.ProductName + ' on ' + workDate,
+             nowOnBooks: round2(onBooks - qty), restored: restored, removed: removed, warnings: warnings };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* Latest opening-WIP baseline per product, already converted from countable

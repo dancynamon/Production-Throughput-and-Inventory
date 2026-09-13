@@ -113,6 +113,9 @@ check('what is left after the pipeline is served',
   { glue: by.GLUE.after, box: by.BOX.after, mesh: by.MESH.after },
   { glue: -55, box: -30, mesh: 10 });
 
+/* --- Supplier passes through so the buy list can group by it ------------- */
+check('supplier rides along on each material (blank when unset)', by.GLUE.supplier, '');
+
 /* --- Attribution ---------------------------------------------------------- */
 check('the demand names the product that caused it',
   by.BOX.sources.map((s) => [s.productId, s.need]), [['XRT50EXO', 30]]);

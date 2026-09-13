@@ -142,6 +142,12 @@ check('a hand-typed family is left alone', prodOf('XRT50EXO')[7], 'Hand-typed');
 check('a product the catalogue does not know is left blank', prodOf('ZZZ99')[7], '');
 check('running it again fills nothing', sandbox.backfillProductFamilies(), 0);
 
+/* --- Supplier column ------------------------------------------------------- */
+sandbox.applySchemaUpgrades();
+check('a Supplier column is appended to RawMaterials by the upgrade',
+  matSheet.grid[0].indexOf('Supplier') !== -1, true);
+check('existing cells are untouched by the column add', matSheet.grid[1][3], -350.78);
+
 /* --- The catalogue itself -------------------------------------------------- */
 // A missing comma between two array literals parses as a member access and
 // silently swallows both rows, so the shape is asserted rather than trusted.

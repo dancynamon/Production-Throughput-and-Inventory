@@ -569,3 +569,17 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 }
 .export__btn:active{ background:var(--border) }
 .export__btn:disabled{ opacity:.5 }
+
+/* ---- Suppliers on the buy list ------------------------------------------- */
+.buy-sup{ margin-top:10px }
+.buy-sup__h{
+  display:flex; align-items:center; gap:8px; padding:6px 6px 4px;
+  font-size:.84rem; color:var(--ink); border-bottom:1px solid var(--border);
+}
+.buy-sup__h b{ color:var(--navy) }
+.buy-sup__h span{ color:var(--muted); font-size:.78rem; flex:1 }
+
+/* ---- Tap-to-reverse chips ------------------------------------------------- */
+.today-hint{ margin:0; padding:8px 14px 0; font-size:.76rem; color:var(--muted) }
+.today-chip--undo{ font:inherit; cursor:pointer }
+.today-chip--undo:active{ background:var(--border) }

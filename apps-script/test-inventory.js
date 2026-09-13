@@ -145,6 +145,19 @@ check('drift total matches the per-material flags', res.summary.drifting, 1);
 check('every material is returned, not just the interesting ones',
   res.summary.materials, 5);
 
+/* --- Which five to count next --------------------------------------------- */
+// Never counted outranks stale; below zero pulls forward among the uncounted.
+// The fixture's count dates are fixed while "today" moves, so the assertions
+// are about ORDER, which does not change with the calendar.
+check('count-next leads with the uncounted, negative first',
+  res.countNext.slice(0, 2), ['M038', 'M043']);
+const counted = res.materials.filter((m) => m.lastCountedAt).map((m) => m.id);
+check('every never-counted material ranks ahead of every counted one',
+  Math.max(...['M038', 'M043', 'M099'].map((id) => res.countNext.indexOf(id)))
+    < Math.min(...counted.map((id) => res.countNext.indexOf(id))), true);
+check('stale-30 agrees with the per-material ages',
+  res.summary.stale30, res.materials.filter((m) => m.lastCountedAt && m.daysSinceCount > 30).length);
+
 /* --- Last stocktake ------------------------------------------------------- */
 check('the sheet-wide last stocktake is the newest row, not the last material',
   { at: res.summary.lastCountAt, by: res.summary.lastCountBy },

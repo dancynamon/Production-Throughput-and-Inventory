@@ -139,7 +139,7 @@ jobs:
       - name: Run the test suite before touching production
         if: steps.gate.outputs.configured == 'true'
         run: |
-          for t in overview count metrics wip strap today inventory schema purchasing summary capacity pin receiving crew export; do
+          for t in overview count metrics wip strap today inventory schema purchasing summary capacity pin receiving crew export reverse; do
             echo "--- test-$t ---"
             node "apps-script/test-$t.js"
           done

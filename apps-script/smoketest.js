@@ -26,7 +26,7 @@ const STAGES = ['Cut','Glued','Meshed','Patched','Paint 1','Paint 2','Printed','
 
 // Shaped like computePurchasing(): one short, one uncounted, one covered, one idle.
 const PURCHASING = [
-  { id:'M033', name:'Rescue Tube Custom Boxes', unit:'Boxes', category:'Packaging',
+  { id:'M033', name:'Rescue Tube Custom Boxes', unit:'Boxes', category:'Packaging', supplier:'Uline',
     onHand:0, counted:true, reorderPoint:20, lastCountedAt:null, committed:30, after:-30,
     sources:[{productId:'XRT50EXO',name:'XRT-50 Exotube',stage:'Boxed',units:151,need:30}] },
   { id:'M044', name:"Shoulder Strap w/ 6' Tow Line", unit:'each', category:'Sub-assembly',
@@ -82,7 +82,7 @@ const INVENTORY = [
       products:[{productId:'XRT50',name:'XRT-50 Rescue Tube',dailyTarget:60,finished:40,
         stages:STAGES.map((s,i)=>({stage:s,completed:i===0?112:(i===1?90:40),waiting:i===0?null:20,suggest:i===0?60:20,starved:i>0}))}] };
     else if (action === 'receive') data = { ok:true, message:'Received 200 Yards of 1" Red PP Webbing', material:{name:'1" Red PP Webbing',unit:'Yards',onHand:207} };
-    else if (action === 'inventory') data = { ok:true, materials:INVENTORY,
+    else if (action === 'inventory') data = { ok:true, materials:INVENTORY, countNext:['M038'],
       summary:{ materials:3, neverCounted:1, negative:1, low:1, drifting:1,
                 lastCountAt:'2026-08-10', lastCountBy:'Dan', daysSinceLastCount:3 } };
     else if (action === 'receiving') data = { ok:true, total:2, deliveries:[
@@ -131,6 +131,11 @@ const INVENTORY = [
     else if (action === 'count') data = { ok:true, message:'Reconciled 1 material.',
       counted:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards',estimated:100,counted:88,variance:12,variancePct:12}],
       unknown:[] };
+    else if (action === 'today') data = { ok:true, workDate:url.searchParams.get('workDate'),
+      products:[{ productId:'XRT50', name:'XRT-50 Rescue Tube',
+        rows:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}], started:112, finished:40 }] };
+    else if (action === 'reverse') data = { ok:true, message:'Reversed', nowOnBooks:0,
+      restored:[{ id:'M014', name:'1" Red PP Webbing', unit:'Yards', restored:71.2, onHand:78.2 }], removed:null, warnings:[] };
     else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468' };
     else data = { ok:false, error:'bad action' };
     route.fulfill({ contentType:'application/javascript', body:`${cb}(${JSON.stringify(data)});` });
@@ -143,9 +148,22 @@ const INVENTORY = [
   console.log('stage inputs (tube):', (await page.$$('#stageInputs [data-stage]')).length);
   await page.fill('#stageInputs [data-stage="Cut"]','112');
   await page.fill('#stageInputs [data-stage="Boxed"]','40');
+  // Today's totals already show Cut 112 / Boxed 40, so this is a "duplicate"
+  // and the app asks first. Answer yes — the reverse test below is what
+  // exercises taking it back.
+  await page.evaluate(() => { window.confirm = () => true; });
   await page.click('#dayBtn');
   await page.waitForSelector('#dayResult .result__ok', { timeout:5000 });
   console.log('DAY:', (await page.textContent('#dayResult')).replace(/\s+/g,' ').trim().slice(0,120));
+
+  /* ---- Reverse a mistaken entry from Today's totals ---------------------- */
+  await page.waitForSelector('#todayBody .today-chip--undo', { timeout:5000 });
+  page.once('dialog', async (d1) => { await d1.accept('40'); page.once('dialog', async (d2) => { await d2.accept('double tap'); }); });
+  const reverseReq = page.waitForRequest((r) => r.url().includes('action=reverse'), { timeout:5000 });
+  await page.click('.today-chip--undo[data-undo-stage="Boxed"]');
+  const rq = new URL((await reverseReq).url());
+  console.log('REVERSE:', rq.searchParams.get('stage'), rq.searchParams.get('qty'), JSON.stringify(rq.searchParams.get('reason')));
+  if (rq.searchParams.get('qty') !== '40' || rq.searchParams.get('reason') !== 'double tap') errors.push('reverse request wrong: ' + rq.search);
 
   // Unlock manager mode to reveal Overview, then check it renders.
   await page.evaluate(() => { window.prompt = () => '2468'; });
@@ -181,6 +199,12 @@ const INVENTORY = [
   // History is per material and collapsed until asked for.
   await page.click('[data-hist="M014"]');
   await page.waitForSelector('[data-histbox="M014"] .inv-hist__t', { state:'visible', timeout:3000 });
+
+  // "Count next" is a filter like the others.
+  await page.click('.inv-chip[data-filter="next"]');
+  await page.waitForFunction(() => document.querySelectorAll('#invRows .inv-row').length === 1, { timeout:3000 });
+  const nextRow = await page.textContent('#invRows .inv-row .inv-row__name');
+  if (!/Boxes 50/.test(nextRow)) errors.push('count-next filter wrong: ' + nextRow);
 
   // Filtering must not lose numbers already walked to the shelf to collect.
   await page.click('.inv-chip[data-filter="never"]');
@@ -280,6 +304,15 @@ const INVENTORY = [
   console.log('boxes shortfall — committed only:', before.replace(/\s+/g,' ').trim(),
               '| plus 100 planned:', after.replace(/\s+/g,' ').trim());
   if (before === after) errors.push('planned build did not change the shortfall');
+
+  // Shortfalls group by supplier, one PO each, with a copyable list.
+  const sups = await page.$$eval('.buy-sup__h b', (b) => b.map((x) => x.textContent));
+  if (JSON.stringify(sups) !== '["Uline"]') errors.push('supplier groups: ' + JSON.stringify(sups));
+  await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); }; });
+  await page.click('[data-copy-sup="Uline"]');
+  const copied = await page.evaluate(() => window.__copied);
+  if (!copied || !/Rescue Tube Custom Boxes \(M033\) — 58\.33 Boxes/.test(copied)) errors.push('copy list wrong: ' + copied);
+  console.log('COPY:', JSON.stringify(copied));
 
   // The uncommitted blank pool is stated, not silently folded into a variant.
   const pool = await page.textContent('#buyPools');

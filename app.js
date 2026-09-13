@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.14.0';
+  var APP_VERSION = '2.15.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -421,8 +421,14 @@
         body.innerHTML = '<div class="muted" style="padding:12px">Nothing logged yet today.</div>';
       } else {
         body.innerHTML = d.products.map(function (pr) {
+          // Each chip is a button: tap to take some or all of it back. The
+          // alternative — "delete the row in the sheet" — fixes the count and
+          // leaves the materials deducted forever.
           var chips = pr.rows.filter(function (r) { return r.qty > 0; }).map(function (r) {
-            return '<span class="today-chip">' + escapeHtml(r.stage) + ' <b>' + r.qty + '</b></span>';
+            return '<button type="button" class="today-chip today-chip--undo" title="Tap to reverse"'
+              + ' data-undo-pid="' + escapeHtml(pr.productId) + '" data-undo-name="' + escapeHtml(pr.name) + '"'
+              + ' data-undo-stage="' + escapeHtml(r.stage) + '" data-undo-qty="' + r.qty + '">'
+              + escapeHtml(r.stage) + ' <b>' + fmt(r.qty) + '</b></button>';
           }).join('');
           // "started → finished", never a sum: one chair through three
           // stations is one chair, not three.
@@ -441,6 +447,30 @@
     }).catch(function () {});
   }
   el('workDate').addEventListener('change', loadToday);
+
+  el('todayBody').addEventListener('click', function (e) {
+    var t = e.target.closest ? e.target.closest('[data-undo-stage]') : null;
+    if (!t) return;
+    var stage = t.getAttribute('data-undo-stage'), max = Number(t.getAttribute('data-undo-qty'));
+    var pid = t.getAttribute('data-undo-pid'), name = t.getAttribute('data-undo-name');
+    var who = el('employee').value;
+    if (!who) { toast('Pick who you are first'); return; }
+    var raw = window.prompt('Reverse how many of the ' + fmt(max) + ' ' + stage + ' logged for ' + name + ' today?', String(max));
+    if (raw === null) return;
+    var n = Number(raw);
+    if (!(n > 0) || n > max) { toast('Enter 1 to ' + fmt(max)); return; }
+    var reason = window.prompt('Why? (goes in the log)', 'double tap');
+    if (reason === null || !reason.trim()) { toast('A reason is required'); return; }
+    api({ action: 'reverse', employee: who, by: who, productId: pid, workDate: el('workDate').value,
+          stage: stage, qty: n, reason: reason.trim() }, 30000)
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Could not reverse');
+        var back = (d.restored || []).map(function (r) { return '+' + fmt(r.restored) + ' ' + r.name; }).join(', ');
+        toast('Reversed ' + fmt(n) + ' ' + stage + (back ? ' · ' + back : ''));
+        loadToday();
+      })
+      .catch(function (err) { toast('⚠ ' + err.message); });
+  });
 
   /* ---- Role (employee vs manager) ---------------------------------------- */
   function applyRole() {
@@ -522,6 +552,7 @@
       if (!d.ok) throw new Error(d.error || 'Could not load inventory');
       INV.materials = d.materials || [];
       INV.summary = d.summary || {};
+      INV.countNext = d.countNext || [];
       renderInvSummary();
       renderInvRows();
     }).catch(function (err) {
@@ -545,7 +576,8 @@
       { key: 'never',    n: s.neverCounted, label: 'never counted', warn: s.neverCounted > 0 },
       { key: 'negative', n: s.negative,     label: 'negative',      warn: s.negative > 0 },
       { key: 'low',      n: s.low,          label: 'below reorder', warn: s.low > 0 },
-      { key: 'drift',    n: s.drifting,     label: 'drifting',      warn: s.drifting > 0 }
+      { key: 'drift',    n: s.drifting,     label: 'drifting',      warn: s.drifting > 0 },
+      { key: 'next',     n: (INV.countNext || []).length, label: 'count next', warn: false }
     ];
     var html = stats.map(function (st) {
       return '<button type="button" class="inv-stat' + (st.warn ? ' inv-stat--warn' : '')
@@ -572,6 +604,7 @@
         case 'low':      return !!m.low;
         case 'drift':    return !!m.drifting;
         case 'edited':   return INV.edits[m.id] !== undefined && INV.edits[m.id] !== '';
+        case 'next':     return (INV.countNext || []).indexOf(m.id) !== -1;
         default:         return true;
       }
     });
@@ -608,6 +641,7 @@
     } else {
       meta.push('never counted');
     }
+    if (m.supplier) meta.push('from ' + escapeHtml(m.supplier));
     if (m.lastReceivedAt) meta.push('received +' + fmt(m.lastReceivedQty) + ' on ' + escapeHtml(m.lastReceivedAt));
     if (m.reorderPoint) meta.push('reorder at ' + fmt(m.reorderPoint));
 
@@ -1324,7 +1358,9 @@
       var planned = plannedFor(m.id);
       var need = Math.round((m.committed + planned) * 100) / 100;
       var short = m.counted ? Math.round((need - m.onHand) * 100) / 100 : null;
-      return { m: m, planned: planned, need: need, short: short };
+      var upTo = short !== null && short > 0
+        ? Math.max(short, Math.round((need + m.reorderPoint - m.onHand) * 100) / 100) : 0;
+      return { m: m, planned: planned, need: need, short: short, upTo: upTo };
     });
 
     // Shortest first — the buy list, in the order it costs you.
@@ -1345,8 +1381,30 @@
          + ' · <b>' + fine.length + '</b> covered</div>';
 
     if (buying.length) {
-      html += buySection('Order these', buying,
-        'The pipeline needs more than the shelf holds.');
+      /* Grouped by supplier, because that is the unit a purchase order is
+       * raised in. Materials with no supplier set land in one group with a
+       * pointer to the column that fixes it. */
+      var bySup = {}, supOrder = [];
+      buying.forEach(function (r) {
+        var k = r.m.supplier || '';
+        if (!bySup[k]) { bySup[k] = []; supOrder.push(k); }
+        bySup[k].push(r);
+      });
+      supOrder.sort(function (a, b) { return (a === '') - (b === '') || a.localeCompare(b); });
+      html += '<div class="buy-sec"><div class="buy-sec__h">Order these <span>' + buying.length + '</span></div>'
+        + '<p class="buy-sec__note">The pipeline needs more than the shelf holds. One group per supplier — one PO each.</p>'
+        + supOrder.map(function (k) {
+            var list = bySup[k];
+            return '<div class="buy-sup"><div class="buy-sup__h"><b>'
+              + (k ? escapeHtml(k) : 'No supplier set')
+              + '</b><span>' + list.length + '</span>'
+              + '<button type="button" class="inv-mini" data-copy-sup="' + escapeHtml(k) + '">Copy order list</button>'
+              + '</div>'
+              + (k ? '' : '<p class="buy-sec__note">Fill the <b>Supplier</b> column on RawMaterials and these group themselves.</p>')
+              + list.map(buyRow).join('') + '</div>';
+          }).join('')
+        + '</div>';
+      BUY.lastGroups = bySup;
     } else {
       html += '<div class="buy-none">Nothing short — everything in progress is covered.</div>';
     }
@@ -1377,6 +1435,7 @@
     var why = (m.sources || []).map(function (s) {
       return fmt(s.units) + ' ' + escapeHtml(s.name) + ' at ' + escapeHtml(s.stage);
     }).join(' · ');
+    if (m.supplier) why = 'from ' + escapeHtml(m.supplier) + (why ? ' · ' + why : '');
 
     var verdict;
     if (r.short === null) {
@@ -1384,9 +1443,8 @@
     } else if (r.short > 0) {
       // Order up to the reorder point where that is the bigger number — buying
       // exactly the shortfall leaves you at zero the day it arrives.
-      var upTo = Math.max(r.short, Math.round((r.need + m.reorderPoint - m.onHand) * 100) / 100);
       verdict = '<span class="buy-short">short ' + fmt(r.short) + '</span>'
-        + '<small>order ' + fmt(upTo) + ' ' + escapeHtml(m.unit || '') + '</small>';
+        + '<small>order ' + fmt(r.upTo) + ' ' + escapeHtml(m.unit || '') + '</small>';
     } else {
       verdict = '<span class="buy-ok">covered</span>'
         + '<small>' + fmt(-r.short) + ' spare</small>';
@@ -1405,6 +1463,19 @@
       + '<div class="buy-row__v">' + verdict + '</div>'
       + '</div>';
   }
+
+  // A PO-ready list on the clipboard: one line per material, quantity in its
+  // own unit, ready to paste into an email or a supplier portal.
+  el('buyRows').addEventListener('click', function (e) {
+    var k = e.target.getAttribute && e.target.getAttribute('data-copy-sup');
+    if (k === null || k === undefined) return;
+    var list = (BUY.lastGroups || {})[k] || [];
+    var text = (k ? k : 'Order') + ' — ' + new Date().toISOString().slice(0, 10) + '\n'
+      + list.map(function (r) { return r.m.name + ' (' + r.m.id + ') — ' + fmt(r.upTo) + ' ' + (r.m.unit || ''); }).join('\n');
+    var done = function () { toast('Copied ' + list.length + ' line' + (list.length === 1 ? '' : 's')); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { window.prompt('Copy this:', text); });
+    else window.prompt('Copy this:', text);
+  });
 
   el('buyPlan').addEventListener('input', function (e) {
     var pid = e.target.getAttribute && e.target.getAttribute('data-plan');
