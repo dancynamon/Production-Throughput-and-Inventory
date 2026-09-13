@@ -583,3 +583,25 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .today-hint{ margin:0; padding:8px 14px 0; font-size:.76rem; color:var(--muted) }
 .today-chip--undo{ font:inherit; cursor:pointer }
 .today-chip--undo:active{ background:var(--border) }
+
+/* ---- Offline queue -------------------------------------------------------- */
+.queue{
+  display:flex; align-items:center; gap:10px; margin-top:14px; padding:11px 14px;
+  background:#fff6e5; border:1.5px solid var(--gold); border-radius:var(--radius);
+  font-size:.86rem; color:var(--ink);
+}
+.queue span{ flex:1 }
+
+/* ---- Floor walk ----------------------------------------------------------- */
+.walk-toggle{ margin:-6px 0 14px; padding:7px 12px; font-size:.85rem }
+.walk-prod{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px; margin-bottom:10px }
+.walk-prod__h{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px }
+.walk-prod__h b{ color:var(--navy) }
+.walk-skip{ font-size:.8rem; color:var(--muted); display:flex; align-items:center; gap:5px; cursor:pointer }
+.walk-skip input{ width:15px; height:15px; margin:0; accent-color:var(--navy) }
+.walk-prod--skip{ opacity:.45 }
+.walk-prod--skip .stage-row{ pointer-events:none }
+.walk-prod .stage-row{ margin-bottom:6px }
+
+/* ---- Overview toolbar ------------------------------------------------------ */
+.ov-toolbar{ display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:.82rem; color:var(--muted); margin-bottom:8px }

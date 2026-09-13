@@ -118,6 +118,8 @@ node apps-script/test-receiving.js  # deliveries newest-first, last-received map
 node apps-script/test-crew.js       # per-person rate only from hours-bearing rows
 node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
+node apps-script/test-wipwalk.js    # whole floor under ONE timestamp
+node apps-script/test-replay.js     # same clientId twice logs once
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma

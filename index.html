@@ -58,6 +58,11 @@
     </form>
     <div id="dayResult" class="result" hidden></div>
 
+    <div id="queueBanner" class="queue" hidden>
+      <span id="queueText"></span>
+      <button type="button" id="queueRetry" class="inv-mini">Send now</button>
+    </div>
+
     <div id="mgrHint" class="mgr-hint" hidden>
       Manager? Tap <b>🔒</b> at the top right to unlock Summary, Overview,
       Capacity, Receive, Inventory, WIP and Buy on this device.
@@ -184,12 +189,25 @@
       already mid-pipeline before tracking started. Walk the floor and count the
       pile <b>waiting</b> at each station, plus anything finished but not shipped.
       Zero is a real answer — leave it at 0 if the station is clear.</p>
+    <label class="field"><span>Who are you?</span><select id="wipEmployee" required></select></label>
+    <label class="field"><span>Notes (optional)</span><input id="wipNotes" type="text" placeholder="Monday morning walk…"></label>
+    <button type="button" id="walkToggle" class="inv-mini walk-toggle">Walk the whole floor instead</button>
+
     <form id="wipForm" autocomplete="off">
-      <label class="field"><span>Who are you?</span><select id="wipEmployee" required></select></label>
-      <label class="field"><span>Product</span><select id="wipProduct" required></select></label>
-      <label class="field"><span>Notes (optional)</span><input id="wipNotes" type="text" placeholder="Monday morning walk…"></label>
-      <div id="wipRows"><div class="muted">Pick a product.</div></div>
-      <button type="submit" id="wipBtn" class="btn-primary">Record Opening WIP</button>
+      <div id="wipSingle">
+        <label class="field"><span>Product</span><select id="wipProduct" required></select></label>
+        <div id="wipRows"><div class="muted">Pick a product.</div></div>
+        <button type="submit" id="wipBtn" class="btn-primary">Record Opening WIP</button>
+      </div>
+    </form>
+    <form id="walkForm" autocomplete="off">
+      <div id="walkPanel" hidden>
+        <p class="stock-hint">Every product, every station, one pass. Zero is a real
+          answer. Tick <b>not walked</b> on any line you did not get to and it is
+          left exactly as it was.</p>
+        <div id="walkRows"></div>
+        <button type="submit" id="walkBtn" class="btn-primary">Record the whole walk</button>
+      </div>
     </form>
     <div id="wipResult" class="result" hidden></div>
   </section>

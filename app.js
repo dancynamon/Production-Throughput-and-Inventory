@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.15.0';
+  var APP_VERSION = '2.16.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -122,6 +122,8 @@
       flt.value = RCV.filter;
       buildStageInputs();
       loadToday();
+      renderQueue();
+      flushQueue();
     }).catch(function (err) { renderBuildInfo(); toast('⚠ ' + err.message); });
   }
 
@@ -261,6 +263,10 @@
     if (!payload.productId) { toast('Pick a product'); return; }
     if (total <= 0)         { toast('Enter at least one stage count'); return; }
 
+    // Stamped once and kept with the entry, so a retry of this exact
+    // submission is recognised by the backend and not logged twice.
+    payload.clientId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+
     var btn = el('dayBtn'); btn.disabled = true; btn.textContent = 'Submitting…';
     el('dayResult').hidden = true;
     api(payload).then(function (data) {
@@ -271,9 +277,62 @@
       el('notes').value = '';
       buildStageInputs();   // back to "pick a product" until they choose the next
       loadToday();          // Today's totals now includes what they just logged
-    }).catch(function (err) { toast('⚠ ' + err.message); })
-      .then(function () { btn.disabled = false; btn.textContent = 'Submit My Day'; });
+    }).catch(function (err) {
+      if (isNetworkError(err)) {
+        /* Shop-floor wifi. The entry is not lost: it waits on this phone and
+         * goes when the network is back. Whether the server actually got this
+         * one before the line dropped does not matter — the clientId makes the
+         * resend a no-op if it did. */
+        enqueueDay(payload);
+        el('product').selectedIndex = 0; el('notes').value = ''; buildStageInputs();
+        toast('No signal — saved on this phone, will send when back online');
+      } else {
+        toast('⚠ ' + err.message);
+      }
+    }).then(function () { btn.disabled = false; btn.textContent = 'Submit My Day'; });
   });
+
+  function isNetworkError(err) { return /network|timed out/i.test(String(err && err.message)); }
+
+  var QUEUE_KEY = 'aq_day_queue';
+  function readQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch (e) { return []; } }
+  function writeQueue(q) { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (e) {} renderQueue(); }
+  function enqueueDay(payload) { var q = readQueue(); q.push(payload); writeQueue(q); }
+
+  function renderQueue() {
+    var q = readQueue(), b = el('queueBanner');
+    b.hidden = !q.length;
+    if (!q.length) return;
+    el('queueText').textContent = q.length + ' entr' + (q.length === 1 ? 'y' : 'ies')
+      + ' waiting to send: ' + q.map(function (p) {
+          var name = (el('product').querySelector('option[value="' + cssEsc(p.productId) + '"]') || {}).textContent || p.productId;
+          return name + ' (' + p.workDate + ')';
+        }).join(', ');
+  }
+
+  var flushing = false;
+  function flushQueue() {
+    if (flushing || !API) return;
+    var q = readQueue();
+    if (!q.length) return;
+    flushing = true;
+    var p = q[0];
+    api(p, 20000).then(function (data) {
+      // Sent, or already there (a replay). Either way it is off this phone.
+      q.shift(); writeQueue(q);
+      if (data.ok) toast('Sent: ' + (data.replayed ? 'already logged' : data.message));
+      else toast('⚠ Server refused a queued entry: ' + (data.error || 'unknown'));
+      loadToday();
+      flushing = false;
+      flushQueue();
+    }).catch(function (err) {
+      flushing = false;
+      if (!isNetworkError(err)) { q.shift(); writeQueue(q); toast('⚠ ' + err.message); flushQueue(); }
+      // Network still down: leave it and try again on the next online event.
+    });
+  }
+  window.addEventListener('online', flushQueue);
+  el('queueRetry').addEventListener('click', flushQueue);
 
   function showDayResult(data) {
     var html = '<div class="result__ok">✓ ' + escapeHtml(data.message) + '</div>';
@@ -318,7 +377,19 @@
       var html = '';
       var runway = data.runway || {};
       var lastFamily = null;
-      (data.products || []).forEach(function (pr) {
+      /* Twenty-one products, most of them at zero on any given week. A product
+       * is "active" if anything has ever been completed on it, anything is
+       * queued, or it has a baseline. The rest are one tap away, not gone. */
+      var all = data.products || [];
+      var active = all.filter(function (pr) {
+        return pr.baselineAt || pr.finished > 0 || pr.stages.some(function (s) { return s.completed > 0 || s.waiting > 0; });
+      });
+      var hidden = all.length - active.length;
+      var showAll = OV.showAll || !active.length;
+      html += '<div class="ov-toolbar"><span>' + (showAll ? all.length + ' products' : active.length + ' active')
+        + '</span>' + (hidden > 0 ? '<button type="button" class="inv-mini" id="ovToggle">'
+        + (showAll ? 'Active only' : 'Show all ' + all.length) + '</button>' : '') + '</div>';
+      (showAll ? all : active).forEach(function (pr) {
         var fam = pr.family || 'Other';
         if (fam !== lastFamily) {
           html += '<div class="ov-family">' + escapeHtml(fam) + '</div>';
@@ -384,8 +455,11 @@
       }).join('') + '</ul>';
       html += '</div>';
       body.innerHTML = html;
+      var tg = el('ovToggle');
+      if (tg) tg.addEventListener('click', function () { OV.showAll = !OV.showAll; loadOverview(); });
     }).catch(function (err) { body.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>'; });
   }
+  var OV = { showAll: false };
 
   /* ---- Receive ----------------------------------------------------------- */
   el('recvForm').addEventListener('submit', function (e) {
@@ -899,6 +973,79 @@
         }).join('');
   }
   el('wipProduct').addEventListener('change', buildWipRows);
+
+  /* The whole floor in one scroll. Every product, every station, all under
+   * one timestamp on the server — which matters, because that timestamp is
+   * what decides which logged rows the baseline supersedes. */
+  var WALK = { on: false };
+  function buildWalk() {
+    var wrap = el('walkRows');
+    var opts = Array.prototype.slice.call(el('wipProduct').querySelectorAll('optgroup'));
+    if (!opts.length) { wrap.innerHTML = '<div class="muted">Products have not loaded yet.</div>'; return; }
+    wrap.innerHTML = opts.map(function (g) {
+      return '<div class="ov-family">' + escapeHtml(g.label) + '</div>'
+        + Array.prototype.slice.call(g.querySelectorAll('option')).map(function (o) {
+            var pid = o.value, stages = LINES[PLINE[pid]] || [];
+            if (stages.length < 2) return '';
+            var rows = stages.slice(1).map(function (s) { return { key: s, label: 'Waiting for ' + s }; });
+            rows.push({ key: '(finished)', label: 'Finished, past ' + stages[stages.length - 1] });
+            return '<div class="walk-prod" data-walk="' + escapeHtml(pid) + '">'
+              + '<div class="walk-prod__h"><b>' + escapeHtml(o.textContent) + '</b>'
+              + '<label class="walk-skip"><input type="checkbox" data-skip="' + escapeHtml(pid) + '"> not walked</label></div>'
+              + rows.map(function (r) {
+                  return '<label class="stage-row"><span class="stage-row__name">' + escapeHtml(r.label) + '</span>'
+                    + '<input class="stage-row__input" type="number" inputmode="numeric" min="0" step="1" '
+                    + 'data-walk-pid="' + escapeHtml(pid) + '" data-walk-stage="' + escapeHtml(r.key) + '" value="0"></label>';
+                }).join('')
+              + '</div>';
+          }).join('');
+    }).join('');
+  }
+  el('walkToggle').addEventListener('click', function () {
+    WALK.on = !WALK.on;
+    el('wipSingle').hidden = WALK.on;
+    el('walkPanel').hidden = !WALK.on;
+    el('walkToggle').textContent = WALK.on ? 'Back to one product at a time' : 'Walk the whole floor instead';
+    if (WALK.on) buildWalk();
+  });
+  el('walkRows').addEventListener('change', function (e) {
+    var pid = e.target.getAttribute && e.target.getAttribute('data-skip');
+    if (!pid) return;
+    var box = document.querySelector('.walk-prod[data-walk="' + cssEsc(pid) + '"]');
+    if (box) box.classList.toggle('walk-prod--skip', e.target.checked);
+  });
+  el('walkForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var who = el('wipEmployee').value;
+    if (!who) { toast('Pick who you are'); return; }
+    var walk = {}, skipped = 0;
+    document.querySelectorAll('.walk-prod').forEach(function (box) {
+      var pid = box.getAttribute('data-walk');
+      if (box.querySelector('[data-skip]').checked) { skipped++; return; }
+      walk[pid] = {};
+      box.querySelectorAll('[data-walk-stage]').forEach(function (inp) {
+        var v = Number(inp.value); walk[pid][inp.getAttribute('data-walk-stage')] = (isNaN(v) || v < 0) ? 0 : v;
+      });
+    });
+    var n = Object.keys(walk).length;
+    if (!n) { toast('Every product is marked not walked'); return; }
+    if (!window.confirm('Record opening WIP for ' + n + ' product' + (n === 1 ? '' : 's')
+          + (skipped ? ' (' + skipped + ' skipped)' : '') + '?\n\nThis supersedes any earlier baseline for them.')) return;
+    var btn = el('walkBtn'); btn.disabled = true; btn.textContent = 'Recording…';
+    api({ action: 'wipWalk', employee: who, notes: el('wipNotes').value, walk: JSON.stringify(walk) }, 60000)
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Could not record the walk');
+        el('wipResult').innerHTML = '<div class="result__ok">✓ ' + escapeHtml(d.message) + '</div>'
+          + '<ul class="result__list">' + (d.products || []).map(function (p) {
+              return '<li><span>' + escapeHtml(p.name) + '</span><span class="result__num">'
+                + p.piles.reduce(function (a, x) { return a + x.qty; }, 0) + ' on the floor</span></li>';
+            }).join('') + '</ul>';
+        el('wipResult').hidden = false;
+        toast('Floor walk recorded');
+      })
+      .catch(function (err) { toast('⚠ ' + err.message); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Record the whole walk'; });
+  });
 
   el('wipForm').addEventListener('submit', function (e) {
     e.preventDefault();

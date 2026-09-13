@@ -73,14 +73,17 @@ const INVENTORY = [
     let data;
     if (action === 'config') data = { ok:true, pinIsDefault:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
       employees:['Maria','James'],
-      products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube'},{id:'SHP24',name:'Shape 24x24',line:'Shape'}],
+      familyOrder:['Rescue Tubes','Foam Mats'],
+      products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube',family:'Rescue Tubes'},{id:'SHP24',name:'Shape 24x24',line:'Shape',family:'Foam Mats'}],
       materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards'}] };
     else if (action === 'submitDay') data = { ok:true, message:'Logged 202 tube-stages for XRT-50 Rescue Tube on 2026-07-01',
       logged:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}],
       consumed:[{name:'1" Red PP Webbing',used:89,onHand:7,unit:'Yards'}], warnings:['1" Red PP Webbing is low (7 Yards)'] };
     else if (action === 'overview') data = { ok:true, stages:STAGES, materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards',onHand:7,counted:true,reorderPoint:1000,low:true}],
-      products:[{productId:'XRT50',name:'XRT-50 Rescue Tube',dailyTarget:60,finished:40,
-        stages:STAGES.map((s,i)=>({stage:s,completed:i===0?112:(i===1?90:40),waiting:i===0?null:20,suggest:i===0?60:20,starved:i>0}))}] };
+      products:[{productId:'XRT50',name:'XRT-50 Rescue Tube',family:'Rescue Tubes',dailyTarget:60,finished:40,
+        stages:STAGES.map((s,i)=>({stage:s,completed:i===0?112:(i===1?90:40),waiting:i===0?null:20,suggest:i===0?60:20,starved:i>0}))},
+        {productId:'SHP24',name:'Shape 24x24',family:'Foam Mats',finished:0,baselineAt:null,
+        stages:['CNC','Clean','Box'].map((s,i)=>({stage:s,completed:0,waiting:i===0?null:0,suggest:0,starved:false}))}] };
     else if (action === 'receive') data = { ok:true, message:'Received 200 Yards of 1" Red PP Webbing', material:{name:'1" Red PP Webbing',unit:'Yards',onHand:207} };
     else if (action === 'inventory') data = { ok:true, materials:INVENTORY, countNext:['M038'],
       summary:{ materials:3, neverCounted:1, negative:1, low:1, drifting:1,
@@ -136,6 +139,9 @@ const INVENTORY = [
         rows:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}], started:112, finished:40 }] };
     else if (action === 'reverse') data = { ok:true, message:'Reversed', nowOnBooks:0,
       restored:[{ id:'M014', name:'1" Red PP Webbing', unit:'Yards', restored:71.2, onHand:78.2 }], removed:null, warnings:[] };
+    else if (action === 'wipWalk') data = { ok:true, at:'2026-09-13', message:'Opening WIP recorded for 2 products at one moment.',
+      products:[{ productId:'XRT50', name:'XRT-50 Rescue Tube', piles:[{stage:'Glued',qty:5}] },
+                { productId:'SHP24', name:'Shape 24x24', piles:[{stage:'Clean',qty:0}] }] };
     else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468' };
     else data = { ok:false, error:'bad action' };
     route.fulfill({ contentType:'application/javascript', body:`${cb}(${JSON.stringify(data)});` });
@@ -156,6 +162,30 @@ const INVENTORY = [
   await page.waitForSelector('#dayResult .result__ok', { timeout:5000 });
   console.log('DAY:', (await page.textContent('#dayResult')).replace(/\s+/g,' ').trim().slice(0,120));
 
+  /* ---- Offline queue: a day entry survives a dead network ----------------- */
+  let killNext = true;
+  await page.route(FAKE_API + '**', (route) => {
+    const u = new URL(route.request().url());
+    if (u.searchParams.get('action') === 'submitDay' && killNext) { killNext = false; return route.abort('failed'); }
+    return route.fallback();
+  });
+  await page.selectOption('#product','SHP24');
+  await page.waitForFunction(() => document.querySelectorAll('#stageInputs [data-stage]').length > 0, { timeout:5000 });
+  await page.fill('#stageInputs [data-stage="CNC"]','7');
+  await page.click('#dayBtn');
+  await page.waitForFunction(() => !document.querySelector('#queueBanner').hidden, { timeout:5000 });
+  const queued = await page.textContent('#queueText');
+  console.log('QUEUED:', queued.trim());
+  if (!/1 entry waiting/.test(queued)) errors.push('entry not queued: ' + queued);
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('aq_day_queue')));
+  if (!stored[0] || !stored[0].clientId) errors.push('queued entry has no clientId');
+  const flushReq = page.waitForRequest((r) => r.url().includes('action=submitDay'), { timeout:5000 });
+  await page.click('#queueRetry');
+  const fr = new URL((await flushReq).url());
+  if (fr.searchParams.get('clientId') !== stored[0].clientId) errors.push('flush did not reuse the clientId');
+  await page.waitForFunction(() => document.querySelector('#queueBanner').hidden, { timeout:5000 });
+  console.log('FLUSHED with clientId', stored[0].clientId);
+
   /* ---- Reverse a mistaken entry from Today's totals ---------------------- */
   await page.waitForSelector('#todayBody .today-chip--undo', { timeout:5000 });
   page.once('dialog', async (d1) => { await d1.accept('40'); page.once('dialog', async (d2) => { await d2.accept('double tap'); }); });
@@ -172,6 +202,13 @@ const INVENTORY = [
   await page.click('.tab[data-screen="overview"]');
   await page.waitForSelector('#screen-overview .ov-card', { timeout:5000 });
   console.log('overview cards:', (await page.$$('#screen-overview .ov-card')).length, '| starved:', (await page.$$('.ov-starved')).length);
+  // Product cards only (the reorder card is always there): 1 active of 2.
+  const activeCards = await page.$$eval('#screen-overview .ov-card__head', (h) => h.map((x) => x.firstChild.textContent.trim()));
+  if (activeCards.includes('Shape 24x24')) errors.push('active-only did not hide the idle product');
+  await page.click('#ovToggle');
+  await page.waitForFunction(() => document.querySelector('#ovToggle') && document.querySelector('#ovToggle').textContent === 'Active only', { timeout:3000 });
+  const allCards = await page.$$eval('#screen-overview .ov-card__head', (h) => h.map((x) => x.firstChild.textContent.trim()));
+  if (!allCards.includes('Shape 24x24')) errors.push('show-all did not reveal the idle product');
 
   /* ---- Inventory panel --------------------------------------------------- */
   // The live gap is the whole point of this screen, so it is asserted rather
@@ -281,6 +318,23 @@ const INVENTORY = [
   // The trust block must state what is missing, not hide it.
   if (!/0 \/ 44/.test(sumTxt)) errors.push('trust block did not report uncounted materials');
   if (!/0 \/ 21/.test(sumTxt)) errors.push('trust block did not report missing baselines');
+
+  /* ---- Floor walk ---------------------------------------------------------- */
+  await page.click('.tab[data-screen="wip"]');
+  await page.click('#walkToggle');
+  await page.waitForSelector('.walk-prod', { timeout:5000 });
+  const walkProds = await page.$$eval('.walk-prod', (b) => b.map((x) => x.getAttribute('data-walk')));
+  if (JSON.stringify(walkProds) !== '["XRT50","SHP24"]') errors.push('walk products: ' + JSON.stringify(walkProds));
+  await page.fill('[data-walk-pid="XRT50"][data-walk-stage="Glued"]', '5');
+  await page.check('[data-skip="SHP24"]');
+  await page.selectOption('#wipEmployee','Maria');
+  const walkReq = page.waitForRequest((r) => r.url().includes('action=wipWalk'), { timeout:5000 });
+  await page.click('#walkBtn');
+  const wr = JSON.parse(new URL((await walkReq).url()).searchParams.get('walk'));
+  console.log('WALK:', JSON.stringify(wr));
+  if (wr.SHP24 !== undefined) errors.push('a not-walked product was sent');
+  if (!wr.XRT50 || wr.XRT50.Glued !== 5 || wr.XRT50.Boxed !== 0) errors.push('walk payload wrong: ' + JSON.stringify(wr));
+  await page.waitForSelector('#wipResult .result__ok', { timeout:5000 });
 
   /* ---- Buy panel --------------------------------------------------------- */
   await page.click('.tab[data-screen="buy"]');

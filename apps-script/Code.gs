@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-13 17:05 UTC      version 2.15.0
+ *  BUILD:  2026-09-13 18:30 UTC      version 2.16.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -147,12 +147,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.15.0';
+var BACKEND_VERSION = '2.16.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-13 17:05 UTC';
+var BUILD_STAMP = '2026-09-13 18:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -909,6 +909,7 @@ function doGet(e) {
     else if (action === 'crew')      result = computeCrew(p);
     else if (action === 'export')    result = exportTable(p);
     else if (action === 'reverse')   result = reverseEntry(p);
+    else if (action === 'wipWalk')   result = submitWipWalk(p);
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === managerPin() };
     else result = { ok: false, error: 'Unknown action: ' + action };
@@ -1286,6 +1287,21 @@ function submitDay(p) {
   if (!employee)  return { ok: false, error: 'Please pick who you are.' };
   if (!productId) return { ok: false, error: 'Please pick a product.' };
 
+  /* Replay safety. JSONP has no reply on a timeout: the request may have died
+   * on the way out, or been processed and died on the way back. A phone that
+   * queues the entry and retries cannot tell which, so it sends the same
+   * clientId again and this returns the first answer instead of logging the
+   * day twice. Six hours is long enough for any plausible retry and short
+   * enough that the cache stays tiny. */
+  var clientId = String(p.clientId || '').trim();
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
+  if (cache && clientId) {
+    var seen = null;
+    try { seen = cache.get('day:' + clientId); } catch (e1) { seen = null; }
+    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
+  }
+
   var valid = stagesForLine(productLineMap()[productId] || 'Blank');
   var total = 0;
   for (var k in counts) { if (valid.indexOf(k) >= 0 && Number(counts[k]) > 0) total += Number(counts[k]); }
@@ -1394,7 +1410,7 @@ function submitDay(p) {
       });
     });
 
-    return {
+    var result = {
       ok: true,
       message: 'Logged ' + total + ' stage entries for ' + product.ProductName + ' on ' + workDate,
       logged: logged,
@@ -1405,6 +1421,10 @@ function submitDay(p) {
       duplicates: duplicates,
       warnings: warnings
     };
+    if (cache && clientId) {
+      try { cache.put('day:' + clientId, JSON.stringify(result), 21600); } catch (e2) { /* best effort */ }
+    }
+    return result;
   } finally {
     lock.releaseLock();
   }
@@ -1886,6 +1906,79 @@ function reverseEntry(p) {
   }
 }
 
+/* Write one product's opening piles. A zero is meaningful here — "nothing is
+ * queued at Paint 2" is a real measurement, not a blank — so every valid
+ * stage is written, not just the ones with a number in them. Shared by the
+ * single-product form and the whole-floor walk. */
+function writeWipRows(sh, product, valid, piles, employee, notes, now) {
+  var written = [];
+  valid.forEach(function (stage) {
+    var raw = piles[stage];
+    var qty = (raw === '' || raw === null || raw === undefined) ? 0 : Number(raw);
+    if (isNaN(qty) || qty < 0) qty = 0;
+    appendByHeader(sh, {
+      Timestamp: now, ProductID: product.ProductID, ProductName: product.ProductName,
+      Stage: stage, WaitingBefore: qty, CountedBy: employee, Notes: notes
+    });
+    written.push({ stage: stage, qty: qty });
+  });
+  return written;
+}
+
+/* The whole floor in one pass.
+ *
+ * The single-product form works, twenty-one times over. Worse than tedious:
+ * each submit stamps its own timestamp, and the timestamp is what decides
+ * which StageLog rows the baseline supersedes. Twenty-one baselines taken over
+ * forty minutes are twenty-one slightly different "befores", and anything
+ * logged during the walk lands on one side of the line for some products and
+ * the other side for the rest. One walk, one lock, one `now`.
+ *
+ *   ?action=wipWalk&employee=Dan&walk={"XRT50EXO":{"Patched":88,...},...}&notes=
+ *
+ * Products absent from `walk` are untouched — a line nobody walked keeps
+ * whatever baseline it had, or none.
+ */
+function submitWipWalk(p) {
+  var employee = String(p.employee || '').trim();
+  var notes    = String(p.notes || '').trim();
+  if (!employee) return { ok: false, error: 'Please pick who you are.' };
+  var walk;
+  try { walk = JSON.parse(p.walk || '{}'); }
+  catch (e) { return { ok: false, error: 'Walk was not valid JSON.' }; }
+  var ids = Object.keys(walk);
+  if (!ids.length) return { ok: false, error: 'Nothing in the walk.' };
+
+  var byId = {};
+  readObjects(TAB.products).forEach(function (r) { byId[r.ProductID] = r; });
+  var unknown = ids.filter(function (id) { return !byId[id]; });
+  if (unknown.length) return { ok: false, error: 'Unknown product(s): ' + unknown.join(', ') };
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = ss.getSheetByName(TAB.wipbase);
+    if (!sh) sh = writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
+
+    var now = new Date(), recorded = [];
+    ids.forEach(function (pid) {
+      var product = byId[pid];
+      var valid = stagesForLine(product.Line || 'Blank').concat([WIP_FINISHED]);
+      var written = writeWipRows(sh, product, valid, walk[pid] || {}, employee, notes, now);
+      recorded.push({ productId: pid, name: product.ProductName, piles: written });
+    });
+
+    var fresh = wipBaselineMap();
+    recorded.forEach(function (r) { r.completed = (fresh[r.productId] || { completed: {} }).completed; });
+    return { ok: true, at: fmtDate(now), products: recorded,
+             message: 'Opening WIP recorded for ' + recorded.length + ' product'
+                    + (recorded.length === 1 ? '' : 's') + ' at one moment. Earlier counts are superseded.' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /* Latest opening-WIP baseline per product, already converted from countable
  * piles into the cumulative completions the chain math needs.
  *
@@ -1966,20 +2059,8 @@ function submitWipBaseline(p) {
     var sh = ss.getSheetByName(TAB.wipbase);
     if (!sh) sh = writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
 
-    // A zero is meaningful here — "nothing is queued at Paint 2" is a real
-    // measurement, not a blank — so every valid stage is written, not just the
-    // ones with a number in them.
-    var now = new Date(), written = [];
-    valid.forEach(function (stage) {
-      var raw = piles[stage];
-      var qty = (raw === '' || raw === null || raw === undefined) ? 0 : Number(raw);
-      if (isNaN(qty) || qty < 0) qty = 0;
-      appendByHeader(sh, {
-        Timestamp: now, ProductID: productId, ProductName: product.ProductName,
-        Stage: stage, WaitingBefore: qty, CountedBy: employee, Notes: notes
-      });
-      written.push({ stage: stage, qty: qty });
-    });
+    var now = new Date();
+    var written = writeWipRows(sh, product, valid, piles, employee, notes, now);
 
     var fresh = wipBaselineMap()[productId] || { completed: {} };
     return { ok: true, productId: productId, name: product.ProductName,
