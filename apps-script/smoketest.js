@@ -85,6 +85,18 @@ const INVENTORY = [
     else if (action === 'inventory') data = { ok:true, materials:INVENTORY,
       summary:{ materials:3, neverCounted:1, negative:1, low:1, drifting:1,
                 lastCountAt:'2026-08-10', lastCountBy:'Dan', daysSinceLastCount:3 } };
+    else if (action === 'receiving') data = { ok:true, total:2, deliveries:[
+      { at:'2026-09-10', by:'John', id:'M034', name:'EVA Foam (2# black)', qty:20, notes:'' },
+      { at:'2026-09-02', by:'Dan',  id:'M014', name:'1" Red PP Webbing',   qty:200, notes:'PO 118' } ] };
+    else if (action === 'crew') data = { ok:true, days:30, since:'2026-08-15', crew:[
+      { name:'Joe', entries:2, units:160, hours:5, daysWorked:2, unitsPerHour:20, hoursCoverage:62.5,
+        stages:[{ productId:'STRAP6', product:'Strap', stage:'Made', units:160, hours:5, unitsPerHour:20 }] },
+      { name:'Alex', entries:1, units:300, hours:0, daysWorked:1, unitsPerHour:null, hoursCoverage:0,
+        stages:[{ productId:'KB1220', product:'Kickboard', stage:'CNC', units:300, hours:0, unitsPerHour:null }] } ] };
+    else if (action === 'export') data = { ok:true, table:'stagelog', tab:'StageLog',
+      headers:['Timestamp','WorkDate','Employee','ProductName','Qty','Notes'],
+      rows:[['2026-09-13T12:00:00.000Z','2026-09-13','Dan','1" Red PP Webbing',3,'note, with comma'],
+            ['2026-09-14T12:00:00.000Z','2026-09-14','Joe','Chair 30"',1,'']] };
     else if (action === 'capacity') data = { ok:true, familyOrder:['Lifeguard Chairs'],
       coverage:{ stageLogRows:19, rowsWithHours:1 },
       products:[{ id:'LGC30', name:'Lifeguard Chair 30"', family:'Lifeguard Chairs', feedsFrom:null,
@@ -201,6 +213,32 @@ const INVENTORY = [
   console.log('PROMISE:', prom.slice(0, 120));
   // The PIN nag shows to a manager while the default is in force.
   if (await page.$eval('#pinBanner', (b) => b.hidden)) errors.push('PIN banner hidden while default PIN in force');
+
+  /* ---- Crew (on the capacity tab) ----------------------------------------- */
+  await page.waitForSelector('#crewBody .crew-card', { timeout:5000 });
+  const crewTxt = (await page.textContent('#crewBody')).replace(/\s+/g,' ');
+  if (!/Joe.*20\/hr.*62\.5%/.test(crewTxt)) errors.push('crew rate/coverage missing: ' + crewTxt.slice(0,160));
+  if (!/Alex.*no hours logged/.test(crewTxt)) errors.push('no-hours person not marked honestly');
+
+  /* ---- Deliveries (on the receive tab) ------------------------------------ */
+  await page.click('.tab[data-screen="receive"]');
+  await page.waitForSelector('#rcvList .rcv-row', { timeout:5000 });
+  const rcvRows = await page.$$eval('#rcvList .rcv-row .rcv-row__at', (t) => t.map((x) => x.textContent));
+  if (JSON.stringify(rcvRows) !== '["2026-09-10","2026-09-02"]') errors.push('deliveries order: ' + JSON.stringify(rcvRows));
+
+  /* ---- Export: an actual file download with correct quoting ----------------- */
+  await page.click('.tab[data-screen="summary"]');
+  await page.waitForSelector('[data-export="stagelog"]', { timeout:5000 });
+  const [dl] = await Promise.all([ page.waitForEvent('download', { timeout:8000 }), page.click('[data-export="stagelog"]') ]);
+  const csvPath = await dl.path();
+  const csv = fs.readFileSync(csvPath, 'utf8');
+  console.log('EXPORT:', dl.suggestedFilename(), csv.length + ' bytes');
+  if (!/^aquamentor-stagelog-\d{4}-\d{2}-\d{2}\.csv$/.test(dl.suggestedFilename())) errors.push('export filename: ' + dl.suggestedFilename());
+  // The inch mark and the comma are the two things that break a naive CSV.
+  if (!csv.includes('"1"" Red PP Webbing"')) errors.push('inch-mark field not quoted/doubled');
+  if (!csv.includes('"note, with comma"')) errors.push('comma field not quoted');
+  if (!csv.startsWith('\ufeffTimestamp,WorkDate')) errors.push('missing BOM or header row');
+  if (csv.split('\r\n').length !== 4) errors.push('row count wrong: ' + csv.split('\r\n').length);
 
   /* ---- Summary ----------------------------------------------------------- */
   await page.click('.tab[data-screen="summary"]');

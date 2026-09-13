@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.13.0';
+  var APP_VERSION = '2.14.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -115,6 +115,11 @@
       fillSelect(el('recvMaterial'), (data.materials || []).map(function (m) {
         return { value: m.id, label: m.name + (m.unit ? ' (' + m.unit + ')' : '') };
       }), 'Select a material');
+      var flt = el('rcvFilter');
+      flt.innerHTML = '<option value="">All materials</option>' + (data.materials || []).map(function (m) {
+        return '<option value="' + escapeHtml(m.id) + '">' + escapeHtml(m.name) + '</option>';
+      }).join('');
+      flt.value = RCV.filter;
       buildStageInputs();
       loadToday();
     }).catch(function (err) { renderBuildInfo(); toast('⚠ ' + err.message); });
@@ -399,6 +404,7 @@
         + '<span class="result__num">now ' + fmt(m.onHand) + ' ' + escapeHtml(m.unit || '') + '</span></li></div>';
       el('recvResult').hidden = false; el('recvForm').reset();
       loadConfig();
+      loadReceiving();
     }).catch(function (err) { toast('⚠ ' + err.message); })
       .then(function () { btn.disabled = false; btn.textContent = 'Add to Stock'; });
   });
@@ -470,7 +476,8 @@
     el('screen-' + name).classList.add('screen--active');
     if (name === 'summary') loadSummary();
     if (name === 'overview') loadOverview();
-    if (name === 'capacity') loadCapacity();
+    if (name === 'capacity') { loadCapacity(); loadCrew(); }
+    if (name === 'receive') loadReceiving();
     if (name === 'inventory') loadInventory();
     if (name === 'buy') loadBuy();
     if (name === 'wip') buildWipRows();
@@ -601,6 +608,7 @@
     } else {
       meta.push('never counted');
     }
+    if (m.lastReceivedAt) meta.push('received +' + fmt(m.lastReceivedQty) + ' on ' + escapeHtml(m.lastReceivedAt));
     if (m.reorderPoint) meta.push('reorder at ' + fmt(m.reorderPoint));
 
     var flags = '';
@@ -1134,6 +1142,101 @@
   }
   el('promProduct').addEventListener('change', renderPromise);
   el('promQty').addEventListener('input', renderPromise);
+
+
+  /* ---- Deliveries: the half of the ledger that was write-only ------------ */
+  var RCV = { filter: '' };
+
+  function loadReceiving() {
+    var wrap = el('rcvList');
+    wrap.innerHTML = '<div class="muted">Loading…</div>';
+    var params = { action: 'receiving', limit: 30 };
+    if (RCV.filter) params.materialId = RCV.filter;
+    api(params, 20000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load deliveries');
+      if (!d.deliveries.length) {
+        wrap.innerHTML = '<div class="muted">' + (RCV.filter ? 'No deliveries logged for this material.' : 'No deliveries logged yet.') + '</div>';
+        return;
+      }
+      wrap.innerHTML = d.deliveries.map(function (r) {
+        return '<div class="rcv-row"><span class="rcv-row__at">' + escapeHtml(r.at) + '</span>'
+          + '<span class="rcv-row__what">' + escapeHtml(r.name)
+          + '<small>' + escapeHtml(r.by) + (r.notes ? ' · ' + escapeHtml(r.notes) : '') + '</small></span>'
+          + '<span class="rcv-row__qty">+' + fmt(r.qty) + '</span></div>';
+      }).join('')
+      + (d.total > d.deliveries.length
+          ? '<div class="rcv-more">Showing ' + d.deliveries.length + ' of ' + d.total + '. Export the full log from the Summary tab.</div>' : '');
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      wrap.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message)
+        + (stale ? '<br>The backend is older than this app — paste Code.gs and deploy.' : '') + '</div>';
+    });
+  }
+  el('rcvFilter').addEventListener('change', function () { RCV.filter = el('rcvFilter').value; loadReceiving(); });
+
+  /* ---- Crew: who did what ------------------------------------------------- */
+  function loadCrew() {
+    var wrap = el('crewBody');
+    wrap.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'crew', days: 30 }, 20000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load crew');
+      if (!d.crew.length) { wrap.innerHTML = '<div class="muted">Nothing logged in the last ' + d.days + ' days.</div>'; return; }
+      wrap.innerHTML = '<div class="crew">' + d.crew.map(function (c) {
+        var rate = c.unitsPerHour === null
+          ? '<span class="crew-card__rate"><small>no hours logged — no rate</small></span>'
+          : '<span class="crew-card__rate"><b>' + fmt(c.unitsPerHour) + '</b>/hr <small>over '
+            + fmt(c.hours) + 'h · covers ' + fmt(c.hoursCoverage) + '% of output</small></span>';
+        return '<div class="crew-card"><div class="crew-card__top">'
+          + '<span class="crew-card__name">' + escapeHtml(c.name) + '</span>' + rate + '</div>'
+          + '<div class="crew-card__meta">' + fmt(c.units) + ' units · ' + c.entries + ' entries · '
+          + c.daysWorked + ' day' + (c.daysWorked === 1 ? '' : 's') + '</div>'
+          + '<div class="crew-stages">' + c.stages.map(function (st) {
+              return '<span class="crew-stage">' + escapeHtml(st.stage) + ' <b>' + fmt(st.units) + '</b>'
+                + (st.unitsPerHour === null ? '' : ' <small>' + fmt(st.unitsPerHour) + '/hr</small>') + '</span>';
+            }).join('') + '</div></div>';
+      }).join('') + '</div>';
+    }).catch(function (err) {
+      wrap.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>';
+    });
+  }
+
+  /* ---- Export: a tab as a CSV, from the phone ------------------------------ */
+  /* JSONP cannot carry a file, so the rows come as JSON and the CSV is built
+   * here. RFC 4180 quoting: any field holding a comma, a quote or a newline is
+   * wrapped in quotes with inner quotes doubled — the one rule that, skipped,
+   * turns "1\" Red PP Webbing" into two columns in Excel. */
+  function toCsv(headers, rows) {
+    var cell = function (v) {
+      var t = v === null || v === undefined ? '' : String(v);
+      return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    };
+    return [headers].concat(rows).map(function (r) { return r.map(cell).join(','); }).join('\r\n') + '\r\n';
+  }
+
+  function downloadText(name, text) {
+    // The BOM makes Excel read UTF-8 correctly (the ″ in 50″ otherwise mangles).
+    var blob = new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+
+  document.querySelectorAll('[data-export]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var table = btn.getAttribute('data-export');
+      btn.disabled = true;
+      el('exportNote').textContent = 'Fetching ' + table + '…';
+      api({ action: 'export', table: table }, 60000).then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Export failed');
+        var stamp = new Date().toISOString().slice(0, 10);
+        downloadText('aquamentor-' + table + '-' + stamp + '.csv', toCsv(d.headers, d.rows));
+        el('exportNote').textContent = d.rows.length + ' rows of ' + (d.tab || table) + ' downloaded.';
+      }).catch(function (err) {
+        el('exportNote').textContent = '⚠ ' + err.message;
+      }).then(function () { btn.disabled = false; });
+    });
+  });
 
   /* ---- Buy: what the committed work needs ------------------------------- */
   /* The Overview's reorder list answers "what is low". This answers the

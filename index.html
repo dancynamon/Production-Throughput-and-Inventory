@@ -72,6 +72,19 @@
   <!-- ============ SUMMARY (the top layer over everything else) ============ -->
   <section id="screen-summary" class="screen">
     <div id="sumBody"><div class="muted">Loading…</div></div>
+
+    <div class="sum-card">
+      <div class="sum-card__h">Export<span>CSV, straight from the phone</span></div>
+      <div class="export">
+        <button type="button" class="export__btn" data-export="stagelog">Production log</button>
+        <button type="button" class="export__btn" data-export="countlog">Counts</button>
+        <button type="button" class="export__btn" data-export="receiving">Deliveries</button>
+        <button type="button" class="export__btn" data-export="materials">Materials now</button>
+        <button type="button" class="export__btn" data-export="wipbase">WIP baselines</button>
+        <button type="button" class="export__btn" data-export="bom">Recipes</button>
+      </div>
+      <p class="sum-note" id="exportNote">Each button downloads the whole tab as a .csv file.</p>
+    </div>
   </section>
 
   <!-- ============ OVERVIEW ============ -->
@@ -97,6 +110,12 @@
     </div>
 
     <div id="capBody"><div class="muted">Loading…</div></div>
+
+    <div class="ov-family" style="margin-top:28px">By person · last 30 days</div>
+    <p class="stock-hint">Units logged by each person, and their rate where
+      hours were logged. A rate only counts the entries that carried hours, and
+      says how much of the person's output that covers.</p>
+    <div id="crewBody"><div class="muted">Loading…</div></div>
   </section>
 
   <!-- ============ RECEIVE ============ -->
@@ -111,6 +130,13 @@
       <button type="submit" id="recvBtn" class="btn-primary">Add to Stock</button>
     </form>
     <div id="recvResult" class="result" hidden></div>
+
+    <div class="rcv-hist">
+      <div class="rcv-hist__h">Recent deliveries
+        <select id="rcvFilter" class="rcv-hist__filter"><option value="">All materials</option></select>
+      </div>
+      <div id="rcvList"><div class="muted">Loading…</div></div>
+    </div>
   </section>
 
   <!-- ============ INVENTORY (view current stock + physical count) ============ -->

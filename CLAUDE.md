@@ -114,6 +114,9 @@ node apps-script/test-purchasing.js # committed demand, shared-pool guard
 node apps-script/test-summary.js    # shop-level vs line-level counting
 node apps-script/test-capacity.js   # bottleneck, Little's Law, confidence
 node apps-script/test-pin.js        # PIN from Script Properties, never code
+node apps-script/test-receiving.js  # deliveries newest-first, last-received map
+node apps-script/test-crew.js       # per-person rate only from hours-bearing rows
+node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma

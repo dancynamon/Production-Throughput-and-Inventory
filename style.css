@@ -525,3 +525,47 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .cap-table td small:first-child{ display:inline; margin-left:1px }
 .cap-flag{ display:block; width:max-content; margin-top:3px }
 .cap-hr{ margin-top:1px }
+
+/* ---- Deliveries history --------------------------------------------------- */
+.rcv-hist{ margin-top:24px }
+.rcv-hist__h{
+  display:flex; justify-content:space-between; align-items:center; gap:10px;
+  font-weight:700; color:var(--navy); margin-bottom:8px;
+}
+.rcv-hist__filter{ width:auto; max-width:56%; padding:8px 32px 8px 10px; font-size:.85rem }
+.rcv-row{
+  display:grid; grid-template-columns:78px 1fr auto; gap:10px; align-items:center;
+  padding:9px 6px; border-bottom:1px solid var(--border); font-size:.9rem;
+}
+.rcv-row__at{ font-size:.78rem; color:var(--muted); font-variant-numeric:tabular-nums }
+.rcv-row__what{ min-width:0; color:var(--ink); font-weight:600 }
+.rcv-row__what small{ display:block; font-size:.74rem; font-weight:400; color:var(--muted) }
+.rcv-row__qty{ font-weight:700; color:var(--ok); white-space:nowrap; font-variant-numeric:tabular-nums }
+.rcv-more{ font-size:.8rem; color:var(--muted); padding:8px 6px 0 }
+
+/* ---- Crew --------------------------------------------------------------- */
+.crew{ display:flex; flex-direction:column; gap:10px }
+.crew-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px }
+.crew-card__top{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; flex-wrap:wrap }
+.crew-card__name{ font-weight:700; color:var(--navy); font-size:1rem }
+.crew-card__rate{ font-size:.85rem; color:var(--ink); font-variant-numeric:tabular-nums }
+.crew-card__rate b{ font-size:1.05rem }
+.crew-card__rate small{ color:var(--muted) }
+.crew-card__meta{ font-size:.78rem; color:var(--muted); margin-top:2px }
+.crew-stages{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px }
+.crew-stage{
+  font-size:.78rem; padding:3px 9px; border-radius:14px;
+  background:var(--bg-alt,#eeedea); border:1px solid var(--border); color:var(--ink);
+}
+.crew-stage b{ color:var(--navy) }
+.crew-stage small{ color:var(--muted) }
+
+/* ---- Export ------------------------------------------------------------- */
+.export{ display:flex; flex-wrap:wrap; gap:8px; padding:12px 14px 4px }
+.export__btn{
+  font:inherit; font-size:.85rem; font-weight:600; color:var(--navy);
+  background:var(--bg); border:1.5px solid var(--border); border-radius:10px;
+  padding:9px 12px; cursor:pointer;
+}
+.export__btn:active{ background:var(--border) }
+.export__btn:disabled{ opacity:.5 }

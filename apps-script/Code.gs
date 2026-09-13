@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-08-24 14:10 UTC      version 2.13.0
+ *  BUILD:  2026-09-13 15:20 UTC      version 2.14.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -147,12 +147,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.13.0';
+var BACKEND_VERSION = '2.14.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-08-24 14:10 UTC';
+var BUILD_STAMP = '2026-09-13 15:20 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -904,6 +904,9 @@ function doGet(e) {
     else if (action === 'purchasing') result = computePurchasing();
     else if (action === 'summary')   result = getSummary();
     else if (action === 'capacity')  result = computeCapacity();
+    else if (action === 'receiving') result = getReceiving(p);
+    else if (action === 'crew')      result = computeCrew(p);
+    else if (action === 'export')    result = exportTable(p);
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = { ok: String(p.pin || '') === managerPin() };
     else result = { ok: false, error: 'Unknown action: ' + action };
@@ -1146,10 +1149,14 @@ function getInventory(p) {
     }
   });
 
+  var received = lastReceivedMap();
   var neverCounted = 0, negative = 0, low = 0, drifting = 0;
   mats.forEach(function (m) {
     var h = history[m.id] || [];
     m.history = h.slice(0, keep);
+    var rcv = received[m.id];
+    m.lastReceivedAt  = rcv ? rcv.at  : null;
+    m.lastReceivedQty = rcv ? rcv.qty : null;
     m.countsRecorded = h.length;
     m.lastVariancePct = h.length ? h[0].variancePct : null;
     m.daysSinceCount = daysSince(m.lastCountedAt, now);
@@ -1626,6 +1633,145 @@ function computePurchasing() {
              return { id: pr.productId, name: pr.name, family: pr.family };
            }),
            familyOrder: FAMILY_ORDER };
+}
+
+/* Deliveries: what came in, when, from whom — the other half of the ledger.
+ *
+ * StageLog is where stock goes out; ReceivingLog is where it comes in, and
+ * until now it was write-only from the app. A material's last delivery is the
+ * single most useful thing to know when its count looks wrong: "estimate says
+ * 40, shelf says 240" stops being a mystery the moment you see 200 arrived on
+ * Tuesday and nobody counted since.
+ *
+ *   ?action=receiving[&materialId=M014][&limit=50]
+ */
+function getReceiving(p) {
+  var want = Number((p && p.limit) || 50);
+  var limit = Math.max(1, Math.min(500, isFinite(want) && want > 0 ? want : 50));
+  var only = String((p && p.materialId) || '').trim();
+
+  var rows = readObjects(TAB.receiving).map(function (r, i) {
+    return {
+      at: fmtDate(r.Timestamp), t: r.Timestamp instanceof Date ? r.Timestamp.getTime() : i,
+      by: String(r.Employee || ''), id: String(r.MaterialID || '').trim(),
+      name: String(r.MaterialName || ''), qty: Number(r.QtyAdded) || 0,
+      notes: String(r.Notes || '')
+    };
+  }).filter(function (r) { return r.id && (!only || r.id === only); });
+
+  // Newest first. Timestamp is set by the app, so it is a real Date for every
+  // row the app wrote; a hand-typed row falls back to sheet order.
+  rows.sort(function (a, b) { return b.t - a.t; });
+
+  return { ok: true, deliveries: rows.slice(0, limit).map(function (r) {
+    return { at: r.at, by: r.by, id: r.id, name: r.name, qty: r.qty, notes: r.notes };
+  }), total: rows.length };
+}
+
+/* Per material: when it last arrived and how much. Folded into the inventory
+ * rows so a wrong-looking estimate can be read against the last delivery. */
+function lastReceivedMap() {
+  var out = {};
+  readObjects(TAB.receiving).forEach(function (r) {
+    var id = String(r.MaterialID || '').trim();
+    if (!id) return;
+    var t = r.Timestamp instanceof Date ? r.Timestamp.getTime() : 0;
+    if (!out[id] || t >= out[id].t) {
+      out[id] = { t: t, at: fmtDate(r.Timestamp), qty: Number(r.QtyAdded) || 0 };
+    }
+  });
+  return out;
+}
+
+/* Who did what, over a window.
+ *
+ * Units per hour is the number that matters and it exists only where hours
+ * were logged — so it is computed from the subset of entries that carried
+ * hours, never from total units over partial hours, which would flatter
+ * whoever logs hours least. A person's rate on a stage sits next to the
+ * line's, so "Joe straps at 22/hr, the line does 20" is one glance.
+ *
+ *   ?action=crew[&days=30]
+ */
+function computeCrew(p) {
+  var want = Number((p && p.days) || 30);
+  var days = Math.max(1, Math.min(365, isFinite(want) && want > 0 ? want : 30));
+  var today = new Date();
+  var since = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1));
+
+  var people = {};
+  readObjects(TAB.stagelog).forEach(function (r) {
+    var who = String(r.Employee || '').trim();
+    if (!who || !r.Stage) return;
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fmtDate(r.WorkDate));
+    if (!m) return;
+    var when = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (when < since) return;
+
+    var qty = Number(r.Qty) || 0, hrs = Number(r.Hours) || 0;
+    var P = people[who] || (people[who] = { name: who, entries: 0, units: 0, hours: 0,
+                                             unitsWithHours: 0, days: {}, stages: {} });
+    P.entries++; P.units += qty; P.days[fmtDate(r.WorkDate)] = true;
+    if (hrs > 0) { P.hours += hrs; P.unitsWithHours += qty; }
+
+    var key = r.ProductID + '||' + r.Stage;
+    var S = P.stages[key] || (P.stages[key] = { productId: r.ProductID, product: r.ProductName,
+                                                stage: r.Stage, units: 0, hours: 0, unitsWithHours: 0 });
+    S.units += qty;
+    if (hrs > 0) { S.hours += hrs; S.unitsWithHours += qty; }
+  });
+
+  var crew = Object.keys(people).map(function (k) {
+    var P = people[k];
+    var stages = Object.keys(P.stages).map(function (sk) {
+      var S = P.stages[sk];
+      return { productId: S.productId, product: S.product, stage: S.stage, units: S.units,
+               hours: round2(S.hours),
+               unitsPerHour: S.hours > 0 ? round2(S.unitsWithHours / S.hours) : null };
+    }).sort(function (a, b) { return b.units - a.units; });
+    return {
+      name: P.name, entries: P.entries, units: P.units, hours: round2(P.hours),
+      daysWorked: Object.keys(P.days).length,
+      unitsPerHour: P.hours > 0 ? round2(P.unitsWithHours / P.hours) : null,
+      // How much of this person's output the rate actually covers.
+      hoursCoverage: P.units > 0 ? round2(P.unitsWithHours / P.units * 100) : 0,
+      stages: stages.slice(0, 6)
+    };
+  }).sort(function (a, b) { return b.units - a.units; });
+
+  return { ok: true, days: days, since: fmtDate(since), crew: crew };
+}
+
+/* A whole tab as rows, for the app to turn into a CSV.
+ *
+ * The sheet can export itself, but a phone on the floor cannot get at the
+ * sheet, and "send me the log" should not need a laptop. Dates go out as ISO
+ * strings so the file sorts and imports cleanly anywhere.
+ *
+ *   ?action=export&table=stagelog|countlog|receiving|materials|wipbase|products|bom
+ */
+var EXPORTABLE = { stagelog: 'stagelog', countlog: 'countlog', receiving: 'receiving',
+                   materials: 'materials', wipbase: 'wipbase', products: 'products', bom: 'bom' };
+
+function exportTable(p) {
+  var key = String((p && p.table) || '').trim().toLowerCase();
+  var tabKey = EXPORTABLE[key];
+  if (!tabKey) return { ok: false, error: 'Unknown table: ' + key
+                        + '. One of: ' + Object.keys(EXPORTABLE).join(', ') };
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB[tabKey]);
+  if (!sh) return { ok: false, error: 'Tab ' + TAB[tabKey] + ' is missing.' };
+  var values = sh.getDataRange().getValues();
+  if (!values.length) return { ok: true, table: key, headers: [], rows: [] };
+  var headers = values[0].map(function (h) { return String(h); });
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    if (values[i].join('') === '') continue;
+    rows.push(values[i].map(function (v) {
+      if (v instanceof Date) return isNaN(v.getTime()) ? '' : v.toISOString();
+      return v === null || v === undefined ? '' : v;
+    }));
+  }
+  return { ok: true, table: key, tab: TAB[tabKey], headers: headers, rows: rows };
 }
 
 /* Latest opening-WIP baseline per product, already converted from countable
