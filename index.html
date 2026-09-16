@@ -241,7 +241,23 @@
 <script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    // Cache-first means a new build only shows on the reload AFTER the one
+    // that fetched it. Reload once more ourselves the moment the new worker
+    // takes over, so the footer never lags a version behind. A first-ever
+    // install has no previous controller and does not reload.
+    var hadController = !!navigator.serviceWorker.controller, reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (hadController && !reloading) { reloading = true; location.reload(); }
+    });
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        // Ask for a fresh sw.js on every open and whenever the app comes back
+        // to the foreground — phones left open for days never navigate.
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') reg.update().catch(function () {});
+        });
+      }).catch(function () {});
+    });
   }
 </script>
 </body>
