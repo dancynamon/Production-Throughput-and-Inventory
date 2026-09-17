@@ -13,7 +13,7 @@ let store = {};
 const crypto = require('crypto');
 const sandbox = {
   // Utilities.computeDigest returns signed bytes, exactly as Apps Script does.
-  Utilities: { DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' },
+  Utilities: { DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' }, getUuid: () => crypto.randomUUID(),
     computeDigest: (alg, text) => Array.from(crypto.createHash('sha256').update(text, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b)) },
   // doGet() wraps its result through ContentService; a stub that hands the
   // JSON back is all auth needs.
@@ -64,14 +64,39 @@ check('auth rejects an empty PIN', auth(''), false);
 /* --- Per-person PINs ------------------------------------------------------- */
 store['PIN:Dan'] = sandbox.pinHash('990011');
 const authAs = (name, pin) => JSON.parse(sandbox.doGet({ parameter: { action: 'auth', name, pin } }).getContent());
+const sansToken = (r) => { const c = { ...r }; delete c.token; return c; };
 check('a person with a PIN on file unlocks with name + their PIN',
-  authAs('Dan', '990011'), { ok: true, name: 'Dan', personal: true });
+  sansToken(authAs('Dan', '990011')), { ok: true, name: 'Dan', personal: true });
 check('the wrong personal PIN is refused, and the shared PIN does NOT rescue it',
   [authAs('Dan', '731905').ok, authAs('Dan', '000000').ok], [false, false]);
 check('a person with NO PIN on file falls back to the shared PIN',
-  authAs('Joe', '731905'), { ok: true, name: 'Joe', personal: false });
+  sansToken(authAs('Joe', '731905')), { ok: true, name: 'Joe', personal: false });
 check('no name at all is the shared PIN, as before', authAs('', '731905').ok, true);
 check('what is stored is a hash, never the PIN', store['PIN:Dan'].indexOf('990011') === -1 && store['PIN:Dan'].length === 64, true);
+
+/* --- The lock lives on the server ------------------------------------------ */
+const call = (params) => JSON.parse(sandbox.doGet({ parameter: params }).getContent());
+const tok = authAs('', '731905').token;
+check('a successful unlock returns a token, and it is not the PIN',
+  [typeof tok, tok.length, tok.indexOf('731905')], ['string', 64, -1]);
+check('a failed unlock returns no token', authAs('', '0000').token, undefined);
+check('a manager action with no token is refused as locked',
+  [call({ action: 'stock' }).locked, call({ action: 'export', table: 'stagelog' }).locked], [true, true]);
+check('a wrong token is refused', call({ action: 'stock', token: 'x'.repeat(64) }).locked, true);
+check('the token from the unlock opens it', call({ action: 'stock', token: tok, mgrName: '' }).locked, undefined);
+check('what the floor needs stays open without a token',
+  [call({ action: 'config' }).locked, call({ action: 'today', workDate: '2026-09-17' }).locked], [undefined, undefined]);
+const danTok = authAs('Dan', '990011').token;
+check('a personal token is bound to that name',
+  [call({ action: 'stock', token: danTok, mgrName: 'Dan' }).locked, call({ action: 'stock', token: danTok, mgrName: 'Joe' }).locked], [undefined, true]);
+store.MANAGER_PIN = '246810';
+check('changing the shared PIN locks every phone that unlocked with it',
+  call({ action: 'stock', token: tok, mgrName: '' }).locked, true);
+check('...but not a phone unlocked with a personal PIN', call({ action: 'stock', token: danTok, mgrName: 'Dan' }).locked, undefined);
+store['PIN:Dan'] = sandbox.pinHash('112233');
+check('changing a personal PIN locks that person\'s phone', call({ action: 'stock', token: danTok, mgrName: 'Dan' }).locked, true);
+check('no PIN ever lands in Script Properties as plain text beyond MANAGER_PIN itself',
+  Object.keys(store).filter((k) => k !== 'MANAGER_PIN' && /990011|112233|731905/.test(store[k])), []);
 
 check('the source no longer carries a PIN constant',
   /var MANAGER_PIN\s*=/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8')), false);

@@ -139,7 +139,13 @@ assert on them rather than trusting the parser.
 - Manager PIN lives in Script Properties since 2.13.0 (menu: Set manager PIN…);
   `DEFAULT_PIN` 2468 applies until set, and the app nags managers until then.
   Per-person PINs since 2.17.0 (menu: Set a person's PIN…), stored as SHA-256
-  under `PIN:<Name>`; unlock asks name + PIN, shared PIN stays as fallback
+  under `PIN:<Name>`; unlock asks name + PIN, shared PIN stays as fallback.
+  **Since 2.19.0 the lock is server-side**: `auth` returns a token derived
+  from `TOKEN_SECRET` + the credential hash; every action outside
+  `OPEN_ACTIONS` (config, today, submitDay, reverse, auth) needs `token` +
+  `mgrName` or answers `{locked:true}`, which makes the app drop to employee
+  view. Changing any PIN invalidates the tokens it earned. After a backend
+  paste that crosses 2.19.0, every manager taps the lock and unlocks once
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

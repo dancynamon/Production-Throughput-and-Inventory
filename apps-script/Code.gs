@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-13 21:00 UTC      version 2.18.0
+ *  BUILD:  2026-09-17 15:30 UTC      version 2.19.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -140,10 +140,51 @@ function checkPin(name, pin) {
   if (name) {
     var stored = null;
     try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; }
-    if (stored) return { ok: stored === pinHash(pin), name: name, personal: true };
+    if (stored) return withToken({ ok: stored === pinHash(pin), name: name, personal: true });
   }
   // No personal PIN on file for that name (or no name): the shared one.
-  return { ok: pin === managerPin(), name: name || '', personal: false };
+  return withToken({ ok: pin === managerPin(), name: name || '', personal: false });
+}
+
+/* Manager token — the lock has to live HERE, not only in the phone.
+ *
+ * The app hides the manager tabs behind the PIN, but the web-app URL is in a
+ * public repository and every action used to answer whoever called it. Now
+ * an unlock returns a token, every manager action requires it, and the
+ * token is derived from the credential that earned it: change the shared
+ * PIN or a person's PIN and every phone unlocked with the old one is locked
+ * again on its next request. Nothing secret is stored on the phone but the
+ * token, and the token cannot be turned back into a PIN.
+ *
+ * Open to the floor without a token: what Log My Day needs (config, today,
+ * submitDay), the same-day reversal of a double tap (bounded to what was
+ * logged today), and auth itself. Everything else is a manager action. */
+var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth'];
+
+function tokenSecret() {
+  var props = PropertiesService.getScriptProperties();
+  var sec = props.getProperty('TOKEN_SECRET');
+  if (!sec) { sec = Utilities.getUuid() + Utilities.getUuid(); props.setProperty('TOKEN_SECRET', sec); }
+  return sec;
+}
+// The hash of whatever credential this name unlocks with: their personal PIN
+// if one is on file, else the shared manager PIN.
+function credentialHash(name) {
+  var stored = null;
+  if (name) { try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; } }
+  return stored || pinHash(managerPin());
+}
+function managerToken(name) {
+  name = String(name || '').trim();
+  return pinHash('tok|' + tokenSecret() + '|' + name + '|' + credentialHash(name));
+}
+function tokenIsValid(name, token) {
+  if (!token) return false;
+  try { return String(token) === managerToken(name); } catch (e) { return false; }
+}
+function withToken(r) {
+  if (r.ok) { try { r.token = managerToken(r.name); } catch (e) { r.token = null; } }
+  return r;
 }
 function setPersonPin() {
   var ui = SpreadsheetApp.getUi();
@@ -186,12 +227,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.18.0';
+var BACKEND_VERSION = '2.19.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-13 21:00 UTC';
+var BUILD_STAMP = '2026-09-17 15:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -933,7 +974,11 @@ function doGet(e) {
   var action = p.action || 'config';
   var result;
   try {
-    if      (action === 'config')    result = getConfig();
+    if (OPEN_ACTIONS.indexOf(action) === -1 && !tokenIsValid(p.mgrName, p.token)) {
+      // The app clears its unlock and asks for the PIN again when it sees this.
+      result = { ok: false, locked: true, error: 'Manager PIN needed. Tap the lock and unlock again.' };
+    }
+    else if (action === 'config')    result = getConfig();
     else if (action === 'stock')     result = getStock();
     else if (action === 'inventory') result = getInventory(p);
     else if (action === 'overview')  result = getOverview();

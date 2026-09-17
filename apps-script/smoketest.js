@@ -150,7 +150,10 @@ const INVENTORY = [
     else if (action === 'wipWalk') data = { ok:true, at:'2026-09-13', message:'Opening WIP recorded for 2 products at one moment.',
       products:[{ productId:'XRT50', name:'XRT-50 Rescue Tube', piles:[{stage:'Glued',qty:5}] },
                 { productId:'SHP24', name:'Shape 24x24', piles:[{stage:'Clean',qty:0}] }] };
-    else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468', name: url.searchParams.get('name') || '', personal: false };
+    else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468', name: url.searchParams.get('name') || '', personal: false,
+      token: url.searchParams.get('pin') === '2468' ? 'tok-'.padEnd(64, 'a') : undefined };
+    else if (!['config','today','submitDay','reverse','auth'].includes(action) && url.searchParams.get('token') !== 'tok-'.padEnd(64, 'a'))
+      data = { ok:false, locked:true, error:'Manager PIN needed.' };
     else if (action === 'setTarget') data = { ok:true, productId:url.searchParams.get('productId'), stage:url.searchParams.get('stage'),
       target:Number(url.searchParams.get('target')), was:60, appended:false };
     else data = { ok:false, error:'bad action' };

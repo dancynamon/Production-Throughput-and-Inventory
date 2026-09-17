@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.18.1';
+  var APP_VERSION = '2.19.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -29,7 +29,19 @@
       var script = document.createElement('script');
       var timer = setTimeout(function () { cleanup(); reject(new Error('Request timed out.')); }, timeoutMs || 15000);
       function cleanup() { clearTimeout(timer); delete window[cb]; if (script.parentNode) script.parentNode.removeChild(script); }
-      window[cb] = function (data) { cleanup(); resolve(data); };
+      window[cb] = function (data) {
+        cleanup();
+        // The backend refused a manager action: our token is stale (a PIN was
+        // changed) or missing. Drop to employee view and say why, once.
+        if (data && data.locked) lockOut('Manager PIN changed — tap the lock to unlock again.');
+        resolve(data);
+      };
+      // Manager actions carry the token the unlock earned. Harmless on open
+      // actions; the backend ignores it there.
+      if (localStorage.getItem('aq_role') === 'mgr' && localStorage.getItem('aq_mgr_token') && !params.token) {
+        params = Object.assign({}, params, { token: localStorage.getItem('aq_mgr_token'),
+                                             mgrName: localStorage.getItem('aq_mgr_name') || '' });
+      }
       var qs = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
       script.src = API + '?' + qs + '&callback=' + cb;
       script.onerror = function () { cleanup(); reject(new Error('Network error reaching the server.')); };
@@ -619,9 +631,16 @@
       if (active && active.id !== 'screen-day') selectScreen('day');
     }
   }
+  var lockOutShown = false;
+  function lockOut(msg) {
+    var was = localStorage.getItem('aq_role') === 'mgr';
+    localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token');
+    applyRole();
+    if (was && !lockOutShown) { lockOutShown = true; toast(msg); }
+  }
   el('mgrBtn').addEventListener('click', function () {
     if (localStorage.getItem('aq_role') === 'mgr') {
-      localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); applyRole(); toast('Locked — employee view'); return;
+      lockOut(''); toast('Locked — employee view'); return;
     }
     // Name first, so a personal PIN can be checked against the right
     // person. Blank name means the shared manager PIN, exactly as before.
@@ -633,6 +652,8 @@
       if (d && d.ok) {
         localStorage.setItem('aq_role', 'mgr');
         if (d.name) localStorage.setItem('aq_mgr_name', d.name); else localStorage.removeItem('aq_mgr_name');
+        if (d.token) localStorage.setItem('aq_mgr_token', d.token); else localStorage.removeItem('aq_mgr_token');
+        lockOutShown = false;
         applyRole();
         toast('Unlocked' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
       } else toast('Wrong PIN');
