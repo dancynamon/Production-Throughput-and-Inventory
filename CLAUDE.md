@@ -123,6 +123,7 @@ node apps-script/test-replay.js     # same clientId twice logs once
 node apps-script/test-targets.js    # update in place, append missing, refuse bad
 node apps-script/test-digest.js     # digest HTML content, recipient fallback
 node apps-script/test-notes.js      # per-stage note lands on its own row
+node apps-script/test-report.js     # report-core: duplicates, reversals, opening counts
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -148,7 +149,11 @@ assert on them rather than trusting the parser.
   paste that crosses 2.19.0, every manager taps the lock and unlocks once
 - Floor Report artifact (progress / throughput / bottlenecks, reads the sheet
   live via the Google Drive connector): https://claude.ai/artifact/86LAWmpX3EDEtbF5cfPW4G
-  — source in `report/`, see its README. Dan asked for it 2026-09-18
+  — source in `report/`, math in root `report-core.js`, which the app's
+  **Floor** tab (crew-visible, 2.20.0) also loads. Likely duplicates (same
+  person/product/stage/qty/day saved twice) are dropped from both views and
+  a manager reverses them from Summary → Fix-ups. WIP tab is crew-visible
+  since 2.20.0 so the floor count is theirs to take
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

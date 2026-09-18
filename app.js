@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.19.0';
+  var APP_VERSION = '2.20.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -667,7 +667,8 @@
     var tab = document.querySelector('.tab[data-screen="' + name + '"]');
     if (tab) tab.classList.add('tab--active');
     el('screen-' + name).classList.add('screen--active');
-    if (name === 'summary') loadSummary();
+    if (name === 'summary') { loadSummary(); loadFixups(); }
+    if (name === 'floor') loadFloor();
     if (name === 'overview') loadOverview();
     if (name === 'capacity') { loadCapacity(); loadCrew(); }
     if (name === 'receive') loadReceiving();
@@ -1190,6 +1191,132 @@
         + (stale ? '<br>The Apps Script backend is older than this app — paste '
                  + 'Code.gs and cut a new deployment version.' : '') + '</div>';
     });
+  }
+
+  /* ---- Floor: the crew's own read of progress, pace and piles ----------
+   * Same math as the Floor Report (report-core.js). The backend hands over
+   * the tables; nothing here needs a PIN. Likely duplicates are dropped
+   * from the numbers and listed for a manager to reverse. */
+  var FLOOR = { win: 14, tables: null, at: null };
+  function loadFloor(force) {
+    var body = el('floorBody');
+    if (FLOOR.tables && !force) { renderFloor(); return; }
+    body.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'floorData' }, 45000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load the floor');
+      FLOOR.tables = d.tables; FLOOR.at = d.generatedAt;
+      renderFloor();
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      body.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message)
+        + (stale ? '<br>The backend is older than this app — paste Code.gs and cut a new deployment version.' : '') + '</div>';
+    });
+  }
+  el('floorWin').addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-fw]');
+    if (b) {
+      FLOOR.win = Number(b.getAttribute('data-fw'));
+      document.querySelectorAll('#floorWin [data-fw]').forEach(function (x) { x.classList.toggle('inv-chip--on', x === b); });
+      renderFloor(); return;
+    }
+    if (e.target.closest && e.target.closest('#floorReload')) loadFloor(true);
+  });
+  function floorSev(days) { return days === null ? 'unk' : days >= 5 ? 'crit' : days >= 2 ? 'warn' : 'ok'; }
+  function renderFloor() {
+    if (!FLOOR.tables || typeof AQReport === 'undefined') return;
+    var r = AQReport.compute(FLOOR.tables, { windowDays: FLOOR.win, dedupe: true });
+    var t = r.totals, h = '';
+    var winLabel = FLOOR.win === 7 ? 'this week' : 'last ' + FLOOR.win + ' days';
+
+    h += '<div class="fl-tiles">'
+      + '<div class="fl-tile"><span class="inv-lbl">Finished</span><b>' + fmt(t.finished) + '</b><small>' + winLabel + '</small></div>'
+      + '<div class="fl-tile"><span class="inv-lbl">Logged</span><b>' + fmt(t.logged) + '</b><small>' + t.entries + ' entries · ' + t.activeDays + ' day' + (t.activeDays === 1 ? '' : 's') + '</small></div>'
+      + '<div class="fl-tile"><span class="inv-lbl">Hours</span><b>' + fmt(t.hours) + '</b><small>' + t.hourRows + ' of ' + t.entries + ' entries</small></div>'
+      + '</div>';
+
+    // Piles: where work is waiting, worst first.
+    var bns = r.bottlenecks.filter(function (b) { return b.waiting >= 1; }).slice(0, 8);
+    h += sumCard('Where work is piling up', 'days to clear at the logged pace',
+      bns.length ? bns.map(function (b) {
+        var sev = floorSev(b.daysToClear);
+        return '<div class="fl-pile fl-pile--' + sev + '"><div class="fl-pile__main"><b>' + escapeHtml(b.product) + '</b>'
+          + '<span>' + fmt(b.waiting) + ' waiting at <b>' + escapeHtml(b.stage) + '</b>' + (b.rate ? ' · ' + fmt(b.rate) + '/day' : ' · no pace yet') + '</span>'
+          + (b.anomalies.length ? '<small>Stages logged out of order (' + escapeHtml(b.anomalies.map(function (a) { return a.stage; }).join(', ')) + ') — pile size is a guess until the floor is counted on the WIP tab.</small>' : '')
+          + '</div><div class="fl-pile__days"><b>' + (b.daysToClear === null ? '—' : fmt(b.daysToClear)) + '</b><small>days</small></div></div>';
+      }).join('') : '<div class="muted" style="padding:8px 0">Nothing is waiting anywhere.</div>');
+    var poolNotes = Object.keys(r.pools).filter(function (k) { return r.pools[k].uncommitted < 0; }).map(function (k) {
+      var p = r.pools[k];
+      return '<div class="fl-note">' + escapeHtml(p.feeder.ProductName) + ': variants have taken <b>' + fmt(p.taken) + '</b> from a pool showing <b>' + fmt(p.finished) + '</b> finished. The blank\'s last stage is not being logged.</div>';
+    }).join('');
+    if (poolNotes) h += poolNotes;
+
+    // Stations: pace vs target.
+    var lineOrder = [], byLine = {};
+    r.stations.forEach(function (s) { if (!(s.units > 0 || s.target)) return; if (!byLine[s.line]) { byLine[s.line] = []; lineOrder.push(s.line); } byLine[s.line].push(s); });
+    h += sumCard('Pace by station', 'units per active day · tick = target',
+      '<div class="cap-wrap"><table class="fl-table"><thead><tr><th>Station</th><th class="r">/day</th><th></th><th class="r">Target</th><th class="r">Days</th></tr></thead><tbody>'
+      + lineOrder.map(function (line) {
+        return '<tr><td class="fl-line" colspan="5">' + escapeHtml(line) + '</td></tr>' + byLine[line].map(function (s) {
+          var ref = Math.max(s.perDay || 0, s.target || 0, 1), w = s.perDay ? Math.min(100, 100 * s.perDay / ref) : 0, tk = s.target ? 100 * s.target / ref : null;
+          return '<tr><td>' + escapeHtml(s.stage) + '</td><td class="r"><b>' + (s.perDay === null ? '—' : fmt(s.perDay)) + '</b></td>'
+            + '<td><div class="fl-bar"><i class="' + (s.target && s.perDay >= s.target ? 'over' : '') + '" style="width:' + w + '%"></i>' + (tk !== null ? '<em style="left:' + tk + '%"></em>' : '') + '</div></td>'
+            + '<td class="r">' + (s.target ? fmt(s.target) : '—') + '</td><td class="r">' + s.daysObserved + '</td></tr>';
+        }).join('');
+      }).join('') + '</tbody></table></div>');
+
+    // Finished per day.
+    var days = r.days, max = Math.max(1, Math.max.apply(null, days.map(function (d) { return d.finished; })));
+    h += sumCard('Finished per day', winLabel,
+      '<div class="fl-chart">' + days.map(function (d) {
+        var hh = Math.round(100 * d.finished / max);
+        return '<div class="fl-col" title="' + escapeHtml(d.date + ': ' + d.finished + ' finished, ' + d.logged + ' logged') + '"><i style="height:' + hh + '%"></i><span>' + (d.finished ? fmt(d.finished) : '') + '</span><small>' + d.date.slice(8) + '</small></div>';
+      }).join('') + '</div>');
+
+    // Trust.
+    var oo = r.pipelines.filter(function (p) { return p.anomalies.length; });
+    var trust = [];
+    if (r.duplicates.some(function (d) { return d.open > 0; })) trust.push('<b>' + fmt(r.duplicateExtra) + ' units</b> look like repeated entries and are left out here. A manager can reverse them from Summary.');
+    if (oo.length) trust.push('Stages were logged out of order on <b>' + oo.length + ' product' + (oo.length === 1 ? '' : 's') + '</b>. Count the floor on the WIP tab to reset the piles.');
+    if (!r.baselines) trust.push('No floor count on record yet. Piles are built from the log alone.');
+    trust.push(t.hourRows + ' of ' + t.entries + ' entries carry hours, so pace is per active day, not per hour.');
+    h += sumCard('How much to trust this', '', '<ul class="fl-trust">' + trust.map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul>');
+    el('floorBody').innerHTML = h;
+  }
+
+  /* ---- Fix-ups (manager): reverse repeated entries in one tap ------------ */
+  function loadFixups() {
+    var box = el('fixups'); if (!box) return;
+    var go = function () {
+      var r = AQReport.compute(FLOOR.tables, { windowDays: 0, dedupe: false });
+      var open = r.duplicates.filter(function (d) { return d.open > 0; });
+      box.innerHTML = sumCard('Fix-ups', open.length ? open.length + ' repeated entr' + (open.length === 1 ? 'y' : 'ies') : 'nothing to fix',
+        open.length ? '<div class="muted small" style="margin-bottom:6px">Same person, product, stage, quantity and day logged more than once. Reversing puts the materials back too.</div>'
+          + open.map(function (d, i) {
+            return '<div class="fix-row"><div><b>' + escapeHtml(d.who) + '</b> · ' + escapeHtml(d.name) + '<br><span class="muted">' + escapeHtml(d.stage) + ' ' + fmt(d.qty) + ' on ' + escapeHtml(d.date) + ' — logged ' + d.times + '×</span></div>'
+              + '<button type="button" class="inv-mini" data-fix="' + i + '">Reverse ' + fmt(d.open) + '</button></div>';
+          }).join('') : '<div class="muted small">No repeated entries in the log.</div>');
+      box.querySelectorAll('[data-fix]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var d = open[Number(btn.getAttribute('data-fix'))];
+          if (!window.confirm('Reverse ' + d.open + ' ' + d.stage + ' for ' + d.name + ' on ' + d.date + '?\n\nLogged ' + d.times + ' times by ' + d.who + '. One stays, ' + d.open + ' comes off and the materials go back.')) return;
+          btn.disabled = true; btn.textContent = 'Reversing…';
+          api({ action: 'reverse', employee: d.who, by: localStorage.getItem('aq_mgr_name') || d.who, productId: d.pid, workDate: d.date,
+                stage: d.stage, qty: d.open, reason: 'Duplicate entry — logged ' + d.times + ' times' }, 30000).then(function (res) {
+            if (!res.ok) throw new Error(res.error || 'Could not reverse');
+            toast('Reversed ' + fmt(d.open) + ' ' + d.stage);
+            FLOOR.tables = null; loadFloorThen(go);
+          }).catch(function (err) { btn.disabled = false; btn.textContent = 'Reverse ' + fmt(d.open); toast('⚠ ' + err.message); });
+        });
+      });
+    };
+    loadFloorThen(go);
+  }
+  function loadFloorThen(fn) {
+    if (FLOOR.tables) { fn(); return; }
+    api({ action: 'floorData' }, 45000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load');
+      FLOOR.tables = d.tables; FLOOR.at = d.generatedAt; fn();
+    }).catch(function (err) { var box = el('fixups'); if (box) box.innerHTML = sumCard('Fix-ups', '', '<div class="muted small">⚠ ' + escapeHtml(err.message) + '</div>'); });
   }
 
   function sumCard(title, meta, inner) {

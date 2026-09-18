@@ -641,3 +641,29 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
   text-align:left; margin-top:-2px;
 }
 .buy-late{ color:var(--low) !important }
+
+/* ---- Floor tab + Fix-ups ------------------------------------------------- */
+.fl-tiles{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 12px }
+.fl-tile{ background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 12px 8px }
+.fl-tile b{ display:block; font-size:1.5rem; line-height:1.1; color:var(--navy); margin-top:2px }
+.fl-tile small{ display:block; font-size:.72rem; color:var(--muted); margin-top:2px }
+.fl-pile{ display:flex; gap:10px; align-items:center; padding:8px 0 8px 10px; border-left:4px solid var(--border); margin:6px 0 }
+.fl-pile--crit{ border-left-color:var(--low) } .fl-pile--warn{ border-left-color:#e0a24c } .fl-pile--ok{ border-left-color:var(--ok, #2e7d4f) }
+.fl-pile__main{ flex:1; min-width:0 } .fl-pile__main span{ display:block; font-size:.86rem; color:var(--ink) }
+.fl-pile__main small{ display:block; font-size:.76rem; color:var(--low); margin-top:2px }
+.fl-pile__days{ text-align:right; flex:none } .fl-pile__days b{ display:block; font-size:1.4rem; line-height:1; color:var(--navy) }
+.fl-pile__days small{ font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700 }
+.fl-note{ background:#fdf6ee; border:1px dashed var(--border); border-radius:8px; padding:8px 10px; font-size:.84rem; margin:8px 0 }
+.fl-table{ width:100%; border-collapse:collapse; font-size:.9rem } .fl-table th{ font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); text-align:left; padding:4px 6px }
+.fl-table td{ padding:5px 6px; border-top:1px solid var(--border) } .fl-table .r{ text-align:right; font-variant-numeric:tabular-nums }
+.fl-table .fl-line{ font-weight:700; color:var(--muted); font-size:.78rem; text-transform:uppercase; letter-spacing:.04em; background:var(--bg) }
+.fl-bar{ position:relative; height:8px; min-width:70px; background:var(--bg); border:1px solid var(--border); border-radius:4px }
+.fl-bar i{ position:absolute; left:0; top:0; bottom:0; background:var(--navy); border-radius:3px } .fl-bar i.over{ background:var(--ok, #2e7d4f) }
+.fl-bar em{ position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); opacity:.7 }
+.fl-chart{ display:flex; align-items:flex-end; gap:3px; height:120px; padding-top:14px }
+.fl-col{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:0; position:relative }
+.fl-col i{ display:block; width:100%; background:var(--navy); border-radius:3px 3px 0 0; min-height:0 }
+.fl-col span{ position:absolute; top:-14px; font-size:.68rem; color:var(--ink) } .fl-col small{ font-size:.62rem; color:var(--muted); margin-top:2px }
+.fl-trust{ margin:0; padding-left:18px; font-size:.86rem } .fl-trust li{ margin:4px 0 }
+.fix-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 0; border-top:1px solid var(--border); font-size:.9rem }
+.fix-row:first-of-type{ border-top:0 }

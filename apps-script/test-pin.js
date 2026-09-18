@@ -85,7 +85,10 @@ check('a manager action with no token is refused as locked',
 check('a wrong token is refused', call({ action: 'stock', token: 'x'.repeat(64) }).locked, true);
 check('the token from the unlock opens it', call({ action: 'stock', token: tok, mgrName: '' }).locked, undefined);
 check('what the floor needs stays open without a token',
-  [call({ action: 'config' }).locked, call({ action: 'today', workDate: '2026-09-17' }).locked], [undefined, undefined]);
+  [call({ action: 'config' }).locked, call({ action: 'today', workDate: '2026-09-17' }).locked, call({ action: 'floorData' }).locked], [undefined, undefined, undefined]);
+check('floorData hands over the five tables and nothing else',
+  Object.keys(call({ action: 'floorData' }).tables).sort(), ['planning', 'products', 'stagelog', 'stages', 'wipbase']);
+check('the floor count is the crew\'s to record', sandbox.OPEN_ACTIONS.indexOf('wipWalk') !== -1, true);
 const danTok = authAs('Dan', '990011').token;
 check('a personal token is bound to that name',
   [call({ action: 'stock', token: danTok, mgrName: 'Dan' }).locked, call({ action: 'stock', token: danTok, mgrName: 'Joe' }).locked], [undefined, true]);

@@ -102,6 +102,18 @@ const INVENTORY = [
         stages:[{ productId:'STRAP6', product:'Strap', stage:'Made', units:160, hours:5, unitsPerHour:20 }] },
       { name:'Alex', entries:1, units:300, hours:0, daysWorked:1, unitsPerHour:null, hoursCoverage:0,
         stages:[{ productId:'KB1220', product:'Kickboard', stage:'CNC', units:300, hours:0, unitsPerHour:null }] } ] };
+    else if (action === 'floorData') data = { ok:true, generatedAt:'2026-09-18T12:00:00Z', tables:{
+      products:[{ProductID:'XRT50',ProductName:'XRT-50 Rescue Tube',Line:'Tube',Active:'YES',FeedsFrom:'',Family:'Rescue Tubes'},
+                {ProductID:'LGC30',ProductName:'Lifeguard Chair 30"',Line:'Chair',Active:'YES',FeedsFrom:'',Family:'Lifeguard Chairs'}],
+      stages:STAGES.map((s,i)=>({Line:'Tube',Order:i+1,Stage:s,FloorRate_perHr:20,IdealRate_perHr:30}))
+        .concat([{Line:'Chair',Order:1,Stage:'Cut'},{Line:'Chair',Order:2,Stage:'Assemble'},{Line:'Chair',Order:3,Stage:'Box'}]),
+      planning:[{ProductID:'XRT50',Stage:'Boxed',DailyTarget:30}],
+      stagelog:[
+        {Timestamp:'2026-09-15T13:00:00Z',WorkDate:'2026-09-15',Employee:'Maria',ProductID:'XRT50',Stage:'Cut',Qty:112,Notes:'',Hours:''},
+        {Timestamp:'2026-09-15T13:05:00Z',WorkDate:'2026-09-15',Employee:'Maria',ProductID:'XRT50',Stage:'Boxed',Qty:40,Notes:'',Hours:4},
+        {Timestamp:'2026-09-15T13:05:30Z',WorkDate:'2026-09-15',Employee:'Maria',ProductID:'XRT50',Stage:'Boxed',Qty:40,Notes:'',Hours:4},
+        {Timestamp:'2026-09-16T13:00:00Z',WorkDate:'2026-09-16',Employee:'Joe',ProductID:'LGC30',Stage:'Cut',Qty:4,Notes:'',Hours:''}],
+      wipbase:[] } };
     else if (action === 'export') data = { ok:true, table:'stagelog', tab:'StageLog',
       headers:['Timestamp','WorkDate','Employee','ProductName','Qty','Notes'],
       rows:[['2026-09-13T12:00:00.000Z','2026-09-13','Dan','1" Red PP Webbing',3,'note, with comma'],
@@ -184,6 +196,17 @@ const INVENTORY = [
   if (!/Boxed · XRT-50 Rescue Tube — ran out of tape at 3pm/.test(noteTxt)) errors.push('note not shown: ' + noteTxt);
   await shot(page, 'today-notes');
   console.log('DAY:', (await page.textContent('#dayResult')).replace(/\s+/g,' ').trim().slice(0,120));
+
+  /* ---- Floor tab: the crew's read, no PIN ---------------------------------- */
+  await page.click('.tab[data-screen="floor"]');
+  await page.waitForSelector('#floorBody .fl-tile', { timeout:5000 });
+  const flTiles = await page.$$eval('#floorBody .fl-tile b', (b) => b.map((x) => x.textContent));
+  // 40 boxed once (the repeat is dropped) + 0 chairs; 112 + 40 + 4 logged.
+  if (flTiles[0] !== '40' || flTiles[1] !== '156') errors.push('floor tiles: ' + JSON.stringify(flTiles));
+  const pile = (await page.textContent('#floorBody .fl-pile')).replace(/\s+/g,' ');
+  if (!/XRT-50 Rescue Tube.*112 waiting at Glued/.test(pile)) errors.push('floor pile: ' + pile);
+  console.log('FLOOR:', flTiles.join(' / '), '|', pile.slice(0, 80));
+  await page.click('.tab[data-screen="day"]');
 
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
   let killNext = true;
@@ -342,6 +365,14 @@ const INVENTORY = [
   await page.waitForSelector('#sumBody .sum-card', { timeout:5000 });
   const cards = await page.$$eval('.sum-card__h', (h) => h.map((x) => x.firstChild.textContent.trim()));
   console.log('summary cards:', JSON.stringify(cards));
+  await page.waitForSelector('#fixups [data-fix]', { timeout:5000 });
+  const fixTxt = (await page.textContent('#fixups .fix-row')).replace(/\s+/g,' ');
+  if (!/Maria.*Boxed 40 on 2026-09-15.*logged 2×.*Reverse 40/.test(fixTxt)) errors.push('fix-ups row: ' + fixTxt);
+  const revReq = page.waitForRequest((r) => r.url().includes('action=reverse'), { timeout:5000 });
+  await page.click('#fixups [data-fix]');
+  const rvq = new URL((await revReq).url()).searchParams;
+  if (rvq.get('qty') !== '40' || rvq.get('workDate') !== '2026-09-15' || rvq.get('employee') !== 'Maria' || !/Duplicate/.test(rvq.get('reason'))) errors.push('fix-up reverse params: ' + rvq.toString());
+  console.log('FIXUP:', fixTxt.slice(0, 90));
   const sumTxt = (await page.textContent('#sumBody')).replace(/\s+/g,' ');
   // The headline pair has to be entered-vs-finished, not a sum of stages.
   // textContent puts no space between adjacent elements, so the number and its

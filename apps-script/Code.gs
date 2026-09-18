@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-17 15:30 UTC      version 2.19.0
+ *  BUILD:  2026-09-18 16:00 UTC      version 2.20.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -159,7 +159,9 @@ function checkPin(name, pin) {
  * Open to the floor without a token: what Log My Day needs (config, today,
  * submitDay), the same-day reversal of a double tap (bounded to what was
  * logged today), and auth itself. Everything else is a manager action. */
-var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth'];
+// floorData feeds the crew's Floor tab (read-only). wipWalk is the floor
+// count — a measurement the crew takes, so it is theirs to record.
+var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'floorData', 'wipWalk'];
 
 function tokenSecret() {
   var props = PropertiesService.getScriptProperties();
@@ -227,12 +229,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.19.0';
+var BACKEND_VERSION = '2.20.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-17 15:30 UTC';
+var BUILD_STAMP = '2026-09-18 16:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -998,6 +1000,7 @@ function doGet(e) {
     else if (action === 'setTarget') result = setTarget(p);
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = checkPin(p.name, p.pin);
+    else if (action === 'floorData') result = getFloorData();
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -1931,6 +1934,28 @@ function computeCrew(p) {
  */
 var EXPORTABLE = { stagelog: 'stagelog', countlog: 'countlog', receiving: 'receiving',
                    materials: 'materials', wipbase: 'wipbase', products: 'products', bom: 'bom' };
+
+/* Everything the Floor tab and the Floor Report need, as plain rows. The
+ * math lives in report-core.js, shared by the app and the report, so the
+ * backend only hands over the tables. Timestamps go out as ISO so the phone
+ * never has to guess a locale. */
+function getFloorData() {
+  var iso = function (v) { return v instanceof Date ? v.toISOString() : String(v || ''); };
+  var products = readObjects(TAB.products).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return { ProductID: r.ProductID, ProductName: r.ProductName, Line: r.Line || 'Blank', Active: 'YES',
+                                 FeedsFrom: r.FeedsFrom || '', Family: String(r.Family || '').trim() || 'Other' }; });
+  var stages = readObjects(TAB.stages).map(function (r) {
+    return { Line: r.Line, Order: r.Order, Stage: r.Stage, FloorRate_perHr: r.FloorRate_perHr, IdealRate_perHr: r.IdealRate_perHr }; });
+  var planning = readObjects(TAB.planning).map(function (r) { return { ProductID: r.ProductID, Stage: r.Stage, DailyTarget: r.DailyTarget }; });
+  var stagelog = readObjects(TAB.stagelog).map(function (r) {
+    return { Timestamp: iso(r.Timestamp), WorkDate: fmtDate(r.WorkDate), Employee: r.Employee, ProductID: r.ProductID,
+             Stage: r.Stage, Qty: r.Qty, Notes: r.Notes || '', Hours: (r.Hours === '' || r.Hours === null || r.Hours === undefined) ? '' : r.Hours }; });
+  var wipbase = readObjects(TAB.wipbase).map(function (r) {
+    return { Timestamp: iso(r.Timestamp), ProductID: r.ProductID, ProductName: r.ProductName, Stage: r.Stage,
+             WaitingBefore: r.WaitingBefore, CountedBy: r.CountedBy || '' }; });
+  return { ok: true, generatedAt: iso(new Date()),
+           tables: { products: products, stages: stages, planning: planning, stagelog: stagelog, wipbase: wipbase } };
+}
 
 function exportTable(p) {
   var key = String((p && p.table) || '').trim().toLowerCase();

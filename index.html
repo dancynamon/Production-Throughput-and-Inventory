@@ -24,12 +24,13 @@
 
 <nav class="tabs">
   <button class="tab tab--active" data-screen="day">Log My Day</button>
+  <button class="tab" data-screen="floor">Floor</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="capacity" data-mgr="1">Capacity</button>
   <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
-  <button class="tab" data-screen="wip" data-mgr="1">WIP</button>
+  <button class="tab" data-screen="wip">WIP</button>
   <button class="tab" data-screen="buy" data-mgr="1">Buy</button>
 </nav>
 
@@ -76,8 +77,19 @@
   </section>
 
   <!-- ============ SUMMARY (the top layer over everything else) ============ -->
+  <section id="screen-floor" class="screen">
+    <div class="inv-chips" id="floorWin">
+      <button type="button" class="inv-chip" data-fw="7">This week</button>
+      <button type="button" class="inv-chip inv-chip--on" data-fw="14">14 days</button>
+      <button type="button" class="inv-chip" data-fw="30">30 days</button>
+      <button type="button" class="inv-chip" id="floorReload">↻</button>
+    </div>
+    <div id="floorBody"><div class="muted">Loading…</div></div>
+  </section>
+
   <section id="screen-summary" class="screen">
     <div id="sumBody"><div class="muted">Loading…</div></div>
+    <div id="fixups"></div>
 
     <div class="sum-card">
       <div class="sum-card__h">Export<span>CSV, straight from the phone</span></div>
@@ -238,6 +250,7 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="config.js"></script>
+<script src="report-core.js"></script>
 <script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {

@@ -292,10 +292,11 @@ footer{margin-top:36px;font-size:.82rem;color:var(--muted);display:flex;gap:16px
 
     /* Quality */
     var q = '';
-    if (r.duplicates.length) {
-      q += '<div class="q"><h3>' + r.duplicates.length + ' entr' + (r.duplicates.length === 1 ? 'y' : 'ies') + ' logged more than once — ' + fmt(r.duplicateExtra) + ' extra units</h3>'
-        + '<p>Same person, product, stage, quantity and work date, saved at different times. ' + (r.dedupe ? 'This report counts each once. Untick "Drop likely duplicates" to see the sheet as logged.' : 'This report is counting all of them.') + ' To fix the sheet itself: in the app, tap the chip under Today\'s totals to reverse the extra, or delete the rows in StageLog.</p><ul>'
-        + r.duplicates.map(function (d) { return '<li><b>' + esc(d.who) + '</b> · ' + esc(d.name) + ' · ' + esc(d.stage) + ' ' + fmt(d.qty) + ' on ' + esc(niceDate(d.date)) + ' — logged <b>' + d.times + '×</b>, ' + fmt(d.extra) + ' extra <span class="muted">(saved ' + esc(d.timestamps.map(function (ts) { return String(ts).replace(/^\S+\s+/, '').replace(/:\d\d$/, ''); }).join(', ')) + ')</span></li>'; }).join('') + '</ul></div>';
+    var openDups = r.duplicates.filter(function (d) { return d.open > 0; });
+    if (openDups.length) {
+      q += '<div class="q"><h3>' + openDups.length + ' entr' + (openDups.length === 1 ? 'y' : 'ies') + ' logged more than once — ' + fmt(r.duplicateExtra) + ' extra units</h3>'
+        + '<p>Same person, product, stage, quantity and work date, saved at different times. ' + (r.dedupe ? 'This report counts each once. Untick "Drop likely duplicates" to see the sheet as logged.' : 'This report is counting all of them.') + ' To fix the sheet itself: in the app, tap the chip under Today\'s totals to reverse the extra, or use Summary → Fix-ups in the app, which reverses one in a tap and puts the materials back.</p><ul>'
+        + openDups.map(function (d) { return '<li><b>' + esc(d.who) + '</b> · ' + esc(d.name) + ' · ' + esc(d.stage) + ' ' + fmt(d.qty) + ' on ' + esc(niceDate(d.date)) + ' — logged <b>' + d.times + '×</b>, ' + fmt(d.open) + ' extra' + (d.reversed ? ' (' + fmt(d.reversed) + ' already reversed)' : '') + ' <span class="muted">(saved ' + esc(d.timestamps.map(function (ts) { return String(ts).replace(/^\S+\s+/, '').replace(/:\d\d$/, ''); }).join(', ')) + ')</span></li>'; }).join('') + '</ul></div>';
     }
     var oo = r.pipelines.filter(function (p) { return p.anomalies.length; });
     if (oo.length) {
@@ -305,7 +306,7 @@ footer{margin-top:36px;font-size:.82rem;color:var(--muted);display:flex;gap:16px
     }
     q += '<div class="q"><h3>Coverage</h3><p>' + t.hourRows + ' of ' + t.entries + ' entries in this window carry hours, so units per hour is thin. Paces here are units per <i>active day</i> — days the station logged anything — which holds up better than hours until the crew logs them.</p></div>';
     $('quality').innerHTML = q;
-    $('foot').textContent = r.rows + ' StageLog rows read' + (r.dedupe && r.rowsRaw !== r.rows ? ' (' + r.rowsRaw + ' before dropping duplicates)' : '') + '.';
+    $('foot').textContent = r.rows + ' StageLog rows read' + (r.baselines ? ' · ' + r.baselines + ' floor count' + (r.baselines === 1 ? '' : 's') + ' on record' : ' · no floor count yet') + '.';
   }
 
   /* Controls */
