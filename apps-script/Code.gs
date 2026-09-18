@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-18 22:15 UTC      version 2.22.1
+ *  BUILD:  2026-09-18 22:40 UTC      version 2.22.2
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -230,12 +230,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.22.1';
+var BACKEND_VERSION = '2.22.2';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-18 22:15 UTC';
+var BUILD_STAMP = '2026-09-18 22:40 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -2849,9 +2849,12 @@ function scriptApi(method, path, payload) {
   });
   var code = res.getResponseCode(), body = res.getContentText();
   if (code >= 300) {
-    var hint = code === 403 && /not enabled|has not been used|PERMISSION_DENIED/i.test(body)
-      ? ' — turn on the Apps Script API for your account at script.google.com/home/usersettings, and check oauthScopes in appsscript.json' : '';
-    throw new Error('Apps Script API ' + method.toUpperCase() + ' ' + path.replace(/^[^\/]+\//, '…/') + ' → ' + code + hint + ': ' + body.slice(0, 300));
+    // The 403 that matters names the Cloud project the script runs under and
+    // the page that switches the API on for it. Put that first.
+    var enable = /https:\/\/console\.developers\.google\.com\/apis\/api\/script\.googleapis\.com\/overview\?project=\d+/.exec(body);
+    var hint = enable ? ' — the Apps Script API is off for the Cloud project behind this script. Open ' + enable[0] + ' and click Enable, wait a minute, run this again. If that page refuses you, move the script to your own project: Project Settings → Google Cloud Platform (GCP) Project → Change project.'
+      : code === 403 ? ' — check the Apps Script API toggle at script.google.com/home/usersettings and the oauthScopes in appsscript.json' : '';
+    throw new Error('Apps Script API ' + method.toUpperCase() + ' ' + path.replace(/^[^\/]+\//, '…/') + ' → ' + code + hint + ' | ' + body.slice(0, 200));
   }
   return body ? JSON.parse(body) : {};
 }
