@@ -206,6 +206,7 @@ const INVENTORY = [
   const pile = (await page.textContent('#floorBody .fl-pile')).replace(/\s+/g,' ');
   if (!/XRT-50 Rescue Tube.*112 waiting at Glued/.test(pile)) errors.push('floor pile: ' + pile);
   console.log('FLOOR:', flTiles.join(' / '), '|', pile.slice(0, 80));
+  await shot(page, 'floor');
   await page.click('.tab[data-screen="day"]');
 
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
