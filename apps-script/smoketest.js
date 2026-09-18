@@ -77,7 +77,11 @@ const INVENTORY = [
     const url = new URL(route.request().url());
     const action = url.searchParams.get('action'); const cb = url.searchParams.get('callback');
     let data;
-    if (action === 'config') data = { ok:true, pinIsDefault:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
+    // The gate comes first, as it does on the server: a manager action without
+    // the token is refused no matter what the stub knows about it.
+    if (!['config','today','submitDay','reverse','auth','myPace','wipWalk'].includes(action) && url.searchParams.get('token') !== 'tok-'.padEnd(64, 'a'))
+      data = { ok:false, locked:true, error:'Manager PIN needed.' };
+    else if (action === 'config') data = { ok:true, pinIsDefault:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
       employees:['Maria','James'],
       familyOrder:['Rescue Tubes','Foam Mats'],
       products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube',family:'Rescue Tubes'},{id:'SHP24',name:'Shape 24x24',line:'Shape',family:'Foam Mats'}],
@@ -102,6 +106,15 @@ const INVENTORY = [
         stages:[{ productId:'STRAP6', product:'Strap', stage:'Made', units:160, hours:5, unitsPerHour:20 }] },
       { name:'Alex', entries:1, units:300, hours:0, daysWorked:1, unitsPerHour:null, hoursCoverage:0,
         stages:[{ productId:'KB1220', product:'Kickboard', stage:'CNC', units:300, hours:0, unitsPerHour:null }] } ] };
+    else if (action === 'myPace') data = { ok:true, name:'Maria', since:'2026-08-19', generatedAt:'2026-09-18T12:00:00Z', tables:{
+      products:[{ProductID:'XRT50',ProductName:'XRT-50 Rescue Tube',Line:'Tube',Active:'YES',FeedsFrom:'',Family:'Rescue Tubes'}],
+      stages:STAGES.map((s,i)=>({Line:'Tube',Order:i+1,Stage:s,FloorRate_perHr:20,IdealRate_perHr:30})),
+      planning:[{ProductID:'XRT50',Stage:'Boxed',DailyTarget:30}],
+      stagelog:[
+        {Timestamp:'2026-09-15T13:00:00Z',WorkDate:'2026-09-15',Employee:'Maria',ProductID:'XRT50',Stage:'Cut',Qty:112,Notes:'',Hours:''},
+        {Timestamp:'2026-09-15T13:05:00Z',WorkDate:'2026-09-15',Employee:'Maria',ProductID:'XRT50',Stage:'Boxed',Qty:40,Notes:'',Hours:4},
+        {Timestamp:'2026-09-15T13:05:30Z',WorkDate:'2026-09-15',Employee:'Maria',ProductID:'XRT50',Stage:'Boxed',Qty:40,Notes:'',Hours:4}],
+      wipbase:[] } };
     else if (action === 'floorData') data = { ok:true, generatedAt:'2026-09-18T12:00:00Z', tables:{
       products:[{ProductID:'XRT50',ProductName:'XRT-50 Rescue Tube',Line:'Tube',Active:'YES',FeedsFrom:'',Family:'Rescue Tubes'},
                 {ProductID:'LGC30',ProductName:'Lifeguard Chair 30"',Line:'Chair',Active:'YES',FeedsFrom:'',Family:'Lifeguard Chairs'}],
@@ -164,8 +177,6 @@ const INVENTORY = [
                 { productId:'SHP24', name:'Shape 24x24', piles:[{stage:'Clean',qty:0}] }] };
     else if (action === 'auth') data = { ok: url.searchParams.get('pin') === '2468', name: url.searchParams.get('name') || '', personal: false,
       token: url.searchParams.get('pin') === '2468' ? 'tok-'.padEnd(64, 'a') : undefined };
-    else if (!['config','today','submitDay','reverse','auth'].includes(action) && url.searchParams.get('token') !== 'tok-'.padEnd(64, 'a'))
-      data = { ok:false, locked:true, error:'Manager PIN needed.' };
     else if (action === 'setTarget') data = { ok:true, productId:url.searchParams.get('productId'), stage:url.searchParams.get('stage'),
       target:Number(url.searchParams.get('target')), was:60, appended:false };
     else data = { ok:false, error:'bad action' };
@@ -197,16 +208,20 @@ const INVENTORY = [
   await shot(page, 'today-notes');
   console.log('DAY:', (await page.textContent('#dayResult')).replace(/\s+/g,' ').trim().slice(0,120));
 
-  /* ---- Floor tab: the crew's read, no PIN ---------------------------------- */
+  /* ---- Floor tab as an employee: your own pace, nothing else ------------- */
+  const paceReq = page.waitForRequest((r) => r.url().includes('action=myPace'), { timeout:5000 });
   await page.click('.tab[data-screen="floor"]');
+  const paceName = new URL((await paceReq).url()).searchParams.get('name');
+  if (paceName !== 'Maria') errors.push('myPace asked for ' + paceName);
   await page.waitForSelector('#floorBody .fl-tile', { timeout:5000 });
-  const flTiles = await page.$$eval('#floorBody .fl-tile b', (b) => b.map((x) => x.textContent));
-  // 40 boxed once (the repeat is dropped) + 0 chairs; 112 + 40 + 4 logged.
-  if (flTiles[0] !== '40' || flTiles[1] !== '156') errors.push('floor tiles: ' + JSON.stringify(flTiles));
-  const pile = (await page.textContent('#floorBody .fl-pile')).replace(/\s+/g,' ');
-  if (!/XRT-50 Rescue Tube.*112 waiting at Glued/.test(pile)) errors.push('floor pile: ' + pile);
-  console.log('FLOOR:', flTiles.join(' / '), '|', pile.slice(0, 80));
-  await shot(page, 'floor');
+  const myTiles = await page.$$eval('#floorBody .fl-tile b', (b) => b.map((x) => x.textContent));
+  // Maria: 112 cut + 40 boxed (repeat dropped) = 152 in the window; 4 hours once.
+  if (myTiles[1] !== '152' || myTiles[2] !== '4') errors.push('my pace tiles: ' + JSON.stringify(myTiles));
+  if (await page.$('#floorBody .fl-pile')) errors.push('an employee can see the piles');
+  const paceTxt = await page.textContent('#floorBody');
+  if (/Joe|Lifeguard/.test(paceTxt)) errors.push('an employee can see someone else\'s work');
+  console.log('MY PACE:', myTiles.join(' / '));
+  await shot(page, 'mypace');
   await page.click('.tab[data-screen="day"]');
 
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
@@ -251,6 +266,16 @@ const INVENTORY = [
   await page.evaluate(() => { let n = 0; window.prompt = () => (n++ === 0 ? 'Maria' : '2468'); });
   await page.click('#mgrBtn');
   await page.waitForFunction(() => { var t = document.querySelector('.tab[data-screen="overview"]'); return t && getComputedStyle(t).display !== 'none'; }, { timeout:5000 });
+  /* ---- Floor tab as a manager: the whole floor ---------------------------- */
+  await page.click('.tab[data-screen="floor"]');
+  await page.waitForSelector('#floorBody .fl-pile', { timeout:5000 });
+  const flTiles = await page.$$eval('#floorBody .fl-tile b', (b) => b.map((x) => x.textContent));
+  // 40 boxed once (the repeat is dropped) + 0 chairs; 112 + 40 + 4 logged.
+  if (flTiles[0] !== '40' || flTiles[1] !== '156') errors.push('floor tiles: ' + JSON.stringify(flTiles));
+  const pile = (await page.textContent('#floorBody .fl-pile')).replace(/\s+/g,' ');
+  if (!/XRT-50 Rescue Tube.*112 waiting at Glued/.test(pile)) errors.push('floor pile: ' + pile);
+  console.log('FLOOR:', flTiles.join(' / '), '|', pile.slice(0, 80));
+  await shot(page, 'floor');
   await page.click('.tab[data-screen="overview"]');
   await page.waitForSelector('#screen-overview .ov-card', { timeout:5000 });
   console.log('overview cards:', (await page.$$('#screen-overview .ov-card')).length, '| starved:', (await page.$$('.ov-starved')).length);

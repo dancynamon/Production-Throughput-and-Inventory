@@ -150,7 +150,10 @@ assert on them rather than trusting the parser.
 - Floor Report artifact (progress / throughput / bottlenecks, reads the sheet
   live via the Google Drive connector): https://claude.ai/artifact/86LAWmpX3EDEtbF5cfPW4G
   — source in `report/`, math in root `report-core.js`, which the app's
-  **Floor** tab (crew-visible, 2.20.0) also loads. Likely duplicates (same
+  **Floor** tab also loads. Since 2.21.0 the crew's Floor tab is **their own
+  pace only** (open action `myPace`, returns that person's rows and no one
+  else's); the whole-floor view (`floorData`) needs the manager token and is
+  what a manager sees on the same tab. Likely duplicates (same
   person/product/stage/qty/day saved twice) are dropped from both views and
   a manager reverses them from Summary → Fix-ups. WIP tab is crew-visible
   since 2.20.0 so the floor count is theirs to take

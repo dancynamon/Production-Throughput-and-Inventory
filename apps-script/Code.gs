@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-18 16:00 UTC      version 2.20.0
+ *  BUILD:  2026-09-18 18:30 UTC      version 2.21.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -159,9 +159,10 @@ function checkPin(name, pin) {
  * Open to the floor without a token: what Log My Day needs (config, today,
  * submitDay), the same-day reversal of a double tap (bounded to what was
  * logged today), and auth itself. Everything else is a manager action. */
-// floorData feeds the crew's Floor tab (read-only). wipWalk is the floor
+// myPace hands a person their OWN rows and nothing else — the crew's Floor
+// tab. The whole floor (floorData) is a manager view. wipWalk is the floor
 // count — a measurement the crew takes, so it is theirs to record.
-var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'floorData', 'wipWalk'];
+var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk'];
 
 function tokenSecret() {
   var props = PropertiesService.getScriptProperties();
@@ -229,12 +230,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.20.0';
+var BACKEND_VERSION = '2.21.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-18 16:00 UTC';
+var BUILD_STAMP = '2026-09-18 18:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1001,6 +1002,7 @@ function doGet(e) {
     else if (action === 'wipBaseline') result = submitWipBaseline(p);
     else if (action === 'auth')      result = checkPin(p.name, p.pin);
     else if (action === 'floorData') result = getFloorData();
+    else if (action === 'myPace')    result = getMyPace(p);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -1955,6 +1957,26 @@ function getFloorData() {
              WaitingBefore: r.WaitingBefore, CountedBy: r.CountedBy || '' }; });
   return { ok: true, generatedAt: iso(new Date()),
            tables: { products: products, stages: stages, planning: planning, stagelog: stagelog, wipbase: wipbase } };
+}
+
+/* One person's own log, last 30 days, in floorData's shape so the same
+ * report-core math renders it. No one else's rows, no piles, no opening
+ * counts: a crew phone never receives the floor. */
+function getMyPace(p) {
+  var name = String(p.name || '').trim();
+  if (!name) return { ok: false, error: 'Pick your name first.' };
+  var known = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return String(r.Name || '').trim(); });
+  var match = known.filter(function (n) { return n.toLowerCase() === name.toLowerCase(); })[0];
+  if (!match) return { ok: false, error: name + ' is not on the Employees tab.' };
+  var all = getFloorData().tables;
+  var since = new Date(); since.setDate(since.getDate() - 30);
+  var sinceIso = fmtDate(since);
+  var mine = all.stagelog.filter(function (r) {
+    return String(r.Employee || '').trim().toLowerCase() === match.toLowerCase() && String(r.WorkDate) >= sinceIso;
+  });
+  return { ok: true, name: match, since: sinceIso, generatedAt: all.generatedAt,
+           tables: { products: all.products, stages: all.stages, planning: all.planning, stagelog: mine, wipbase: [] } };
 }
 
 function exportTable(p) {

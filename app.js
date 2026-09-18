@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.20.0';
+  var APP_VERSION = '2.21.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -118,6 +118,7 @@
       fillSelect(el('recvEmployee'), emp, 'Select your name');
       fillSelect(el('invEmployee'), emp, 'Select your name');
       fillSelect(el('wipEmployee'), emp, 'Select your name');
+      fillSelect(el('floorWho'), emp, 'Select your name');
       var prodOpts = data.products.map(function (p) {
         return { value: p.id, label: p.name, family: p.family };
       });
@@ -626,6 +627,10 @@
     el('mgrBtn').title = mgr ? 'Manager mode' + (mgrName ? ' — ' + mgrName : '') + ' (tap to lock)' : 'Manager access';
     el('mgrHint').hidden = mgr;
     showPinNag();
+    // The Floor tab is a different page for each role; never show a manager's
+    // load to the next person who picks the tab.
+    FLOOR.tables = null; FLOOR.who = null;
+    if (el('floorWhoWrap')) el('floorWhoWrap').hidden = mgr;
     if (!mgr) {  // if an employee somehow lands on a manager screen, bounce to Log My Day
       var active = document.querySelector('.screen--active');
       if (active && active.id !== 'screen-day') selectScreen('day');
@@ -1197,14 +1202,29 @@
    * Same math as the Floor Report (report-core.js). The backend hands over
    * the tables; nothing here needs a PIN. Likely duplicates are dropped
    * from the numbers and listed for a manager to reverse. */
-  var FLOOR = { win: 14, tables: null, at: null };
+  var FLOOR = { win: 14, tables: null, at: null, who: null };
+  function isMgr() { return localStorage.getItem('aq_role') === 'mgr'; }
   function loadFloor(force) {
     var body = el('floorBody');
-    if (FLOOR.tables && !force) { renderFloor(); return; }
+    if (!isMgr()) {
+      // Crew: your own pace only. The backend sends nobody else's rows.
+      var who = el('floorWho').value || el('employee').value;
+      if (who && el('floorWho').value !== who) el('floorWho').value = who;
+      if (!who) { body.innerHTML = '<div class="muted">Pick your name to see your pace.</div>'; return; }
+      if (FLOOR.tables && FLOOR.who === who && !force) { renderMyPace(); return; }
+      body.innerHTML = '<div class="muted">Loading…</div>';
+      api({ action: 'myPace', name: who }, 45000).then(function (d) {
+        if (!d.ok) throw new Error(d.error || 'Could not load your pace');
+        FLOOR.tables = d.tables; FLOOR.at = d.generatedAt; FLOOR.who = d.name;
+        renderMyPace();
+      }).catch(function (err) { body.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>'; });
+      return;
+    }
+    if (FLOOR.tables && FLOOR.who === null && !force) { renderFloor(); return; }
     body.innerHTML = '<div class="muted">Loading…</div>';
     api({ action: 'floorData' }, 45000).then(function (d) {
       if (!d.ok) throw new Error(d.error || 'Could not load the floor');
-      FLOOR.tables = d.tables; FLOOR.at = d.generatedAt;
+      FLOOR.tables = d.tables; FLOOR.at = d.generatedAt; FLOOR.who = null;
       renderFloor();
     }).catch(function (err) {
       var stale = /unknown action/i.test(err.message);
@@ -1217,10 +1237,42 @@
     if (b) {
       FLOOR.win = Number(b.getAttribute('data-fw'));
       document.querySelectorAll('#floorWin [data-fw]').forEach(function (x) { x.classList.toggle('inv-chip--on', x === b); });
-      renderFloor(); return;
+      if (isMgr()) renderFloor(); else renderMyPace(); return;
     }
     if (e.target.closest && e.target.closest('#floorReload')) loadFloor(true);
   });
+  el('floorWho').addEventListener('change', function () { loadFloor(true); });
+
+  /* One person's numbers. Same math as the floor, on their rows only. */
+  function renderMyPace() {
+    if (!FLOOR.tables || FLOOR.who === null || typeof AQReport === 'undefined') return;
+    var r = AQReport.compute(FLOOR.tables, { windowDays: FLOOR.win, dedupe: true });
+    var t = r.totals, winLabel = FLOOR.win === 7 ? 'this week' : 'last ' + FLOOR.win + ' days';
+    var todayIso = el('workDate').value || '';
+    var todayRow = r.days.filter(function (d) { return d.date === todayIso; })[0];
+    var h = '<div class="fl-tiles">'
+      + '<div class="fl-tile"><span class="inv-lbl">Today</span><b>' + fmt(todayRow ? todayRow.logged : 0) + '</b><small>units logged</small></div>'
+      + '<div class="fl-tile"><span class="inv-lbl">' + escapeHtml(winLabel) + '</span><b>' + fmt(t.logged) + '</b><small>' + t.entries + ' entr' + (t.entries === 1 ? 'y' : 'ies') + ' · ' + t.activeDays + ' day' + (t.activeDays === 1 ? '' : 's') + '</small></div>'
+      + '<div class="fl-tile"><span class="inv-lbl">Hours</span><b>' + fmt(t.hours) + '</b><small>' + (t.hours ? fmt(t.logged / t.hours) + ' units/hr' : 'add hours to see a rate') + '</small></div>'
+      + '</div>';
+    var mine = r.stations.filter(function (s) { return s.units > 0; });
+    h += sumCard('Your pace by station', 'units per day you worked · tick = station target',
+      mine.length ? '<div class="cap-wrap"><table class="fl-table"><thead><tr><th>Station</th><th class="r">/day</th><th></th><th class="r">Target</th><th class="r">Days</th></tr></thead><tbody>'
+        + mine.map(function (s) {
+          var ref = Math.max(s.perDay || 0, s.target || 0, 1), w = s.perDay ? Math.min(100, 100 * s.perDay / ref) : 0, tk = s.target ? 100 * s.target / ref : null;
+          return '<tr><td>' + escapeHtml(s.stage) + '<br><small class="muted">' + escapeHtml(s.line) + '</small></td><td class="r"><b>' + fmt(s.perDay) + '</b></td>'
+            + '<td><div class="fl-bar"><i class="' + (s.target && s.perDay >= s.target ? 'over' : '') + '" style="width:' + w + '%"></i>' + (tk !== null ? '<em style="left:' + tk + '%"></em>' : '') + '</div></td>'
+            + '<td class="r">' + (s.target ? fmt(s.target) : '—') + '</td><td class="r">' + s.daysObserved + '</td></tr>';
+        }).join('') + '</tbody></table></div>'
+      : '<div class="muted" style="padding:8px 0">Nothing logged ' + escapeHtml(winLabel) + '.</div>');
+    var days = r.days, max = Math.max(1, Math.max.apply(null, days.map(function (d) { return d.logged; })));
+    h += sumCard('Your units per day', winLabel,
+      '<div class="fl-chart">' + days.map(function (d) {
+        return '<div class="fl-col" title="' + escapeHtml(d.date + ': ' + d.logged + ' logged') + '"><i style="height:' + Math.round(100 * d.logged / max) + '%"></i><span>' + (d.logged ? fmt(d.logged) : '') + '</span><small>' + d.date.slice(8) + '</small></div>';
+      }).join('') + '</div>');
+    if (r.duplicateExtra > 0) h += '<div class="fl-note">' + fmt(r.duplicateExtra) + ' units look like the same entry saved twice and are not counted here. Tell a manager if that was two real batches.</div>';
+    el('floorBody').innerHTML = h;
+  }
   function floorSev(days) { return days === null ? 'unk' : days >= 5 ? 'crit' : days >= 2 ? 'warn' : 'ok'; }
   function renderFloor() {
     if (!FLOOR.tables || typeof AQReport === 'undefined') return;
