@@ -1,0 +1,364 @@
+<title>Aquamentor Floor Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap">
+<style>
+:root{
+  --bg:#f4f2ec; --surface:#fcfbf8; --surface2:#f7f5ef; --ink:#1a2233; --ink2:#4d5566; --muted:#7a7f8a;
+  --line:#e3dfd5; --line2:#d3cec2; --accent:#b9862f; --navy:#14213d; --navy-ink:#f6f3ea;
+  --f1:#2a78d6; --f2:#eb6834; --f3:#1baf7a; --f4:#eda100; --f0:#8b8f99;
+  --good:#0ca30c; --warn:#ec835a; --crit:#d03b3b; --good-ink:#006300;
+  --shadow:0 1px 2px rgba(20,33,61,.06), 0 8px 24px -12px rgba(20,33,61,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15171c; --surface:#1e2127; --surface2:#23262d; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;
+    --line:#2e3138; --line2:#3a3d45; --accent:#d2a24f; --navy:#0f1728; --navy-ink:#f1efe9;
+    --f1:#3987e5; --f2:#d95926; --f3:#199e70; --f4:#c98500; --f0:#7c808a;
+    --good-ink:#3fbf3f; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15171c; --surface:#1e2127; --surface2:#23262d; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;
+  --line:#2e3138; --line2:#3a3d45; --accent:#d2a24f; --navy:#0f1728; --navy-ink:#f1efe9;
+  --f1:#3987e5; --f2:#d95926; --f3:#199e70; --f4:#c98500; --f0:#7c808a;
+  --good-ink:#3fbf3f; --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding-inline:20px;padding-block:0 48px}
+h1,h2,h3{font-family:"Archivo",system-ui,sans-serif;text-wrap:balance;margin:0}
+h2{font-size:1.15rem;font-weight:700;letter-spacing:-.01em}
+.eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.num{font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+button,select{font:inherit}
+
+/* Header band */
+.band{background:var(--navy);color:var(--navy-ink);margin-inline:-20px;padding:22px 20px 18px}
+.band .wrap{padding-block:0}
+.band-top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+.band h1{font-size:1.6rem;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.band .sub{color:rgba(246,243,234,.72);font-size:.92rem;margin-top:4px}
+.band .sub b{color:var(--navy-ink);font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid rgba(246,243,234,.28);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;color:var(--navy-ink);border:0;padding:6px 11px;cursor:pointer;font-weight:600;font-size:.85rem}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#1a1408}
+.seg button:focus-visible,.btn:focus-visible,.chk:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.btn{background:transparent;color:var(--navy-ink);border:1px solid rgba(246,243,234,.28);border-radius:8px;padding:6px 12px;cursor:pointer;font-weight:600;font-size:.85rem}
+.btn[disabled]{opacity:.5;cursor:default}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;padding:6px 4px;cursor:pointer}
+.chk input{accent-color:var(--accent);width:16px;height:16px;margin:0}
+.status{font-size:.82rem;color:rgba(246,243,234,.72);margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.status .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.status.live .dot{background:var(--good)}
+.status.err .dot{background:var(--crit)}
+.status .fix{color:var(--navy-ink)}
+
+/* Tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:20px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px 10px}
+.tile .v{font-family:"Archivo",system-ui,sans-serif;font-size:1.9rem;font-weight:700;line-height:1.1;letter-spacing:-.02em;margin-top:4px}
+.tile .n{font-size:.8rem;color:var(--muted);margin-top:2px}
+.tile.flag .v{color:var(--crit)}
+
+section{margin-top:32px}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.sec-head p{margin:0;color:var(--ink2);font-size:.92rem;max-width:64ch}
+
+/* Bottlenecks */
+.bn-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.bn{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;position:relative;overflow:hidden}
+.bn::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--sev,var(--line2))}
+.bn.crit{--sev:var(--crit)} .bn.warn{--sev:var(--warn)} .bn.ok{--sev:var(--good)} .bn.unk{--sev:var(--line2)}
+.bn .p{font-weight:700;font-family:"Archivo",system-ui,sans-serif;font-size:1rem;grid-column:1}
+.bn .st{color:var(--ink2);font-size:.9rem;grid-column:1}
+.bn .days{grid-column:2;grid-row:1/3;text-align:right}
+.bn .days b{display:block;font-family:"Archivo",system-ui,sans-serif;font-size:1.6rem;font-weight:700;line-height:1;letter-spacing:-.02em}
+.bn .days small{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.bn .facts{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;font-size:.84rem;color:var(--ink2);margin-top:4px}
+.bn .facts b{color:var(--ink)}
+.bn .caveat{grid-column:1/-1;font-size:.8rem;color:var(--crit);margin-top:2px}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--ink2);grid-column:1;justify-self:start;margin-top:4px}
+.chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--sev,var(--line2))}
+.pool{background:var(--surface2);border:1px dashed var(--line2);border-radius:10px;padding:10px 14px;font-size:.9rem;color:var(--ink2);margin-top:12px}
+.pool b{color:var(--ink)}
+
+/* Stations table */
+.tbl-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:560px}
+#products,#crew{min-width:0}
+th{font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+td.line-head{background:var(--surface2);font-weight:700;font-family:"Archivo",system-ui,sans-serif;font-size:.85rem;color:var(--ink2);padding:6px 12px}
+.bar{position:relative;height:10px;background:var(--surface2);border:1px solid var(--line);border-radius:4px;min-width:120px}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--f1);border-radius:3px 4px 4px 3px}
+.bar i.over{background:var(--good)}
+.bar em{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.7}
+.muted{color:var(--muted)}
+.small{font-size:.84rem}
+
+/* Chart */
+.chart{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 14px 8px}
+.chart svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.84rem;color:var(--ink2);margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.grid2{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+@media (max-width:760px){.grid2{grid-template-columns:1fr}}
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:var(--bg);font-size:.8rem;padding:6px 9px;border-radius:6px;box-shadow:var(--shadow);z-index:9;max-width:240px}
+.tip b{display:block}
+
+/* Quality */
+.q{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.q + .q{margin-top:12px}
+.q h3{font-size:.98rem;margin-bottom:6px}
+.q p{margin:4px 0;color:var(--ink2);font-size:.92rem;max-width:70ch}
+.q ul{margin:6px 0 0;padding-left:18px;font-size:.9rem;color:var(--ink2)}
+.q li b{color:var(--ink)}
+footer{margin-top:36px;font-size:.82rem;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .3s ease}}
+</style>
+
+<div class="band"><div class="wrap">
+  <div class="band-top">
+    <div>
+      <div class="eyebrow" style="color:rgba(246,243,234,.6)">Aquamentor Production</div>
+      <h1>Floor Report</h1>
+      <div class="sub" id="asof">Reading the sheet…</div>
+    </div>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Window">
+        <button type="button" data-win="7" aria-pressed="false">7 days</button>
+        <button type="button" data-win="14" aria-pressed="true">14 days</button>
+        <button type="button" data-win="30" aria-pressed="false">30 days</button>
+        <button type="button" data-win="0" aria-pressed="false">All</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="dedupe" checked> Drop likely duplicates</label>
+      <button type="button" class="btn" id="refresh" disabled>Refresh from sheet</button>
+    </div>
+  </div>
+  <div class="status" id="status"><span class="dot"></span><span id="statusText">Snapshot loaded.</span></div>
+</div></div>
+
+<div class="wrap">
+  <div class="tiles" id="tiles"></div>
+
+  <section>
+    <div class="sec-head"><h2>Where work is piling up</h2>
+      <p>Each product's slowest point: what is waiting at the stage, the pace the crew has logged there, and the days it takes to clear at that pace.</p></div>
+    <div class="bn-list" id="bnList"></div>
+    <div id="pools"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Throughput by station</h2>
+      <p>Units per active day, from the days the station actually logged. The tick is the daily target from Planning; "rated" is the floor rate over an 8-hour day.</p></div>
+    <div class="tbl-wrap"><table id="stations"></table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Progress</h2>
+      <p>Finished means the last stage of a product's own line: Boxed for tubes, Box for chairs and shapes, Made for straps.</p></div>
+    <div class="grid2">
+      <div class="chart"><div class="eyebrow">Finished per day</div><div id="chart"></div><div class="legend" id="legend"></div></div>
+      <div class="tbl-wrap"><table id="products"></table></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Crew</h2><p>Units logged per person in the window. Hours only where they were entered.</p></div>
+    <div class="tbl-wrap"><table id="crew"></table></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>How much to trust this</h2></div>
+    <div id="quality"></div>
+  </section>
+
+  <footer><span id="foot"></span><a href="https://prod-through-inv-3.dan-daf.workers.dev" target="_blank" rel="noopener">Open the app</a><a href="https://docs.google.com/spreadsheets/d/1dOou3HsIWdkbt_2joiqtRgV85-r1usxpB4O2ElRc-xk/edit" target="_blank" rel="noopener">Open the sheet</a></footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>/*__CORE__*/</script>
+<script>
+(function () {
+  var SHEET_ID = '1dOou3HsIWdkbt_2joiqtRgV85-r1usxpB4O2ElRc-xk';
+  var SNAPSHOT = /*__SNAPSHOT__*/null;
+  var tables = SNAPSHOT.tables, source = { kind: 'snapshot', at: SNAPSHOT.at };
+  var state = { win: 14, dedupe: true };
+  try { var s = JSON.parse(localStorage.getItem('aq_fr') || '{}'); if (s.win !== undefined) state.win = s.win; if (s.dedupe !== undefined) state.dedupe = s.dedupe; } catch (e) {}
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var fmt = function (n) { return (Math.round(Number(n) * 10) / 10).toLocaleString(); };
+  var FAM = { 'Rescue Tubes': 'var(--f1)', 'Lifeguard Chairs': 'var(--f2)', 'Foam Mats': 'var(--f3)', 'Kickboards': 'var(--f4)' };
+  var famColor = function (f) { return FAM[f] || 'var(--f0)'; };
+  function niceDate(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || ''); if (!m) return iso || ''; return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
+
+  function render() {
+    var r = AQReport.compute(tables, { windowDays: state.win, dedupe: state.dedupe });
+    document.querySelectorAll('[data-win]').forEach(function (b) { b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-win')) === state.win)); });
+    $('dedupe').checked = state.dedupe;
+    var winLabel = state.win ? 'last ' + state.win + ' days' : 'all entries';
+    $('asof').innerHTML = (source.kind === 'live' ? 'Live from the sheet, read <b>' + esc(source.at) + '</b>' : 'Snapshot of the sheet taken <b>' + esc(source.at) + '</b>')
+      + ' · last entry <b>' + esc(niceDate(r.lastEntry)) + '</b> · ' + esc(winLabel) + ' from ' + esc(niceDate(r.since));
+
+    /* Tiles */
+    var t = r.totals;
+    var tiles = [
+      { l: 'Finished units', v: fmt(t.finished), n: winLabel },
+      { l: 'Units logged, all stages', v: fmt(t.logged), n: t.entries + ' entries · ' + t.activeDays + ' active day' + (t.activeDays === 1 ? '' : 's') },
+      { l: 'Hours logged', v: fmt(t.hours), n: t.hourRows + ' of ' + t.entries + ' entries carry hours' },
+      { l: 'Likely duplicates', v: fmt(r.duplicateExtra), n: r.duplicates.length + ' repeated entr' + (r.duplicates.length === 1 ? 'y' : 'ies') + (r.dedupe ? ' · removed' : ' · counted'), flag: r.duplicateExtra > 0 && !r.dedupe }
+    ];
+    $('tiles').innerHTML = tiles.map(function (x) {
+      return '<div class="tile' + (x.flag ? ' flag' : '') + '"><div class="eyebrow">' + esc(x.l) + '</div><div class="v num">' + esc(x.v) + '</div><div class="n">' + esc(x.n) + '</div></div>';
+    }).join('');
+
+    /* Bottlenecks */
+    var pipes = {}; r.pipelines.forEach(function (p) { pipes[p.id] = p; });
+    var bns = r.bottlenecks.filter(function (b) { return b.waiting >= 1; });
+    $('bnList').innerHTML = bns.length ? bns.slice(0, 9).map(function (b) {
+      var sev = b.daysToClear === null ? 'unk' : b.daysToClear >= 5 ? 'crit' : b.daysToClear >= 2 ? 'warn' : 'ok';
+      var label = { crit: 'Backed up', warn: 'Building', ok: 'Clearing', unk: 'No pace logged' }[sev];
+      var p = pipes[b.id]; var caveat = p && p.anomalies.length ? 'Stages logged out of order on this line (' + p.anomalies.map(function (a) { return a.stage; }).join(', ') + ') — treat the pile size as a guess.' : '';
+      return '<div class="bn ' + sev + '"><div class="p">' + esc(b.product) + '</div><div class="st">waiting at <b>' + esc(b.stage) + '</b></div>'
+        + '<div class="days"><b class="num">' + (b.daysToClear === null ? '—' : fmt(b.daysToClear)) + '</b><small>days to clear</small></div>'
+        + '<span class="chip">' + label + '</span>'
+        + '<div class="facts"><span><b class="num">' + fmt(b.waiting) + '</b> waiting</span><span>pace <b class="num">' + (b.rate === null ? '—' : fmt(b.rate)) + '</b>/day</span></div>'
+        + (caveat ? '<div class="caveat">' + esc(caveat) + '</div>' : '') + '</div>';
+    }).join('') : '<div class="pool">Nothing is waiting anywhere. Either the floor is clear or nothing has been logged yet.</div>';
+    var poolHtml = Object.keys(r.pools).map(function (k) {
+      var p = r.pools[k];
+      if (p.uncommitted >= 0) return '<b class="num">' + fmt(p.uncommitted) + '</b> ' + esc(p.feeder.ProductName) + ' finished and not yet committed to a variant.';
+      return '<b>' + esc(p.feeder.ProductName) + ':</b> variants have taken <b class="num">' + fmt(p.taken) + '</b> from a pool that shows <b class="num">' + fmt(p.finished) + '</b> finished — the blank\'s last stage is not being logged, so nothing upstream of Meshed can be trusted.';
+    });
+    $('pools').innerHTML = poolHtml.length ? '<div class="pool">' + poolHtml.join('<br>') + '</div>' : '';
+
+    /* Stations */
+    var lineOrder = [], byLine = {};
+    r.stations.forEach(function (s) { if (!byLine[s.line]) { byLine[s.line] = []; lineOrder.push(s.line); } byLine[s.line].push(s); });
+    var maxRef = function (s) { return Math.max(s.perDay || 0, s.target || 0, 1); };
+    $('stations').innerHTML = '<thead><tr><th>Station</th><th class="r">Observed /day</th><th>vs target</th><th class="r">Target</th><th class="r">Rated 8 h</th><th class="r">Units</th><th class="r">Days logged</th></tr></thead><tbody>'
+      + lineOrder.map(function (line) {
+        var rows = byLine[line].filter(function (s) { return s.units > 0 || s.target; });
+        if (!rows.length) return '';
+        return '<tr><td class="line-head" colspan="7">' + esc(line) + ' line · ' + esc(byLine[line][0].products.join(', ')) + '</td></tr>' + rows.map(function (s) {
+          var ref = maxRef(s); var w = s.perDay ? Math.min(100, 100 * s.perDay / ref) : 0; var tk = s.target ? 100 * s.target / ref : null;
+          var over = s.target && s.perDay >= s.target;
+          return '<tr><td>' + esc(s.stage) + '</td><td class="r num"><b>' + (s.perDay === null ? '—' : fmt(s.perDay)) + '</b></td>'
+            + '<td><div class="bar" title="' + (s.pctOfTarget === null ? 'no target' : s.pctOfTarget + '% of target') + '"><i class="' + (over ? 'over' : '') + '" style="width:' + w + '%"></i>' + (tk !== null ? '<em style="left:' + tk + '%"></em>' : '') + '</div></td>'
+            + '<td class="r num">' + (s.target ? fmt(s.target) : '<span class="muted">—</span>') + '</td><td class="r num">' + (s.ratedPerDay ? fmt(s.ratedPerDay) : '<span class="muted">—</span>') + '</td>'
+            + '<td class="r num">' + fmt(s.units) + '</td><td class="r num">' + s.daysObserved + '</td></tr>';
+        }).join('');
+      }).join('') + '</tbody>';
+
+    /* Chart: finished per day, stacked by family */
+    var days = r.days, fams = r.families.filter(function (f) { return days.some(function (d) { return d.byFamily[f]; }); });
+    var W = 640, H = 220, padL = 36, padR = 8, padT = 10, padB = 26, iw = W - padL - padR, ih = H - padT - padB;
+    var max = Math.max(1, Math.max.apply(null, days.map(function (d) { return d.finished; })));
+    var step = max <= 10 ? 2 : max <= 50 ? 10 : max <= 100 ? 25 : max <= 300 ? 50 : 100; var top = Math.ceil(max / step) * step;
+    var bw = iw / days.length, gap = Math.min(4, bw * 0.25);
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Finished units per day">';
+    for (var v = 0; v <= top; v += step) { var y = padT + ih - ih * v / top; svg += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + y + '" y2="' + y + '" stroke="var(--line)" stroke-width="1"/><text x="' + (padL - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="var(--muted)">' + v + '</text>'; }
+    days.forEach(function (d, i) {
+      var x = padL + i * bw + gap / 2, y0 = padT + ih;
+      fams.forEach(function (f) {
+        var q = d.byFamily[f] || 0; if (!q) return; var h = ih * q / top;
+        svg += '<rect x="' + x + '" y="' + (y0 - h) + '" width="' + Math.max(1, bw - gap) + '" height="' + h + '" fill="' + famColor(f) + '" rx="2" data-tip="' + esc(niceDate(d.date) + ' — ' + f + ': ' + q + ' finished (' + d.finished + ' total)') + '"/>';
+        y0 -= h + 1;
+      });
+      var showLabel = days.length <= 16 || i % Math.ceil(days.length / 10) === 0 || i === days.length - 1;
+      if (showLabel) svg += '<text x="' + (padL + i * bw + bw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--muted)">' + d.date.slice(5).replace('-', '/') + '</text>';
+      if (d.finished > 0 && days.length <= 31) svg += '<text x="' + (padL + i * bw + bw / 2) + '" y="' + (padT + ih - ih * d.finished / top - 4) + '" text-anchor="middle" font-size="10" fill="var(--ink2)">' + d.finished + '</text>';
+    });
+    svg += '<line x1="' + padL + '" x2="' + (W - padR) + '" y1="' + (padT + ih) + '" y2="' + (padT + ih) + '" stroke="var(--line2)"/></svg>';
+    $('chart').innerHTML = svg;
+    $('legend').innerHTML = fams.map(function (f) { return '<span><i style="background:' + famColor(f) + '"></i>' + esc(f) + '</span>'; }).join('') || '<span class="muted">Nothing finished in this window.</span>';
+
+    /* Products */
+    $('products').innerHTML = '<thead><tr><th>Product</th><th class="r">Started</th><th class="r">Finished</th><th class="r">Logged</th></tr></thead><tbody>'
+      + (r.products.length ? r.products.map(function (p) {
+        return '<tr><td><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + famColor(p.family) + ';margin-right:8px"></span>' + esc(p.name) + '</td><td class="r num">' + fmt(p.started) + '</td><td class="r num"><b>' + fmt(p.finished) + '</b></td><td class="r num">' + fmt(p.logged) + '</td></tr>';
+      }).join('') : '<tr><td colspan="4" class="muted">No entries in this window.</td></tr>') + '</tbody>';
+
+    /* Crew */
+    $('crew').innerHTML = '<thead><tr><th>Person</th><th class="r">Units</th><th class="r">Entries</th><th class="r">Days</th><th class="r">Hours</th><th class="r">Units / hr</th></tr></thead><tbody>'
+      + (r.people.length ? r.people.map(function (p) {
+        return '<tr><td>' + esc(p.name) + '</td><td class="r num"><b>' + fmt(p.units) + '</b></td><td class="r num">' + p.entries + '</td><td class="r num">' + p.days + '</td><td class="r num">' + (p.hours ? fmt(p.hours) : '<span class="muted">—</span>') + '</td><td class="r num">' + (p.hours ? fmt(p.units / p.hours) : '<span class="muted">—</span>') + '</td></tr>';
+      }).join('') : '<tr><td colspan="6" class="muted">No entries in this window.</td></tr>') + '</tbody>';
+
+    /* Quality */
+    var q = '';
+    if (r.duplicates.length) {
+      q += '<div class="q"><h3>' + r.duplicates.length + ' entr' + (r.duplicates.length === 1 ? 'y' : 'ies') + ' logged more than once — ' + fmt(r.duplicateExtra) + ' extra units</h3>'
+        + '<p>Same person, product, stage, quantity and work date, saved at different times. ' + (r.dedupe ? 'This report counts each once. Untick "Drop likely duplicates" to see the sheet as logged.' : 'This report is counting all of them.') + ' To fix the sheet itself: in the app, tap the chip under Today\'s totals to reverse the extra, or delete the rows in StageLog.</p><ul>'
+        + r.duplicates.map(function (d) { return '<li><b>' + esc(d.who) + '</b> · ' + esc(d.name) + ' · ' + esc(d.stage) + ' ' + fmt(d.qty) + ' on ' + esc(niceDate(d.date)) + ' — logged <b>' + d.times + '×</b>, ' + fmt(d.extra) + ' extra <span class="muted">(saved ' + esc(d.timestamps.map(function (ts) { return String(ts).replace(/^\S+\s+/, '').replace(/:\d\d$/, ''); }).join(', ')) + ')</span></li>'; }).join('') + '</ul></div>';
+    }
+    var oo = r.pipelines.filter(function (p) { return p.anomalies.length; });
+    if (oo.length) {
+      q += '<div class="q"><h3>Stages logged out of order on ' + oo.length + ' product' + (oo.length === 1 ? '' : 's') + '</h3>'
+        + '<p>More units have been logged at a later stage than at the one before it. That happens when a stage is skipped at the phone (the work was done, nobody logged it) or when the pile started before the app did and no opening count was recorded on the WIP tab. Until then, "waiting" on these lines is a guess.</p><ul>'
+        + oo.map(function (p) { return '<li><b>' + esc(p.name) + '</b>: ' + p.anomalies.map(function (a) { return esc(a.stage) + ' is ' + fmt(a.overrun) + ' ahead of the stage before it'; }).join('; ') + '</li>'; }).join('') + '</ul></div>';
+    }
+    q += '<div class="q"><h3>Coverage</h3><p>' + t.hourRows + ' of ' + t.entries + ' entries in this window carry hours, so units per hour is thin. Paces here are units per <i>active day</i> — days the station logged anything — which holds up better than hours until the crew logs them.</p></div>';
+    $('quality').innerHTML = q;
+    $('foot').textContent = r.rows + ' StageLog rows read' + (r.dedupe && r.rowsRaw !== r.rows ? ' (' + r.rowsRaw + ' before dropping duplicates)' : '') + '.';
+  }
+
+  /* Controls */
+  document.querySelectorAll('[data-win]').forEach(function (b) { b.addEventListener('click', function () { state.win = Number(b.getAttribute('data-win')); save(); render(); }); });
+  $('dedupe').addEventListener('change', function () { state.dedupe = $('dedupe').checked; save(); render(); });
+  function save() { try { localStorage.setItem('aq_fr', JSON.stringify(state)); } catch (e) {} }
+
+  /* Tooltips on chart bars */
+  var tip = $('tip');
+  document.addEventListener('mousemove', function (e) {
+    var el = e.target.closest && e.target.closest('[data-tip]');
+    if (!el) { tip.hidden = true; return; }
+    tip.textContent = el.getAttribute('data-tip'); tip.hidden = false;
+    tip.style.left = Math.min(window.innerWidth - 250, e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 14) + 'px';
+  });
+
+  render();
+
+  /* Live path: read the sheet through the viewer's Google Drive connector. */
+  function setStatus(kind, text, fix) {
+    var s = $('status'); s.className = 'status ' + kind;
+    $('statusText').innerHTML = esc(text) + (fix ? ' <span class="fix">' + esc(fix) + '</span>' : '');
+  }
+  function payloadToMarkdown(payload) {
+    if (payload && typeof payload === 'object' && typeof payload.fileContent === 'string') return payload.fileContent;
+    if (typeof payload === 'string') { try { var j = JSON.parse(payload); if (j && typeof j.fileContent === 'string') return j.fileContent; } catch (e) {} return payload; }
+    return '';
+  }
+  var mcpNs = null;
+  function refresh(force) {
+    if (!mcpNs) return;
+    $('refresh').disabled = true; setStatus('', 'Reading the sheet…');
+    mcpNs.callTool('Google Drive', 'read_file_content', { fileId: SHEET_ID }, force ? { cache: { refresh: true } } : undefined).then(function (res) {
+      var md = payloadToMarkdown(res.payload);
+      var parsed = AQReport.parseSheet(md);
+      if (!parsed.stagelog || !parsed.products) { setStatus('err', 'The sheet came back in a shape this page could not read. Showing the snapshot.'); return; }
+      tables = parsed; source = { kind: 'live', at: new Date(res.cache && res.cache.storedAt ? res.cache.storedAt : Date.now()).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) };
+      setStatus('live', 'Live. Reading the Aquamentor Production sheet through your Google Drive connector.');
+      render();
+    }).catch(function (err) {
+      var code = err && err.code;
+      if (code === 'needs_reauth') setStatus('err', 'Google Drive needs to be reconnected.', 'Reconnect Google Drive in claude.ai Settings → Connectors, then refresh.');
+      else if (code === 'server_not_connected') setStatus('err', 'Google Drive is not connected for this account.', 'Add Google Drive in claude.ai Settings → Connectors. Showing the snapshot meanwhile.');
+      else if (code === 'not_in_manifest' || code === 'blocked_by_policy' || code === 'consent_required') setStatus('err', 'This page was not allowed to read Google Drive.', 'Allow it when asked, or use the snapshot.');
+      else setStatus('err', 'Could not read the sheet just now (' + (code || 'unknown') + '). Showing the snapshot.');
+    }).finally(function () { $('refresh').disabled = false; });
+  }
+  $('refresh').addEventListener('click', function () { refresh(true); });
+  if (window.claude && typeof window.claude.use === 'function') {
+    window.claude.use('mcp').then(function (ns) {
+      if (!ns) { setStatus('', 'Snapshot. Open this page inside claude.ai with Google Drive connected to read the sheet live.'); return; }
+      mcpNs = ns; $('refresh').disabled = false; refresh(false);
+    });
+  } else setStatus('', 'Snapshot. Open this page inside claude.ai with Google Drive connected to read the sheet live.');
+})();
+</script>

@@ -146,6 +146,9 @@ assert on them rather than trusting the parser.
   `mgrName` or answers `{locked:true}`, which makes the app drop to employee
   view. Changing any PIN invalidates the tokens it earned. After a backend
   paste that crosses 2.19.0, every manager taps the lock and unlocks once
+- Floor Report artifact (progress / throughput / bottlenecks, reads the sheet
+  live via the Google Drive connector): https://claude.ai/artifact/86LAWmpX3EDEtbF5cfPW4G
+  — source in `report/`, see its README. Dan asked for it 2026-09-18
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
