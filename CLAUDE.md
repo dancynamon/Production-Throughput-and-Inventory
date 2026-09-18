@@ -37,7 +37,24 @@ Employees · Planning · CountLog · WipBaseline · Overview`
 
 ## Shipping a `Code.gs` change
 
-There is no GitHub↔Apps Script sync (no clasp). Copy-paste is the only bridge.
+**Since 2.22.0 the script updates itself from GitHub.** Sheet menu →
+*Update from GitHub now*, or *Turn on auto-update from GitHub (every 30 min)*.
+The script fetches `main/apps-script/Code.gs`, and when its `BUILD_STAMP`
+differs from the one running: writes it into the project through the Apps
+Script API (as the sheet owner, from inside Apps Script — the owner's API
+toggle is on, and a trigger's grant has no reauth clock), cuts a new version,
+moves the existing web-app deployment to it, and checks the live `/exec`
+answers with the new stamp — else rolls the deployment back. Mails on a
+change and once per distinct failure. `whatAmIRunning` shows the state.
+The manifest is read back and written back untouched. One-time setup: the
+project's `appsscript.json` must carry the `oauthScopes` in
+`apps-script/appsscript.json` (Project Settings → Show manifest), then run
+*Update from GitHub now* once to authorize. **So: push to `main` with a new
+`BUILD_STAMP` and the backend follows within 30 minutes.** A push with a
+broken Code.gs would be rolled back by the canary, but only if it fails to
+answer `?action=config` — run the tests before pushing regardless.
+
+Manual fallback, still works. Copy-paste:
 
 1. Paste from
    https://raw.githubusercontent.com/dancynamon/Production-Throughput-and-Inventory/main/apps-script/Code.gs
@@ -124,6 +141,7 @@ node apps-script/test-targets.js    # update in place, append missing, refuse ba
 node apps-script/test-digest.js     # digest HTML content, recipient fallback
 node apps-script/test-notes.js      # per-stage note lands on its own row
 node apps-script/test-report.js     # report-core: duplicates, reversals, opening counts
+node apps-script/test-update.js     # self-update: replace file, keep manifest, canary, rollback
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma

@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-18 18:30 UTC      version 2.21.0
+ *  BUILD:  2026-09-18 21:00 UTC      version 2.22.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -230,12 +230,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.21.0';
+var BACKEND_VERSION = '2.22.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-18 18:30 UTC';
+var BUILD_STAMP = '2026-09-18 21:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -684,6 +684,11 @@ function whatAmIRunning() {
     ? '(undefined — this editor has pre-1.1.0 code)' : BACKEND_VERSION);
   say('Build stamp', typeof BUILD_STAMP === 'undefined'
     ? '(undefined — this editor has pre-2.4.1 code)' : BUILD_STAMP);
+  try {
+    var au = PropertiesService.getScriptProperties().getProperty('LAST_AUTO_UPDATE');
+    var trig = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'autoUpdateFromGitHub'; });
+    say('Auto-update', (trig ? 'ON (every 30 min)' : 'off') + (au ? ' · last: ' + au : ' · never run'));
+  } catch (e3) { say('Auto-update', '(unreadable)'); }
   try {
     var seen = PropertiesService.getScriptProperties().getProperty('schemaStamp');
     say('Schema applied for', seen === BUILD_STAMP ? seen + '  (current)'
@@ -2798,11 +2803,173 @@ function onOpen() {
     .addItem('Turn off Monday digest', 'digestTriggerOffMenu')
     .addItem('Set digest recipients…', 'setDigestRecipients')
     .addSeparator()
+    .addItem('Update from GitHub now', 'updateFromGitHubMenu')
+    .addItem('Turn on auto-update from GitHub (every 30 min)', 'autoUpdateOn')
+    .addItem('Turn off auto-update', 'autoUpdateOffMenu')
+    .addItem('Set deployment ID…', 'setDeploymentId')
+    .addSeparator()
     .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
     .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
     .addToUi();
 }
+
+/* ============================================================================
+ *  Self-update from GitHub
+ *  ---------------------------------------------------------------------------
+ *  The paste-and-redeploy round is the step that gets skipped. This replaces
+ *  it: the script fetches its own source from GitHub, and if the BUILD_STAMP
+ *  differs from the one running, writes it into this project through the
+ *  Apps Script API, cuts a new version, points the existing web-app
+ *  deployment at it, and checks the web app answers with the new stamp. If
+ *  it does not, the deployment is rolled back to the previous version.
+ *
+ *  Why this works where clasp did not: the calls run as the sheet's owner,
+ *  from inside Apps Script. The owner's Apps Script API toggle is on (that
+ *  is the per-user gate that stopped the service account), and the grant a
+ *  trigger runs under does not carry the reauth clock that killed the
+ *  personal clasp login.
+ *
+ *  Needs, once: oauthScopes in appsscript.json that include script.projects,
+ *  script.deployments and script.external_request (see the repo's
+ *  apps-script/appsscript.json), then authorize when first run.
+ *
+ *  The manifest is never touched: the project's own appsscript.json is read
+ *  back and written back unchanged, so web-app access settings survive.
+ * ========================================================================== */
+var GITHUB_RAW_CODE = 'https://raw.githubusercontent.com/dancynamon/Production-Throughput-and-Inventory/main/apps-script/Code.gs';
+var SCRIPT_API = 'https://script.googleapis.com/v1/projects/';
+
+function scriptApi(method, path, payload) {
+  var res = UrlFetchApp.fetch(SCRIPT_API + path, {
+    method: method, contentType: 'application/json', muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    payload: payload === undefined ? undefined : JSON.stringify(payload)
+  });
+  var code = res.getResponseCode(), body = res.getContentText();
+  if (code >= 300) {
+    var hint = code === 403 && /not enabled|has not been used|PERMISSION_DENIED/i.test(body)
+      ? ' — turn on the Apps Script API for your account at script.google.com/home/usersettings, and check oauthScopes in appsscript.json' : '';
+    throw new Error('Apps Script API ' + method.toUpperCase() + ' ' + path.replace(/^[^\/]+\//, '…/') + ' → ' + code + hint + ': ' + body.slice(0, 300));
+  }
+  return body ? JSON.parse(body) : {};
+}
+function sourceStamp(src)   { var m = /var BUILD_STAMP = '([^']+)'/.exec(src || ''); return m ? m[1] : null; }
+function sourceVersion(src) { var m = /var BACKEND_VERSION = '([^']+)'/.exec(src || ''); return m ? m[1] : null; }
+
+function fetchGitHubCode() {
+  // Cache-bust: raw.githubusercontent.com can serve a copy a few minutes old.
+  var res = UrlFetchApp.fetch(GITHUB_RAW_CODE + '?t=' + Date.now(), { muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw new Error('GitHub answered ' + res.getResponseCode() + ' for Code.gs');
+  var src = res.getContentText();
+  if (!/function doGet\(/.test(src) || !sourceStamp(src) || !sourceVersion(src)) throw new Error('The file on GitHub does not look like Code.gs — not deploying it.');
+  return src;
+}
+
+/* The web-app deployment to advance. Remembered once found; set by hand from
+ * the menu if the project has more than one. */
+function webAppDeploymentId() {
+  var props = PropertiesService.getScriptProperties();
+  var id = String(props.getProperty('DEPLOYMENT_ID') || '').trim();
+  if (id) return id;
+  var list = scriptApi('get', ScriptApp.getScriptId() + '/deployments');
+  var cands = (list.deployments || []).filter(function (d) {
+    return d.deploymentConfig && d.deploymentConfig.versionNumber
+      && (d.entryPoints || []).some(function (e) { return e.entryPointType === 'WEB_APP'; });
+  });
+  if (cands.length === 1) { props.setProperty('DEPLOYMENT_ID', cands[0].deploymentId); return cands[0].deploymentId; }
+  throw new Error(cands.length
+    ? 'This project has ' + cands.length + ' web-app deployments. Aquamentor → Set deployment ID… with the one from config.js.'
+    : 'No versioned web-app deployment found. Deploy once by hand (Deploy → New deployment → Web app) first.');
+}
+function setDeploymentId() {
+  var ui = SpreadsheetApp.getUi();
+  var r = ui.prompt('Set deployment ID', 'The ID in the web-app URL: script.google.com/macros/s/<THIS>/exec\n(also in config.js on GitHub)', ui.ButtonSet.OK_CANCEL);
+  if (r.getSelectedButton() !== ui.Button.OK) return;
+  var id = String(r.getResponseText() || '').trim();
+  if (!/^[\w-]{20,}$/.test(id)) { ui.alert('Not set', 'That does not look like a deployment ID.', ui.ButtonSet.OK); return; }
+  PropertiesService.getScriptProperties().setProperty('DEPLOYMENT_ID', id);
+  SpreadsheetApp.getActive().toast('Deployment ID saved', 'Aquamentor', 6);
+}
+
+/* The whole round. Returns what happened; throws when something went wrong
+ * (after rolling the deployment back where that applies). */
+function updateFromGitHub() {
+  var src = fetchGitHubCode();
+  var stamp = sourceStamp(src), version = sourceVersion(src);
+  if (stamp === BUILD_STAMP) return { changed: false, stamp: stamp, version: version };
+
+  var scriptId = ScriptApp.getScriptId();
+  var content = scriptApi('get', scriptId + '/content');
+  var codeFiles = (content.files || []).filter(function (f) { return f.type === 'SERVER_JS'; });
+  if (codeFiles.length !== 1) throw new Error('Expected exactly one script file in the project, found ' + codeFiles.length + ' (' + codeFiles.map(function (f) { return f.name; }).join(', ') + '). Merge them into one before auto-updating.');
+  var files = content.files.map(function (f) {
+    return f.type === 'SERVER_JS' ? { name: f.name, type: f.type, source: src } : { name: f.name, type: f.type, source: f.source };
+  });
+  scriptApi('put', scriptId + '/content', { files: files });
+
+  var depId = webAppDeploymentId();
+  var dep = scriptApi('get', scriptId + '/deployments/' + depId);
+  var prev = dep.deploymentConfig.versionNumber, desc = dep.deploymentConfig.description || 'Aquamentor Production';
+  var ver = scriptApi('post', scriptId + '/versions', { description: 'Auto-update ' + version + ' (' + stamp + ')' });
+  var config = function (n) { return { deploymentConfig: { scriptId: scriptId, versionNumber: n, manifestFileName: 'appsscript', description: desc } }; };
+  scriptApi('put', scriptId + '/deployments/' + depId, config(ver.versionNumber));
+
+  // Canary: the live web app must answer with the new stamp, anonymously,
+  // the way a phone reaches it. Otherwise put the old version back.
+  var why = '';
+  try {
+    var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config', { muteHttpExceptions: true, followRedirects: true });
+    var body = r.getContentText();
+    if (r.getResponseCode() !== 200) why = 'HTTP ' + r.getResponseCode();
+    else if (body.indexOf(stamp) === -1) why = 'it answered without the new build stamp: ' + body.slice(0, 160);
+  } catch (e) { why = String(e && e.message ? e.message : e); }
+  if (why) {
+    scriptApi('put', scriptId + '/deployments/' + depId, config(prev));
+    throw new Error('Version ' + ver.versionNumber + ' (' + version + ') went live but ' + why + '. Rolled the deployment back to version ' + prev + '. The editor holds the new code; check it and deploy by hand.');
+  }
+  try { PropertiesService.getScriptProperties().setProperty('LAST_AUTO_UPDATE', new Date().toISOString() + ' → ' + version + ' (' + stamp + ') as version ' + ver.versionNumber); } catch (e2) {}
+  return { changed: true, stamp: stamp, version: version, versionNumber: ver.versionNumber, previous: prev };
+}
+
+function updateFromGitHubMenu() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var r = updateFromGitHub();
+    ui.alert(r.changed ? 'Updated' : 'Already current',
+      r.changed ? 'Backend ' + r.version + ' (' + r.stamp + ') is live as deployment version ' + r.versionNumber + '. Phones pick it up on their next request.'
+                : 'GitHub has ' + r.version + ' (' + r.stamp + '), which is what is running.', ui.ButtonSet.OK);
+  } catch (e) { ui.alert('Update failed', String(e && e.message ? e.message : e), ui.ButtonSet.OK); }
+}
+
+/* Trigger handler. Mails on a change, and on a NEW failure — the same
+ * failure every 30 minutes would be one email, not forty-eight. */
+function autoUpdateFromGitHub() {
+  var props = PropertiesService.getScriptProperties(), to = digestRecipients();
+  try {
+    var r = updateFromGitHub();
+    if (r.changed) {
+      props.deleteProperty('AUTO_UPDATE_ERROR');
+      if (to) MailApp.sendEmail({ to: to, subject: 'Aquamentor backend updated to ' + r.version,
+        body: 'Deployed automatically from GitHub.\n\nBuild: ' + r.stamp + '\nDeployment version: ' + r.versionNumber + ' (was ' + r.previous + ')\n\nApp: ' + APP_PUBLIC_URL });
+    }
+  } catch (e) {
+    var msg = String(e && e.message ? e.message : e);
+    if (props.getProperty('AUTO_UPDATE_ERROR') !== msg) {
+      props.setProperty('AUTO_UPDATE_ERROR', msg);
+      if (to) MailApp.sendEmail({ to: to, subject: 'Aquamentor auto-update failed', body: msg + '\n\nIt will keep trying every 30 minutes and mail again only if the error changes. To stop: Aquamentor → Turn off auto-update.' });
+    }
+  }
+}
+function autoUpdateOn() {
+  autoUpdateOff();
+  ScriptApp.newTrigger('autoUpdateFromGitHub').timeBased().everyMinutes(30).create();
+  SpreadsheetApp.getActive().toast('Auto-update is on: GitHub main is checked every 30 minutes.', 'Aquamentor', 8);
+}
+function autoUpdateOff() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'autoUpdateFromGitHub') ScriptApp.deleteTrigger(t); });
+}
+function autoUpdateOffMenu() { autoUpdateOff(); SpreadsheetApp.getActive().toast('Auto-update is off', 'Aquamentor', 6); }
 
 /* ============================================================================
  *  Helpers
