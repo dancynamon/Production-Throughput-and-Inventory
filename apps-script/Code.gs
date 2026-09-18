@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-18 21:00 UTC      version 2.22.0
+ *  BUILD:  2026-09-18 22:15 UTC      version 2.22.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -230,12 +230,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.22.0';
+var BACKEND_VERSION = '2.22.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-18 21:00 UTC';
+var BUILD_STAMP = '2026-09-18 22:15 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -2816,6 +2816,7 @@ function onOpen() {
 
 /* ============================================================================
  *  Self-update from GitHub
+ *  (2.22.1 exists only to prove this round trip: pushed to main, never pasted.)
  *  ---------------------------------------------------------------------------
  *  The paste-and-redeploy round is the step that gets skipped. This replaces
  *  it: the script fetches its own source from GitHub, and if the BUILD_STAMP
