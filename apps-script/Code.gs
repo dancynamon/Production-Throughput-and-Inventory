@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-18 22:40 UTC      version 2.22.2
+ *  BUILD:  2026-09-22 16:00 UTC      version 2.23.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -36,6 +36,8 @@ var TAB = {
   planning:  'Planning',
   countlog:  'CountLog',
   wipbase:   'WipBaseline',
+  finished:  'FinishedGoods',
+  shiplog:   'ShipLog',
   overview:  'Overview'
 };
 
@@ -162,7 +164,7 @@ function checkPin(name, pin) {
 // myPace hands a person their OWN rows and nothing else — the crew's Floor
 // tab. The whole floor (floorData) is a manager view. wipWalk is the floor
 // count — a measurement the crew takes, so it is theirs to record.
-var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk'];
+var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk', 'ship'];
 
 function tokenSecret() {
   var props = PropertiesService.getScriptProperties();
@@ -230,12 +232,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.22.2';
+var BACKEND_VERSION = '2.23.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-18 22:40 UTC';
+var BUILD_STAMP = '2026-09-22 16:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -887,6 +889,9 @@ function applySchemaUpgrades() {
     writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
     did.push('created WipBaseline');
   }
+  if (!ss.getSheetByName(TAB.finished)) { finishedSheet(ss); did.push('created FinishedGoods'); }
+  else { addColumns(TAB.finished, FINISHED_HEADERS); finishedSheet(ss); }
+  if (!ss.getSheetByName(TAB.shiplog)) { writeTab(ss, TAB.shiplog, SHIPLOG_HEADERS, []); did.push('created ShipLog'); }
 
   SpreadsheetApp.getActive().toast(
     did.length ? did.join('; ') + '. No existing values were changed.'
@@ -1008,6 +1013,10 @@ function doGet(e) {
     else if (action === 'auth')      result = checkPin(p.name, p.pin);
     else if (action === 'floorData') result = getFloorData();
     else if (action === 'myPace')    result = getMyPace(p);
+    else if (action === 'ship')      result = shipOut(p);
+    else if (action === 'finished')  result = getFinished(p);
+    else if (action === 'countFinished') result = countFinished(p);
+    else if (action === 'salesImport') result = salesImport(p);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
@@ -1033,7 +1042,8 @@ function getConfig() {
   // these in its footer so "which sheet am I writing to?" is answerable on the
   // shop floor rather than by reading code.
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  return { ok: true, products: products, employees: employees, materials: materials,
+  var sellable = sellableProducts().map(function (r) { return r.ProductID; });
+  return { ok: true, products: products, employees: employees, materials: materials, sellable: sellable, channels: CHANNELS,
            lines: lines, stages: stageNames(), familyOrder: FAMILY_ORDER,
            backendVersion: BACKEND_VERSION, buildStamp: BUILD_STAMP,
            // Surfaced so the app can nag while the PIN is still the published one.
@@ -1461,8 +1471,9 @@ function submitDay(p) {
       }
     });
 
-    var logged = [], consumed = {}, warnings = [], produced = [], duplicates = [];
+    var logged = [], consumed = {}, warnings = [], produced = [], duplicates = [], stocked = [];
     var missingMaterials = {}, now = new Date();
+    var sellable = {}; sellableProducts().forEach(function (r) { sellable[r.ProductID] = true; });
 
     valid.forEach(function (stage) {
       var qty = Number(counts[stage]) || 0;
@@ -1485,6 +1496,12 @@ function submitDay(p) {
       });
       logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs, note: note || null });
 
+      // A finished product's LAST stage goes into storage.
+      if (stage === valid[valid.length - 1] && !product.OutputMaterial && sellable[productId]) {
+        var fgAfter = adjustFinished(ss, productId, qty);
+        if (fgAfter !== null) stocked.push({ id: productId, name: product.ProductName, added: qty, onHand: fgAfter });
+        else warnings.push('No FinishedGoods tab yet — the ' + qty + ' finished were not added to storage. Run Aquamentor → Add missing columns (safe upgrade).');
+      }
       // A sub-assembly's LAST stage PRODUCES stock. Without this the strap
       // line would consume webbing and create nothing, while the tube line
       // consumed straps that never existed.
@@ -1542,6 +1559,7 @@ function submitDay(p) {
         return { name: consumed[k].name, used: consumed[k].used, onHand: consumed[k].onHand, unit: consumed[k].unit };
       }),
       produced: produced,
+      stocked: stocked,
       duplicates: duplicates,
       warnings: warnings
     };
@@ -1940,7 +1958,8 @@ function computeCrew(p) {
  *   ?action=export&table=stagelog|countlog|receiving|materials|wipbase|products|bom
  */
 var EXPORTABLE = { stagelog: 'stagelog', countlog: 'countlog', receiving: 'receiving',
-                   materials: 'materials', wipbase: 'wipbase', products: 'products', bom: 'bom' };
+                   materials: 'materials', wipbase: 'wipbase', products: 'products', bom: 'bom',
+                   finished: 'finished', shiplog: 'shiplog' };
 
 /* Everything the Floor tab and the Floor Report need, as plain rows. The
  * math lives in report-core.js, shared by the app and the report, so the
@@ -2090,9 +2109,14 @@ function reverseEntry(p) {
         removed = { id: matRows[outRi][0], name: matRows[outRi][1], unit: matRows[outRi][2], removed: qty, onHand: left };
       }
     }
+    var unstocked = null;
+    if (stage === valid[valid.length - 1] && !product.OutputMaterial && isSellable(productId)) {
+      var fgLeft = adjustFinished(ss, productId, -qty);
+      if (fgLeft !== null) unstocked = { id: productId, name: product.ProductName, removed: qty, onHand: fgLeft };
+    }
 
     return { ok: true, message: 'Reversed ' + qty + ' ' + stage + ' for ' + product.ProductName + ' on ' + workDate,
-             nowOnBooks: round2(onBooks - qty), restored: restored, removed: removed, warnings: warnings };
+             nowOnBooks: round2(onBooks - qty), restored: restored, removed: removed, unstocked: unstocked, warnings: warnings };
   } finally {
     lock.releaseLock();
   }
@@ -2803,6 +2827,12 @@ function onOpen() {
     .addItem('Turn off Monday digest', 'digestTriggerOffMenu')
     .addItem('Set digest recipients…', 'setDigestRecipients')
     .addSeparator()
+    .addItem('Import sales from SalesImport tab', 'importSalesFromTab')
+    .addItem('Set Shopify access…', 'setShopifyAccess')
+    .addItem('Sync Shopify shipments now', 'syncShopifyMenu')
+    .addItem('Turn on hourly Shopify sync', 'shopifySyncOn')
+    .addItem('Turn off Shopify sync', 'shopifySyncOffMenu')
+    .addSeparator()
     .addItem('Update from GitHub now', 'updateFromGitHubMenu')
     .addItem('Turn on auto-update from GitHub (every 30 min)', 'autoUpdateOn')
     .addItem('Turn off auto-update', 'autoUpdateOffMenu')
@@ -2812,6 +2842,368 @@ function onOpen() {
     .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
     .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
     .addToUi();
+}
+
+
+/* ============================================================================
+ *  Finished goods — storage, shipping, and where it went
+ *  ---------------------------------------------------------------------------
+ *  A tube that reaches Boxed used to vanish: it left the floor and nothing
+ *  held it. FinishedGoods holds it. The last stage of a SELLABLE product adds
+ *  to OnHand; a shipment (the crew's Ship tab, or an order imported from
+ *  Shopify / Amazon / QuickBooks) takes it out and says which channel took it;
+ *  a storage count re-baselines OnHand and files the variance in CountLog.
+ *  produced − shipped − counted is the reconciliation.
+ *
+ *  Sellable = an active product that is not another product's feeder (blanks)
+ *  and has no OutputMaterial (straps become a material, not stock).
+ * ========================================================================== */
+var FINISHED_HEADERS = ['ProductID', 'ProductName', 'OnHand', 'LastCounted', 'LastCountedAt', 'LastVariance',
+                        'ShopifySKU', 'AmazonSKU', 'QBOItem', 'Notes'];
+var SHIPLOG_HEADERS  = ['Timestamp', 'ShipDate', 'ProductID', 'ProductName', 'Qty', 'Channel', 'Ref', 'By', 'Notes', 'Key'];
+var CHANNELS = ['Shopify', 'Amazon', 'QuickBooks', 'Wholesale', 'Sample', 'Other'];
+
+function sellableProducts() {
+  var all = readObjects(TAB.products).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; });
+  var feeders = {};
+  all.forEach(function (r) { if (r.FeedsFrom) feeders[String(r.FeedsFrom).trim()] = true; });
+  return all.filter(function (r) { return !feeders[r.ProductID] && !String(r.OutputMaterial || '').trim(); });
+}
+function isSellable(productId) {
+  return sellableProducts().some(function (r) { return r.ProductID === productId; });
+}
+
+/* The FinishedGoods sheet with a row for every sellable product. Creates the
+ * tab and any missing rows; never touches a value that is already there. */
+function finishedSheet(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TAB.finished);
+  if (!sh) sh = writeTab(ss, TAB.finished, FINISHED_HEADERS, []);
+  var have = {};
+  readObjects(TAB.finished).forEach(function (r) { have[r.ProductID] = true; });
+  sellableProducts().forEach(function (p) {
+    if (have[p.ProductID]) return;
+    appendByHeader(sh, { ProductID: p.ProductID, ProductName: p.ProductName, OnHand: '', ShopifySKU: '', AmazonSKU: '', QBOItem: '' });
+  });
+  return sh;
+}
+function shipSheet(ss) {
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(TAB.shiplog) || writeTab(ss, TAB.shiplog, SHIPLOG_HEADERS, []);
+}
+/* Add (or subtract) finished stock for a product. Blank OnHand counts as 0 —
+ * "never counted" stays visible through LastCountedAt. Returns the new value,
+ * or null when the product is not stocked (not sellable). */
+function adjustFinished(ss, productId, delta) {
+  // Never creates the tab: a day entry must not be the thing that builds
+  // schema. The upgrade (and the first manager view) does that.
+  ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(TAB.finished);
+  if (!sh) return null;
+  var rows = sh.getDataRange().getValues(), headers = rows[0];
+  var cId = headers.indexOf('ProductID'), cOn = headers.indexOf('OnHand');
+  if (cId === -1 || cOn === -1) return null;
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][cId] !== productId) continue;
+    var after = round2((Number(rows[i][cOn]) || 0) + delta);
+    sh.getRange(i + 1, cOn + 1).setValue(after);
+    return after;
+  }
+  // A product added after the tab was built: give it a row now.
+  var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
+  if (!product) return null;
+  appendByHeader(sh, { ProductID: productId, ProductName: product.ProductName, OnHand: round2(delta), ShopifySKU: '', AmazonSKU: '', QBOItem: '' });
+  return round2(delta);
+}
+
+/* ---- Ship: the crew's tab. One product, one quantity, one channel. -------- */
+function shipOut(p) {
+  var employee = String(p.employee || '').trim(), productId = String(p.productId || '').trim();
+  var channel = String(p.channel || '').trim(), ref = String(p.ref || '').trim(), notes = String(p.notes || '').trim();
+  var shipDate = String(p.shipDate || '').trim() || fmtDate(new Date());
+  var qty = Number(p.qty);
+  if (!employee)  return { ok: false, error: 'Please pick who you are.' };
+  if (!productId) return { ok: false, error: 'Please pick a product.' };
+  if (!(qty > 0)) return { ok: false, error: 'Quantity must be greater than 0.' };
+  if (CHANNELS.indexOf(channel) === -1) return { ok: false, error: 'Pick where it went: ' + CHANNELS.join(', ') + '.' };
+  if (!isSellable(productId)) return { ok: false, error: productId + ' is not a finished product.' };
+
+  var clientId = String(p.clientId || '').trim(), cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
+  if (cache && clientId) {
+    var seen = null; try { seen = cache.get('ship:' + clientId); } catch (e1) { seen = null; }
+    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
+  }
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
+    var now = new Date();
+    var key = 'manual|' + (clientId || Utilities.getUuid());
+    appendByHeader(shipSheet(ss), { Timestamp: now, ShipDate: shipDate, ProductID: productId, ProductName: product.ProductName,
+      Qty: qty, Channel: channel, Ref: ref, By: employee, Notes: notes, Key: key });
+    var onHand = adjustFinished(ss, productId, -qty);
+    var result = { ok: true, message: 'Shipped ' + qty + ' ' + product.ProductName + ' via ' + channel + (ref ? ' (' + ref + ')' : ''),
+                   productId: productId, name: product.ProductName, qty: qty, channel: channel, onHand: onHand,
+                   warnings: onHand !== null && onHand < 0 ? ['Storage now shows ' + onHand + ' — more shipped than was ever logged as finished. Count storage on the Inventory tab.'] : [] };
+    if (cache && clientId) { try { cache.put('ship:' + clientId, JSON.stringify(result), 21600); } catch (e2) {} }
+    return result;
+  } finally { lock.releaseLock(); }
+}
+
+/* ---- Count storage (manager). Same shape as a materials count. ------------ */
+function countFinished(p) {
+  var employee = String(p.employee || '').trim(), notes = String(p.notes || '').trim();
+  if (!employee) return { ok: false, error: 'Please pick who you are.' };
+  var counts; try { counts = JSON.parse(p.counts || '{}'); } catch (e) { return { ok: false, error: 'Counts were not valid JSON.' }; }
+  var ids = Object.keys(counts).filter(function (id) { var v = counts[id]; return v !== '' && v !== null && v !== undefined && !isNaN(Number(v)); });
+  if (!ids.length) return { ok: false, error: 'Enter at least one counted quantity.' };
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sh = finishedSheet(ss), rows = sh.getDataRange().getValues(), headers = rows[0];
+    var col = {}; headers.forEach(function (h, i) { col[h] = i; });
+    var logSheet = ss.getSheetByName(TAB.countlog) || writeTab(ss, TAB.countlog, COUNTLOG_HEADERS, []);
+    var now = new Date(), applied = [], unknown = [];
+    ids.forEach(function (id) {
+      var ri; for (var i = 1; i < rows.length; i++) { if (rows[i][col.ProductID] === id) { ri = i; break; } }
+      if (ri === undefined) { unknown.push(id); return; }
+      var estimated = Number(rows[ri][col.OnHand]) || 0, counted = round2(Number(counts[id]));
+      var variance = round2(estimated - counted), pct = estimated === 0 ? '' : round2(variance / estimated * 100);
+      appendByHeader(logSheet, { Timestamp: now, MaterialID: id, MaterialName: rows[ri][col.ProductName], Unit: 'finished',
+        EstimatedAtCount: estimated, CountedQty: counted, Variance: variance, VariancePct: pct, CountedBy: employee, Notes: notes });
+      sh.getRange(ri + 1, col.OnHand + 1).setValue(counted);
+      sh.getRange(ri + 1, col.LastCounted + 1).setValue(counted);
+      sh.getRange(ri + 1, col.LastCountedAt + 1).setValue(now);
+      sh.getRange(ri + 1, col.LastVariance + 1).setValue(variance);
+      applied.push({ id: id, name: rows[ri][col.ProductName], estimated: estimated, counted: counted, variance: variance, variancePct: pct });
+    });
+    return { ok: true, counted: applied, unknown: unknown, message: 'Counted ' + applied.length + ' finished product' + (applied.length === 1 ? '' : 's') + '.' };
+  } finally { lock.releaseLock(); }
+}
+
+/* ---- Imported sales: Shopify / Amazon / QuickBooks lines -> ShipLog ------- */
+/* rows: [{channel, ref, sku, name, qty, date}]. A line is matched to a product
+ * by the channel's SKU column on FinishedGoods, then by ProductID, then by
+ * ProductName. Key = channel|ref|productId makes a re-import a no-op. Lines
+ * that match nothing come back as `unmatched` so the SKU can be mapped;
+ * nothing is guessed. */
+function importSales(rows, by) {
+  by = by || 'import';
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  finishedSheet(ss);
+  var fg = readObjects(TAB.finished), products = {};
+  var skuCol = { Shopify: 'ShopifySKU', Amazon: 'AmazonSKU', QuickBooks: 'QBOItem' };
+  fg.forEach(function (r) { products[r.ProductID] = r; });
+  function match(channel, sku, name) {
+    var s = String(sku || '').trim().toLowerCase(), n = String(name || '').trim().toLowerCase(), c = skuCol[channel];
+    var hit = null;
+    if (s && c) fg.forEach(function (r) { if (!hit && String(r[c] || '').split(/[,;]/).some(function (x) { return x.trim().toLowerCase() === s; })) hit = r; });
+    if (!hit && s) fg.forEach(function (r) { if (!hit && String(r.ProductID).toLowerCase() === s) hit = r; });
+    if (!hit && n) fg.forEach(function (r) { if (!hit && String(r.ProductName).toLowerCase() === n) hit = r; });
+    if (!hit && n && c) fg.forEach(function (r) { if (!hit && String(r[c] || '').split(/[,;]/).some(function (x) { return x.trim().toLowerCase() === n; })) hit = r; });
+    return hit;
+  }
+  var existing = {};
+  readObjects(TAB.shiplog).forEach(function (r) { if (r.Key) existing[String(r.Key)] = true; });
+  var sh = shipSheet(ss), now = new Date(), added = [], skipped = 0, unmatched = {}, delta = {};
+  rows.forEach(function (r) {
+    var qty = Number(r.qty); if (!(qty > 0)) return;
+    var channel = CHANNELS.indexOf(r.channel) !== -1 ? r.channel : 'Other';
+    var hit = match(channel, r.sku, r.name);
+    if (!hit) { var uk = channel + '|' + (r.sku || r.name); unmatched[uk] = unmatched[uk] || { channel: channel, sku: r.sku || '', name: r.name || '', qty: 0, orders: 0 }; unmatched[uk].qty += qty; unmatched[uk].orders += 1; return; }
+    var key = channel + '|' + String(r.ref || '').trim() + '|' + hit.ProductID;
+    if (existing[key]) { skipped += 1; return; }
+    existing[key] = true;
+    appendByHeader(sh, { Timestamp: now, ShipDate: fmtDate(r.date) || fmtDate(now), ProductID: hit.ProductID, ProductName: hit.ProductName,
+      Qty: qty, Channel: channel, Ref: r.ref || '', By: by, Notes: r.name || '', Key: key });
+    delta[hit.ProductID] = (delta[hit.ProductID] || 0) + qty;
+    added.push({ productId: hit.ProductID, name: hit.ProductName, qty: qty, channel: channel, ref: r.ref || '' });
+  });
+  Object.keys(delta).forEach(function (pid) { adjustFinished(ss, pid, -delta[pid]); });
+  return { added: added, skipped: skipped, unmatched: Object.keys(unmatched).map(function (k) { return unmatched[k]; }) };
+}
+function salesImport(p) {
+  var rows; try { rows = JSON.parse(p.rows || '[]'); } catch (e) { return { ok: false, error: 'rows was not valid JSON.' }; }
+  if (!rows.length) return { ok: false, error: 'Nothing to import.' };
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try { var r = importSales(rows, String(p.by || p.mgrName || 'import')); r.ok = true; r.message = 'Imported ' + r.added.length + ', skipped ' + r.skipped + ' already on file, ' + r.unmatched.length + ' unmatched.'; return r; }
+  finally { lock.releaseLock(); }
+}
+
+/* CSV with quotes, commas and newlines inside quotes. Tabs too (Amazon). */
+function parseDelimited(text) {
+  text = String(text || '').replace(/^﻿/, '');
+  var delim = (text.split('\n')[0] || '').indexOf('\t') !== -1 ? '\t' : ',';
+  var rows = [], row = [], cell = '', q = false;
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+}
+/* Recognise an export by its headers and turn it into import rows. Only
+ * SHIPPED lines count — an order placed is not stock gone. */
+function salesRowsFromTable(table) {
+  if (!table.length) return { format: null, rows: [] };
+  var h = table[0].map(function (x) { return String(x).trim().toLowerCase(); });
+  var ix = function () { for (var i = 0; i < arguments.length; i++) { var k = h.indexOf(arguments[i]); if (k !== -1) return k; } return -1; };
+  var out = [], format = null;
+  if (ix('lineitem sku') !== -1 && ix('name') !== -1) {                       // Shopify orders export
+    format = 'Shopify';
+    var cName = ix('name'), cSku = ix('lineitem sku'), cQty = ix('lineitem quantity'), cLn = ix('lineitem name'),
+        cFul = ix('lineitem fulfillment status'), cOrdFul = ix('fulfillment status'), cAt = ix('fulfilled at'), cCr = ix('created at');
+    table.slice(1).forEach(function (r) {
+      var lineStatus = String(cFul !== -1 ? r[cFul] : (cOrdFul !== -1 ? r[cOrdFul] : '')).toLowerCase();
+      if (lineStatus && lineStatus !== 'fulfilled') return;
+      out.push({ channel: 'Shopify', ref: r[cName], sku: cSku !== -1 ? r[cSku] : '', name: cLn !== -1 ? r[cLn] : '', qty: Number(cQty !== -1 ? r[cQty] : 0), date: String((cAt !== -1 && r[cAt]) || (cCr !== -1 && r[cCr]) || '').slice(0, 10) });
+    });
+  } else if (ix('amazon-order-id') !== -1) {                                   // Amazon All Orders report
+    format = 'Amazon';
+    var aId = ix('amazon-order-id'), aSku = ix('sku'), aQty = ix('quantity', 'quantity-shipped'), aSt = ix('order-status', 'item-status'),
+        aDt = ix('last-updated-date', 'purchase-date'), aNm = ix('product-name');
+    table.slice(1).forEach(function (r) {
+      var st = String(aSt !== -1 ? r[aSt] : '').toLowerCase();
+      if (st && st !== 'shipped') return;
+      out.push({ channel: 'Amazon', ref: r[aId], sku: aSku !== -1 ? r[aSku] : '', name: aNm !== -1 ? r[aNm] : '', qty: Number(aQty !== -1 ? r[aQty] : 0), date: String(aDt !== -1 ? r[aDt] : '').slice(0, 10) });
+    });
+  } else if (ix('product/service') !== -1 && ix('qty') !== -1) {              // QBO Sales by Product/Service Detail
+    format = 'QuickBooks';
+    var qDt = ix('date'), qTy = ix('transaction type'), qNum = ix('num'), qPs = ix('product/service'), qQty = ix('qty');
+    table.slice(1).forEach(function (r) {
+      var ty = String(qTy !== -1 ? r[qTy] : '').toLowerCase();
+      if (ty && !/invoice|sales receipt/.test(ty)) return;
+      var ps = String(r[qPs] || '').trim(); if (!ps) return;
+      out.push({ channel: 'QuickBooks', ref: (qNum !== -1 ? r[qNum] : '') || (r[qDt] + ' ' + ps), sku: ps.split(':').pop().trim(), name: ps, qty: Number(r[qQty]), date: String(r[qDt] || '').slice(0, 10) });
+    });
+  }
+  return { format: format, rows: out };
+}
+/* Menu: paste an export into a tab called SalesImport and run this. */
+function importSalesFromTab() {
+  var ui = SpreadsheetApp.getUi(), ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName('SalesImport');
+  if (!sh) { ss.insertSheet('SalesImport'); ui.alert('SalesImport', 'A SalesImport tab was created. Paste a Shopify orders export, an Amazon All Orders report, or a QuickBooks Sales by Product/Service Detail report into it (header row first), then run this again.', ui.ButtonSet.OK); return; }
+  var table = sh.getDataRange().getValues().map(function (r) { return r.map(function (c) { return c instanceof Date ? fmtDate(c) : c; }); });
+  var parsed = salesRowsFromTable(table);
+  if (!parsed.format) { ui.alert('Not recognised', 'The header row does not match a Shopify, Amazon or QuickBooks export.', ui.ButtonSet.OK); return; }
+  var r = importSales(parsed.rows, 'import:' + parsed.format);
+  var msg = parsed.format + ': ' + r.added.length + ' shipment line' + (r.added.length === 1 ? '' : 's') + ' recorded, ' + r.skipped + ' already on file.';
+  if (r.unmatched.length) msg += '\n\nNot matched to a product (map these SKUs on the FinishedGoods tab, then run again):\n' + r.unmatched.map(function (u) { return '• ' + (u.sku || '(no sku)') + '  ' + u.name + '  ×' + u.qty; }).join('\n');
+  ui.alert('Imported', msg, ui.ButtonSet.OK);
+}
+
+/* ---- Shopify, straight from the store, on a timer -------------------------- */
+/* Needs a custom app in Shopify admin with read_orders, its Admin API access
+ * token in Script Properties (menu: Set Shopify access…). Fulfilled line
+ * items only. Keyed by order name + SKU so hourly runs never double-count. */
+function shopifyCreds() {
+  var props = PropertiesService.getScriptProperties();
+  return { shop: String(props.getProperty('SHOPIFY_SHOP') || '').trim(), token: String(props.getProperty('SHOPIFY_TOKEN') || '').trim() };
+}
+function setShopifyAccess() {
+  var ui = SpreadsheetApp.getUi();
+  var r1 = ui.prompt('Shopify store', 'Store subdomain, the part before .myshopify.com:', ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var r2 = ui.prompt('Admin API access token', 'From Shopify admin → Settings → Apps → Develop apps → your app → API credentials. Needs read_orders.', ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty('SHOPIFY_SHOP', String(r1.getResponseText()).trim().replace(/\.myshopify\.com.*$/, ''));
+  props.setProperty('SHOPIFY_TOKEN', String(r2.getResponseText()).trim());
+  SpreadsheetApp.getActive().toast('Shopify access saved. Run "Sync Shopify shipments now" to test it.', 'Aquamentor', 8);
+}
+function shopifyShippedRows(sinceIso) {
+  var c = shopifyCreds();
+  if (!c.shop || !c.token) throw new Error('Shopify access is not set. Aquamentor → Set Shopify access…');
+  var url = 'https://' + c.shop + '.myshopify.com/admin/api/2025-07/orders.json?status=any&limit=250&updated_at_min=' + encodeURIComponent(sinceIso)
+          + '&fields=id,name,created_at,fulfillment_status,fulfillments';
+  var rows = [], pages = 0;
+  while (url && pages < 20) {
+    var res = UrlFetchApp.fetch(url, { headers: { 'X-Shopify-Access-Token': c.token }, muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) throw new Error('Shopify answered ' + res.getResponseCode() + ': ' + res.getContentText().slice(0, 200));
+    (JSON.parse(res.getContentText()).orders || []).forEach(function (o) {
+      (o.fulfillments || []).forEach(function (f) {
+        if (String(f.status).toLowerCase() !== 'success') return;
+        (f.line_items || []).forEach(function (li) {
+          rows.push({ channel: 'Shopify', ref: o.name, sku: li.sku || '', name: li.title || li.name || '', qty: Number(li.quantity) || 0, date: String(f.created_at || o.created_at || '').slice(0, 10) });
+        });
+      });
+    });
+    var link = String(res.getHeaders()['Link'] || res.getHeaders()['link'] || '');
+    var m = /<([^>]+)>;\s*rel="next"/.exec(link);
+    url = m ? m[1] : null; pages += 1;
+  }
+  return rows;
+}
+function syncShopify() {
+  var props = PropertiesService.getScriptProperties();
+  var since = String(props.getProperty('SHOPIFY_SINCE') || '').trim();
+  if (!since) { var d = new Date(); d.setDate(d.getDate() - 30); since = d.toISOString(); }
+  var rows = shopifyShippedRows(since);
+  var lock = LockService.getScriptLock(); lock.waitLock(30000);
+  try { var r = importSales(rows, 'sync:Shopify'); } finally { lock.releaseLock(); }
+  // Overlap by a day so a fulfillment that landed mid-run is never missed;
+  // the Key makes the overlap harmless.
+  var next = new Date(); next.setDate(next.getDate() - 1); props.setProperty('SHOPIFY_SINCE', next.toISOString());
+  props.setProperty('SHOPIFY_LAST', new Date().toISOString() + ' +' + r.added.length + ' skipped ' + r.skipped + ' unmatched ' + r.unmatched.length);
+  return r;
+}
+function syncShopifyMenu() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var r = syncShopify();
+    ui.alert('Shopify', r.added.length + ' shipment line' + (r.added.length === 1 ? '' : 's') + ' recorded, ' + r.skipped + ' already on file.'
+      + (r.unmatched.length ? '\n\nNot matched (map on FinishedGoods → ShopifySKU):\n' + r.unmatched.map(function (u) { return '• ' + (u.sku || '(no sku)') + '  ' + u.name + '  ×' + u.qty; }).join('\n') : ''), ui.ButtonSet.OK);
+  } catch (e) { ui.alert('Shopify sync failed', String(e && e.message ? e.message : e), ui.ButtonSet.OK); }
+}
+function syncShopifyTrigger() { try { syncShopify(); } catch (e) { /* surfaced by whatAmIRunning via SHOPIFY_LAST */ try { PropertiesService.getScriptProperties().setProperty('SHOPIFY_LAST', new Date().toISOString() + ' FAILED ' + e.message); } catch (e2) {} } }
+function shopifySyncOn() {
+  shopifySyncOff();
+  ScriptApp.newTrigger('syncShopifyTrigger').timeBased().everyHours(1).create();
+  SpreadsheetApp.getActive().toast('Shopify shipments sync every hour.', 'Aquamentor', 6);
+}
+function shopifySyncOff() { ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'syncShopifyTrigger') ScriptApp.deleteTrigger(t); }); }
+function shopifySyncOffMenu() { shopifySyncOff(); SpreadsheetApp.getActive().toast('Shopify sync is off', 'Aquamentor', 6); }
+
+/* ---- What a manager sees: stock, movement, reconciliation ----------------- */
+function getFinished(p) {
+  var days = Number(p && p.days) || 30;
+  var since = new Date(); since.setDate(since.getDate() - days); var sinceIso = fmtDate(since);
+  finishedSheet();
+  var fg = readObjects(TAB.finished), lineMap = productLineMap();
+  var lastOf = {}; Object.keys(lineMap).forEach(function (pid) { var st = stagesForLine(lineMap[pid]); lastOf[pid] = st[st.length - 1]; });
+  var produced = {}, producedAll = {};
+  readObjects(TAB.stagelog).forEach(function (r) {
+    if (r.Stage !== lastOf[r.ProductID]) return;
+    var q = Number(r.Qty) || 0; producedAll[r.ProductID] = (producedAll[r.ProductID] || 0) + q;
+    if (fmtDate(r.WorkDate) >= sinceIso) produced[r.ProductID] = (produced[r.ProductID] || 0) + q;
+  });
+  var shipped = {}, byChannel = {}, recent = [];
+  readObjects(TAB.shiplog).forEach(function (r) {
+    var q = Number(r.Qty) || 0, d = fmtDate(r.ShipDate);
+    recent.push({ at: d, productId: r.ProductID, name: r.ProductName, qty: q, channel: r.Channel, ref: r.Ref || '', by: r.By || '' });
+    if (d < sinceIso) return;
+    shipped[r.ProductID] = shipped[r.ProductID] || {}; shipped[r.ProductID][r.Channel] = (shipped[r.ProductID][r.Channel] || 0) + q;
+    byChannel[r.Channel] = (byChannel[r.Channel] || 0) + q;
+  });
+  recent.sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; });
+  var products = fg.map(function (r) {
+    var sh = shipped[r.ProductID] || {}, shippedTotal = Object.keys(sh).reduce(function (s, k) { return s + sh[k]; }, 0);
+    return { id: r.ProductID, name: r.ProductName, onHand: Number(r.OnHand) || 0, counted: !blankish(r.LastCountedAt),
+             lastCountedAt: blankish(r.LastCountedAt) ? null : fmtDate(r.LastCountedAt), lastVariance: blankish(r.LastVariance) ? null : Number(r.LastVariance),
+             produced: produced[r.ProductID] || 0, shipped: shippedTotal, shippedBy: sh,
+             skus: { Shopify: r.ShopifySKU || '', Amazon: r.AmazonSKU || '', QuickBooks: r.QBOItem || '' } };
+  }).sort(function (a, b) { return (b.onHand + b.produced + b.shipped) - (a.onHand + a.produced + a.shipped); });
+  var props = null; try { props = PropertiesService.getScriptProperties(); } catch (e) { props = null; }
+  return { ok: true, days: days, since: sinceIso, channels: CHANNELS, products: products, byChannel: byChannel, recent: recent.slice(0, 40),
+           totals: { onHand: products.reduce(function (s, x) { return s + x.onHand; }, 0), produced: products.reduce(function (s, x) { return s + x.produced; }, 0),
+                     shipped: products.reduce(function (s, x) { return s + x.shipped; }, 0), neverCounted: products.filter(function (x) { return !x.counted; }).length },
+           shopify: { configured: !!(shopifyCreds().shop && shopifyCreds().token), last: props ? (props.getProperty('SHOPIFY_LAST') || null) : null } };
 }
 
 /* ============================================================================

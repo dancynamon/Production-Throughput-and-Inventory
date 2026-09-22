@@ -79,13 +79,21 @@ const INVENTORY = [
     let data;
     // The gate comes first, as it does on the server: a manager action without
     // the token is refused no matter what the stub knows about it.
-    if (!['config','today','submitDay','reverse','auth','myPace','wipWalk'].includes(action) && url.searchParams.get('token') !== 'tok-'.padEnd(64, 'a'))
+    if (!['config','today','submitDay','reverse','auth','myPace','wipWalk','ship'].includes(action) && url.searchParams.get('token') !== 'tok-'.padEnd(64, 'a'))
       data = { ok:false, locked:true, error:'Manager PIN needed.' };
     else if (action === 'config') data = { ok:true, pinIsDefault:true, lines:{ Tube:STAGES, Shape:['CNC','Clean','Box'] },
       employees:['Maria','James'],
       familyOrder:['Rescue Tubes','Foam Mats'],
       products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube',family:'Rescue Tubes'},{id:'SHP24',name:'Shape 24x24',line:'Shape',family:'Foam Mats'}],
+      sellable:['XRT50','SHP24'], channels:['Shopify','Amazon','QuickBooks','Wholesale','Sample','Other'],
       materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards'}] };
+    else if (action === 'ship') data = { ok:true, message:'Shipped 12 XRT-50 Rescue Tube via Shopify (#6107)', productId:'XRT50', name:'XRT-50 Rescue Tube', qty:12, channel:'Shopify', onHand:28, warnings:[] };
+    else if (action === 'finished') data = { ok:true, days:30, since:'2026-08-19', channels:['Shopify','Amazon','QuickBooks','Wholesale','Sample','Other'],
+      products:[{ id:'XRT50', name:'XRT-50 Rescue Tube', onHand:28, counted:true, lastCountedAt:'2026-09-15', lastVariance:3, produced:40, shipped:12, shippedBy:{Shopify:12}, skus:{Shopify:'AM-XRT50',Amazon:'',QuickBooks:''} },
+                { id:'SHP24', name:'Shape 24x24', onHand:0, counted:false, lastCountedAt:null, lastVariance:null, produced:0, shipped:0, shippedBy:{}, skus:{Shopify:'',Amazon:'',QuickBooks:''} }],
+      byChannel:{Shopify:12}, recent:[{at:'2026-09-16',productId:'XRT50',name:'XRT-50 Rescue Tube',qty:12,channel:'Shopify',ref:'#6107',by:'Maria'}],
+      totals:{onHand:28,produced:40,shipped:12,neverCounted:1}, shopify:{configured:false,last:null} };
+    else if (action === 'countFinished') data = { ok:true, message:'Counted 1 finished product.', counted:[{id:'XRT50',name:'XRT-50 Rescue Tube',estimated:28,counted:25,variance:3,variancePct:10.71}], unknown:[] };
     else if (action === 'submitDay') data = { ok:true, message:'Logged 202 tube-stages for XRT-50 Rescue Tube on 2026-07-01',
       logged:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}],
       consumed:[{name:'1" Red PP Webbing',used:89,onHand:7,unit:'Yards'}], warnings:['1" Red PP Webbing is low (7 Yards)'] };
@@ -224,6 +232,24 @@ const INVENTORY = [
   await shot(page, 'mypace');
   await page.click('.tab[data-screen="day"]');
 
+  /* ---- Ship tab as an employee: product out of storage, channel named ---- */
+  await page.click('.tab[data-screen="ship"]');
+  await page.waitForFunction(() => document.querySelectorAll('#shipProduct option').length > 1, { timeout:5000 });
+  const shipOpts = await page.$$eval('#shipProduct option', (o) => o.map((x) => x.value).filter(Boolean));
+  if (JSON.stringify(shipOpts) !== '["XRT50","SHP24"]') errors.push('ship products: ' + JSON.stringify(shipOpts));
+  await page.selectOption('#shipEmployee', 'Maria'); await page.selectOption('#shipProduct', 'XRT50');
+  await page.fill('#shipQty', '12'); await page.selectOption('#shipChannel', 'Shopify'); await page.fill('#shipRef', '#6107');
+  const shipReq = page.waitForRequest((r) => r.url().includes('action=ship'), { timeout:5000 });
+  await page.click('#shipBtn');
+  const sq = new URL((await shipReq).url()).searchParams;
+  if (sq.get('qty') !== '12' || sq.get('channel') !== 'Shopify' || sq.get('ref') !== '#6107' || !sq.get('clientId')) errors.push('ship params: ' + sq.toString());
+  await page.waitForSelector('#shipResult .result__ok', { timeout:5000 });
+  const shipTxt = (await page.textContent('#shipResult')).replace(/\s+/g,' ');
+  if (!/in storage.*28/.test(shipTxt)) errors.push('ship result: ' + shipTxt);
+  console.log('SHIP:', shipTxt.slice(0, 80));
+  await shot(page, 'ship');
+  await page.click('.tab[data-screen="day"]');
+
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
   let killNext = true;
   await page.route(FAKE_API + '**', (route) => {
@@ -300,6 +326,17 @@ const INVENTORY = [
   // than eyeballed: 100 estimated, 88 counted, "12 short" — the word form, in
   // the same direction CountLog files it.
   await page.click('.tab[data-screen="inventory"]');
+  await page.waitForSelector('#fgPanel .fg-table', { timeout:5000 });
+  const fgTiles = await page.$$eval('#fgPanel .fl-tile b', (b) => b.map((x) => x.textContent));
+  if (JSON.stringify(fgTiles) !== '["28","40","12"]') errors.push('finished tiles: ' + JSON.stringify(fgTiles));
+  await page.fill('#fgPanel .fg-count[data-fg="XRT50"]', '25');
+  await page.selectOption('#invEmployee', 'Maria');
+  const fgReq = page.waitForRequest((r) => r.url().includes('action=countFinished'), { timeout:5000 });
+  await page.click('#fgCountBtn');
+  const fq = new URL((await fgReq).url()).searchParams;
+  if (fq.get('counts') !== '{"XRT50":25}' || fq.get('employee') !== 'Maria') errors.push('finished count params: ' + fq.toString());
+  console.log('FINISHED:', fgTiles.join(' / '));
+  await shot(page, 'finished');
   await page.waitForSelector('#invRows .inv-row', { timeout:5000 });
   console.log('inventory rows:', (await page.$$('#invRows .inv-row')).length,
               '| stats:', (await page.$$('#invSummary .inv-stat')).length);

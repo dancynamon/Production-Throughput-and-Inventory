@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.21.0';
+  var APP_VERSION = '2.23.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -119,6 +119,12 @@
       fillSelect(el('invEmployee'), emp, 'Select your name');
       fillSelect(el('wipEmployee'), emp, 'Select your name');
       fillSelect(el('floorWho'), emp, 'Select your name');
+      fillSelect(el('shipEmployee'), emp, 'Select your name');
+      var sellable = data.sellable || [];
+      fillSelectGrouped(el('shipProduct'), (data.products || []).filter(function (p) { return sellable.indexOf(p.id) !== -1; })
+        .map(function (p) { return { value: p.id, label: p.name, family: p.family }; }), 'Select a product', data.familyOrder || []);
+      fillSelect(el('shipChannel'), (data.channels || ['Shopify', 'Amazon', 'QuickBooks', 'Wholesale', 'Sample', 'Other']).map(function (c) { return { value: c, label: c }; }), 'Where it went');
+      if (!el('shipDate').value) el('shipDate').value = el('workDate').value || new Date().toISOString().slice(0, 10);
       var prodOpts = data.products.map(function (p) {
         return { value: p.id, label: p.name, family: p.family };
       });
@@ -517,6 +523,81 @@
   });
 
   /* ---- Receive ----------------------------------------------------------- */
+  /* ---- Ship: finished product out of storage ---------------------------- */
+  el('shipForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var payload = { action: 'ship', employee: el('shipEmployee').value, productId: el('shipProduct').value, qty: el('shipQty').value,
+                    channel: el('shipChannel').value, ref: el('shipRef').value.trim(), notes: el('shipNotes').value.trim(),
+                    shipDate: el('shipDate').value, clientId: Math.random().toString(36).slice(2) + Date.now().toString(36) };
+    if (!payload.employee)          { toast('Pick who you are'); return; }
+    if (!payload.productId)         { toast('Pick a product'); return; }
+    if (!(Number(payload.qty) > 0)) { toast('Enter how many'); return; }
+    if (!payload.channel)           { toast('Pick where it went'); return; }
+    var btn = el('shipBtn'); btn.disabled = true; btn.textContent = 'Recording…'; el('shipResult').hidden = true;
+    api(payload, 30000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not record the shipment');
+      el('shipResult').innerHTML = '<div class="result__ok">✓ ' + escapeHtml(d.message) + '</div>'
+        + (d.onHand !== null && d.onHand !== undefined ? '<div class="result__list"><li><span>' + escapeHtml(d.name) + ' in storage</span><span class="result__num">' + fmt(d.onHand) + '</span></li></div>' : '')
+        + (d.warnings && d.warnings.length ? '<div class="result__warn">⚠ ' + d.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
+      el('shipResult').hidden = false;
+      el('shipQty').value = ''; el('shipRef').value = ''; el('shipNotes').value = '';
+      FG.data = null;
+    }).catch(function (err) {
+      el('shipResult').innerHTML = '<div class="result__err">✗ ' + escapeHtml(err.message) + '</div>'; el('shipResult').hidden = false;
+    }).finally(function () { btn.disabled = false; btn.textContent = 'Record Shipment'; });
+  });
+
+  /* ---- Finished goods (manager): storage, movement, reconciliation ------- */
+  var FG = { data: null, edits: {} };
+  function loadFinished() {
+    var box = el('fgPanel'); if (!box) return;
+    box.innerHTML = '<div class="muted">Loading finished goods…</div>';
+    api({ action: 'finished', days: 30 }, 30000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load finished goods');
+      FG.data = d; renderFinished();
+    }).catch(function (err) { box.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>'; });
+  }
+  function renderFinished() {
+    var d = FG.data, box = el('fgPanel'); if (!d || !box) return;
+    var t = d.totals;
+    var chips = Object.keys(d.byChannel).sort(function (a, b) { return d.byChannel[b] - d.byChannel[a]; })
+      .map(function (c) { return '<span class="fg-chip"><b>' + fmt(d.byChannel[c]) + '</b> ' + escapeHtml(c) + '</span>'; }).join('');
+    var h = '<div class="fg"><div class="fg__h">Finished goods in storage<span>last ' + d.days + ' days: produced ' + fmt(t.produced) + ' · shipped ' + fmt(t.shipped) + '</span></div>'
+      + '<div class="fl-tiles">'
+      + '<div class="fl-tile"><span class="inv-lbl">In storage</span><b>' + fmt(t.onHand) + '</b><small>' + d.products.length + ' products</small></div>'
+      + '<div class="fl-tile"><span class="inv-lbl">Produced</span><b>' + fmt(t.produced) + '</b><small>' + d.days + ' days</small></div>'
+      + '<div class="fl-tile"><span class="inv-lbl">Shipped</span><b>' + fmt(t.shipped) + '</b><small>' + d.days + ' days</small></div>'
+      + '</div>'
+      + (chips ? '<div class="fg-chips">' + chips + '</div>' : '')
+      + (t.neverCounted ? '<div class="fl-note">' + t.neverCounted + ' product' + (t.neverCounted === 1 ? ' has' : 's have') + ' never been counted in storage. Type what is on the shelf below and record it — that becomes the number produced and shipped run from.</div>' : '')
+      + '<div class="cap-wrap"><table class="fl-table fg-table"><thead><tr><th>Product</th><th class="r">Storage</th><th class="r">Made</th><th class="r">Shipped</th><th>Last count</th><th class="r">Count</th></tr></thead><tbody>'
+      + d.products.map(function (p) {
+          var by = Object.keys(p.shippedBy).map(function (c) { return c + ' ' + fmt(p.shippedBy[c]); }).join(' · ');
+          var last = p.counted ? escapeHtml(p.lastCountedAt) + (p.lastVariance ? '<br><small class="' + (p.lastVariance > 0 ? 'inv-neg' : 'muted') + '">' + (p.lastVariance > 0 ? fmt(p.lastVariance) + ' short' : fmt(-p.lastVariance) + ' extra') + '</small>' : '') : '<span class="muted">never</span>';
+          return '<tr><td>' + escapeHtml(p.name) + '</td><td class="r"><b' + (p.onHand < 0 ? ' class="inv-neg"' : '') + '>' + fmt(p.onHand) + '</b></td>'
+            + '<td class="r">' + fmt(p.produced) + '</td><td class="r">' + fmt(p.shipped) + (by ? '<br><small class="muted">' + escapeHtml(by) + '</small>' : '') + '</td>'
+            + '<td>' + last + '</td><td class="r"><input type="number" inputmode="numeric" min="0" step="1" class="fg-count" data-fg="' + escapeHtml(p.id) + '" value="' + (FG.edits[p.id] !== undefined ? FG.edits[p.id] : '') + '" placeholder="—"></td></tr>';
+        }).join('') + '</tbody></table></div>'
+      + '<div class="fg-bar"><span class="muted small" id="fgBarText">Enter what is on the shelf, leave the rest blank.</span><button type="button" class="inv-mini" id="fgCountBtn">Record storage count</button></div>'
+      + (d.recent.length ? '<details class="fg-recent"><summary>Recent shipments (' + d.recent.length + ')</summary>' + d.recent.slice(0, 20).map(function (r) {
+          return '<div class="fg-ship"><span>' + escapeHtml(r.at) + '</span><span>' + escapeHtml(r.name) + '</span><b>' + fmt(r.qty) + '</b><span>' + escapeHtml(r.channel) + (r.ref ? ' ' + escapeHtml(r.ref) : '') + '</span></div>';
+        }).join('') + '</details>' : '<div class="muted small" style="margin-top:8px">No shipments recorded yet. The crew records them on the Ship tab; Shopify, Amazon and QuickBooks orders come in through the sheet menu.</div>')
+      + '<div class="muted small" style="margin-top:6px">Shopify sync: ' + (d.shopify.configured ? (d.shopify.last ? escapeHtml(d.shopify.last) : 'set up, not run yet') : 'not set up (sheet menu → Set Shopify access…)') + '</div>'
+      + '</div>';
+    box.innerHTML = h;
+    box.querySelectorAll('.fg-count').forEach(function (inp) { inp.addEventListener('input', function () { FG.edits[inp.getAttribute('data-fg')] = inp.value; }); });
+    el('fgCountBtn').addEventListener('click', function () {
+      var counts = {}; Object.keys(FG.edits).forEach(function (k) { if (FG.edits[k] !== '' && !isNaN(Number(FG.edits[k]))) counts[k] = Number(FG.edits[k]); });
+      if (!Object.keys(counts).length) { toast('Enter at least one count'); return; }
+      var who = el('invEmployee').value; if (!who) { toast('Pick who you are (below)'); return; }
+      var btn = el('fgCountBtn'); btn.disabled = true; btn.textContent = 'Recording…';
+      api({ action: 'countFinished', employee: who, counts: JSON.stringify(counts), notes: el('invNotes').value }, 30000).then(function (r) {
+        if (!r.ok) throw new Error(r.error || 'Count failed');
+        toast(r.message); FG.edits = {}; loadFinished();
+      }).catch(function (err) { toast('⚠ ' + err.message); btn.disabled = false; btn.textContent = 'Record storage count'; });
+    });
+  }
+
   el('recvForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var payload = { action: 'receive', employee: el('recvEmployee').value, materialId: el('recvMaterial').value,
@@ -677,7 +758,7 @@
     if (name === 'overview') loadOverview();
     if (name === 'capacity') { loadCapacity(); loadCrew(); }
     if (name === 'receive') loadReceiving();
-    if (name === 'inventory') loadInventory();
+    if (name === 'inventory') { loadInventory(); loadFinished(); }
     if (name === 'buy') loadBuy();
     if (name === 'wip') buildWipRows();
     if (name === 'day') loadToday();

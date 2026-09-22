@@ -25,7 +25,8 @@ attached yet; `production.aquamentor.com` is discussed but not set up.
 https://docs.google.com/spreadsheets/d/1dOou3HsIWdkbt_2joiqtRgV85-r1usxpB4O2ElRc-xk/edit
 
 Tabs: `Products · Stages · RawMaterials · BOM · StageLog · ReceivingLog ·
-Employees · Planning · CountLog · WipBaseline · Overview`
+Employees · Planning · CountLog · WipBaseline · FinishedGoods · ShipLog ·
+Overview` (+ `SalesImport`, a paste target created on first use)
 
 ### Lookalike files — do not touch
 
@@ -142,6 +143,7 @@ node apps-script/test-digest.js     # digest HTML content, recipient fallback
 node apps-script/test-notes.js      # per-stage note lands on its own row
 node apps-script/test-report.js     # report-core: duplicates, reversals, opening counts
 node apps-script/test-update.js     # self-update: replace file, keep manifest, canary, rollback
+node apps-script/test-finished.js   # finished goods: storage, ship, count, imports, Shopify pull
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -175,6 +177,22 @@ assert on them rather than trusting the parser.
   person/product/stage/qty/day saved twice) are dropped from both views and
   a manager reverses them from Summary → Fix-ups. WIP tab is crew-visible
   since 2.20.0 so the floor count is theirs to take
+- **Finished goods since 2.23.0.** `FinishedGoods` holds storage per
+  sellable product (not a feeder, no OutputMaterial). Last stage of a
+  sellable product → OnHand += qty (submitDay), reverse → −=. Crew **Ship**
+  tab (open action `ship`, clientId replay guard) → `ShipLog` row with
+  Channel ∈ Shopify/Amazon/QuickBooks/Wholesale/Sample/Other, OnHand −=.
+  Manager Inventory tab → Finished goods panel: storage, produced/shipped
+  30d by channel, storage count (`countFinished`, CountLog rows with
+  Unit=finished). Channel orders: sheet menu *Import sales from SalesImport
+  tab* recognises a Shopify orders export, an Amazon All Orders report, or a
+  QBO Sales by Product/Service Detail report (shipped lines only), matches on
+  `ShopifySKU`/`AmazonSKU`/`QBOItem` (comma lists) then ProductID then name,
+  Key=channel|ref|productId so re-imports are no-ops, unmatched SKUs listed
+  for mapping. *Set Shopify access…* + *Sync Shopify shipments now* / hourly
+  trigger pull fulfilled line items straight from the store (custom app,
+  read_orders). Amazon and QBO stay paste-based until a sync is worth it.
+  Storage has never been counted — first counts set the baseline
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

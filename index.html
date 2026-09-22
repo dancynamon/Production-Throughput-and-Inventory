@@ -25,6 +25,7 @@
 <nav class="tabs">
   <button class="tab tab--active" data-screen="day">Log My Day</button>
   <button class="tab" data-screen="floor">Floor</button>
+  <button class="tab" data-screen="ship">Ship</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="capacity" data-mgr="1">Capacity</button>
@@ -77,6 +78,27 @@
   </section>
 
   <!-- ============ SUMMARY (the top layer over everything else) ============ -->
+  <section id="screen-ship" class="screen">
+    <p class="stock-hint">Finished product leaving storage. Say what, how many, and where it went, so storage and the sales channels stay in step.</p>
+    <form id="shipForm" autocomplete="off">
+      <div class="row2">
+        <label class="field"><span>Who are you?</span><select id="shipEmployee" required></select></label>
+        <label class="field"><span>Ship date</span><input id="shipDate" type="date" required></label>
+      </div>
+      <label class="field"><span>Product</span><select id="shipProduct" required></select></label>
+      <div class="row2">
+        <label class="field"><span>How many</span><input id="shipQty" type="number" inputmode="numeric" min="1" step="1" placeholder="0" required></label>
+        <label class="field"><span>Where it went</span><select id="shipChannel" required></select></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span>Order # (optional)</span><input id="shipRef" type="text" placeholder="#6107, 111-…, INV 18897"></label>
+        <label class="field"><span>Notes (optional)</span><input id="shipNotes" type="text" placeholder="customer, pallet, carrier…"></label>
+      </div>
+      <button type="submit" id="shipBtn" class="btn-primary">Record Shipment</button>
+    </form>
+    <div id="shipResult" class="result" hidden></div>
+  </section>
+
   <section id="screen-floor" class="screen">
     <div class="field" id="floorWhoWrap"><label for="floorWho">Whose pace</label>
       <select id="floorWho"><option value="" disabled selected>Select your name</option></select></div>
@@ -168,6 +190,7 @@
       re-baselines the estimate and files the variance, so a material that
       misses the same way every time can be traced back to its recipe.</p>
 
+    <div id="fgPanel"></div>
     <div id="invSummary" class="inv-summary"></div>
 
     <div class="inv-toolbar">
