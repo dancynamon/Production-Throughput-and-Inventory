@@ -18,7 +18,7 @@ attached yet; `production.aquamentor.com` is discussed but not set up.
 | Part | Where | Note |
 |---|---|---|
 | App (PWA) | Cloudflare Worker, from `main` | auto-deploys on push |
-| Backend | Apps Script **bound to the sheet** | manual paste + redeploy, no sync |
+| Backend | Apps Script **bound to the sheet** | self-updates from `main` every 30 min |
 | Data | Google Sheet | source of truth for everything hand-maintained |
 
 **Sheet:** `Aquamentor Production` —
@@ -38,7 +38,11 @@ Overview` (+ `SalesImport`, a paste target created on first use)
 
 ## Shipping a `Code.gs` change
 
-**Since 2.22.0 the script updates itself from GitHub.** Sheet menu →
+**Live since 2026-09-22: the script updates itself from GitHub.** The
+script runs on standard GCP project `aquamentor-deploy` (number
+215385849169, Apps Script API on, consent screen Internal); auto-update
+trigger is on. Push to `main` with a new `BUILD_STAMP` and it lands within
+30 min; Dan gets one email per update. Sheet menu →
 *Update from GitHub now*, or *Turn on auto-update from GitHub (every 30 min)*.
 The script fetches `main/apps-script/Code.gs`, and when its `BUILD_STAMP`
 differs from the one running: writes it into the project through the Apps

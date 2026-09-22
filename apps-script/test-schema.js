@@ -143,6 +143,11 @@ check('a product the catalogue does not know is left blank', prodOf('ZZZ99')[7],
 check('running it again fills nothing', sandbox.backfillProductFamilies(), 0);
 
 /* --- Supplier column ------------------------------------------------------- */
+// The menu item wraps the upgrade and reads its summary back; it must never
+// throw after the tabs are already made (it did once, on 'length' of undefined).
+let menuErr = null; try { sandbox.upgradeSchema(); } catch (e) { menuErr = e.message; }
+check('the menu wrapper survives a run that created tabs', menuErr, null);
+check('the upgrade reports what it did', Array.isArray(sandbox.applySchemaUpgrades()), true);
 sandbox.applySchemaUpgrades();
 check('a Supplier column is appended to RawMaterials by the upgrade',
   matSheet.grid[0].indexOf('Supplier') !== -1, true);

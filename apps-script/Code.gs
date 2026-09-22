@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-22 16:00 UTC      version 2.23.0
+ *  BUILD:  2026-09-22 19:30 UTC      version 2.23.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -232,12 +232,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.23.0';
+var BACKEND_VERSION = '2.23.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-22 16:00 UTC';
+var BUILD_STAMP = '2026-09-22 19:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -835,11 +835,10 @@ function backfillProductFamilies() {
  * as many times as you like. Run it after any update that mentions a new
  * column; if there is nothing to do it says so. */
 function upgradeSchema() {
-  var did = applySchemaUpgrades();
-  SpreadsheetApp.getActive().toast(
-    did.length ? did.join('; ') + '. No existing values were changed.'
-               : 'Already up to date — nothing to do.',
-    'Aquamentor', 8);
+  // applySchemaUpgrades() toasts its own summary and hands the list back;
+  // the menu only needs to make sure the whole thing ran.
+  var did = applySchemaUpgrades() || [];
+  return did;
 }
 
 /* The upgrade itself, with no UI, so it can also run unattended from doGet.
@@ -897,6 +896,7 @@ function applySchemaUpgrades() {
     did.length ? did.join('; ') + '. No existing values were changed.'
                : 'Already up to date — nothing to do.',
     'Aquamentor', 8);
+  return did;
 }
 
 
