@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.24.0';
+  var APP_VERSION = '2.24.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -707,7 +707,10 @@
     var mgrName = localStorage.getItem('aq_mgr_name');
     el('mgrBtn').title = mgr ? 'Manager mode' + (mgrName ? ' — ' + mgrName : '') + ' (tap to lock)' : 'Manager access';
     el('mgrHint').hidden = mgr;
+    // The manager guide is served by the backend to listed names only; the
+    // link is a hint, the server is the gate.
     if (el('mgrHelp')) el('mgrHelp').hidden = !mgr;
+    if (!mgr && el('guideBody')) el('guideBody').innerHTML = '';
     showPinNag();
     // The Floor tab is a different page for each role; never show a manager's
     // load to the next person who picks the tab.
@@ -757,6 +760,7 @@
     if (name === 'summary') { loadSummary(); loadFixups(); }
     if (name === 'floor') loadFloor();
     if (name === 'news') renderNews();
+    if (name === 'guide') loadGuide();
     if (name === 'overview') loadOverview();
     if (name === 'capacity') { loadCapacity(); loadCrew(); }
     if (name === 'receive') loadReceiving();
@@ -1452,6 +1456,21 @@
       if (!d.ok) throw new Error(d.error || 'Could not load');
       FLOOR.tables = d.tables; FLOOR.at = d.generatedAt; fn();
     }).catch(function (err) { var box = el('fixups'); if (box) box.innerHTML = sumCard('Fix-ups', '', '<div class="muted small">⚠ ' + escapeHtml(err.message) + '</div>'); });
+  }
+
+  /* ---- Manager guide: fetched behind the lock, shown in a sandboxed frame - */
+  el('mgrHelp').addEventListener('click', function (e) { e.preventDefault(); selectScreen('guide'); window.scrollTo(0, 0); });
+  function loadGuide() {
+    var box = el('guideBody');
+    box.innerHTML = '<div class="muted">Loading the guide…</div>';
+    api({ action: 'guide' }, 30000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Not available');
+      var f = document.createElement('iframe');
+      f.className = 'guide-frame'; f.setAttribute('title', 'Manager guide'); f.setAttribute('sandbox', 'allow-same-origin allow-popups');
+      f.srcdoc = d.html;
+      f.addEventListener('load', function () { try { f.style.height = (f.contentDocument.documentElement.scrollHeight + 20) + 'px'; } catch (e2) { f.style.height = '4000px'; } });
+      box.innerHTML = ''; box.appendChild(f);
+    }).catch(function (err) { box.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>'; });
   }
 
   /* ---- What's new: the changelog, and a dot until it has been read -------- */

@@ -116,6 +116,18 @@ check('changing a personal PIN locks that person\'s phone', call({ action: 'stoc
 check('no PIN ever lands in Script Properties as plain text beyond MANAGER_PIN itself',
   Object.keys(store).filter((k) => k !== 'MANAGER_PIN' && /990011|112233|731905/.test(store[k])), []);
 
+/* --- The manager guide: listed names, personal PIN, token --------------------- */
+store = {}; store.MANAGER_PIN = '731905'; store['PIN:Alex'] = sandbox.pinHash('4444'); store['PIN:Joe'] = sandbox.pinHash('5555');
+const alexTok = authAs('Alex', '4444').token, joeTok = authAs('Joe', '5555').token, sharedAsDan = authAs('Dan', '731905').token;
+check('a listed manager with a personal PIN gets the guide', call({ action: 'guide', token: alexTok, mgrName: 'Alex' }).ok, true);
+check('a personal PIN but not on the list: refused', call({ action: 'guide', token: joeTok, mgrName: 'Joe' }).ok, false);
+check('on the list but unlocked with the shared PIN: refused (the name is unverified)', call({ action: 'guide', token: sharedAsDan, mgrName: 'Dan' }).ok, false);
+check('no token at all: locked', call({ action: 'guide', mgrName: 'Alex' }).locked, true);
+store.GUIDE_READERS = 'Joe';
+check('the readers list is editable from the sheet', [call({ action: 'guide', token: joeTok, mgrName: 'Joe' }).ok, call({ action: 'guide', token: alexTok, mgrName: 'Alex' }).ok], [true, false]);
+check('the guide is baked in, not empty', sandbox.MANAGER_GUIDE_HTML.length > 5000 && /Running the floor/.test(sandbox.MANAGER_GUIDE_HTML), true);
+delete store.GUIDE_READERS;
+
 check('the source no longer carries a PIN constant',
   /var MANAGER_PIN\s*=/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8')), false);
 

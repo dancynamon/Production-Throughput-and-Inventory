@@ -697,3 +697,5 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .news__list{ margin:6px 0 4px; padding-left:18px; font-size:.9rem }
 .news__list li{ margin:4px 0 }
 .news__mgr small{ font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700; margin-left:4px }
+
+.guide-frame{ width:100%; border:0; min-height:60vh; background:transparent }

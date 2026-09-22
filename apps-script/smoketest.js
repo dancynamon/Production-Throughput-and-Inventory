@@ -87,6 +87,7 @@ const INVENTORY = [
       products:[{id:'XRT50',name:'XRT-50 Rescue Tube',line:'Tube',family:'Rescue Tubes'},{id:'SHP24',name:'Shape 24x24',line:'Shape',family:'Foam Mats'}],
       sellable:['XRT50','SHP24'], channels:['Shopify','Amazon','QuickBooks','Wholesale','Sample','Other'],
       materials:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards'}] };
+    else if (action === 'guide') data = { ok:false, error:'The manager guide is for Dan, John, Alex, unlocked with their own PIN.' };
     else if (action === 'ship') data = { ok:true, message:'Shipped 12 XRT-50 Rescue Tube via Shopify (#6107)', productId:'XRT50', name:'XRT-50 Rescue Tube', qty:12, channel:'Shopify', onHand:28, warnings:[] };
     else if (action === 'finished') data = { ok:true, days:30, since:'2026-08-19', channels:['Shopify','Amazon','QuickBooks','Wholesale','Sample','Other'],
       products:[{ id:'XRT50', name:'XRT-50 Rescue Tube', onHand:28, counted:true, lastCountedAt:'2026-09-15', lastVariance:3, produced:40, shipped:12, shippedBy:{Shopify:12}, skus:{Shopify:'AM-XRT50',Amazon:'',QuickBooks:''} },
@@ -303,6 +304,12 @@ const INVENTORY = [
   await page.evaluate(() => { let n = 0; window.prompt = () => (n++ === 0 ? 'Maria' : '2468'); });
   await page.click('#mgrBtn');
   await page.waitForFunction(() => { var t = document.querySelector('.tab[data-screen="overview"]'); return t && getComputedStyle(t).display !== 'none'; }, { timeout:5000 });
+  /* ---- Manager guide: link shows behind the lock; the server decides ------ */
+  if (await page.$eval('#mgrHelp', (a) => a.hidden)) errors.push('manager guide link hidden after unlock');
+  await page.click('#mgrHelp');
+  await page.waitForFunction(() => /manager guide is for/.test(document.querySelector('#guideBody').textContent), { timeout:5000 });
+  console.log('GUIDE: refused for a shared-PIN unlock, as designed');
+
   /* ---- Floor tab as a manager: the whole floor ---------------------------- */
   await page.click('.tab[data-screen="floor"]');
   await page.waitForSelector('#floorBody .fl-pile', { timeout:5000 });
