@@ -681,3 +681,7 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 .fg-recent{ margin-top:10px; font-size:.86rem } .fg-recent summary{ cursor:pointer; font-weight:600; color:var(--navy) }
 .fg-ship{ display:grid; grid-template-columns:auto 1fr auto auto; gap:8px; padding:4px 0; border-top:1px solid var(--border) }
 .fg-ship b{ color:var(--navy) }
+
+/* ---- Help links in the footer --------------------------------------------- */
+.helplinks{ display:flex; justify-content:center; gap:16px; margin-bottom:6px; font-size:.82rem }
+.helplinks a{ color:var(--navy); font-weight:600; text-decoration:none; border-bottom:1px solid var(--border) }

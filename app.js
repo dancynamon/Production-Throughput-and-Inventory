@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.23.0';
+  var APP_VERSION = '2.23.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -707,6 +707,7 @@
     var mgrName = localStorage.getItem('aq_mgr_name');
     el('mgrBtn').title = mgr ? 'Manager mode' + (mgrName ? ' — ' + mgrName : '') + ' (tap to lock)' : 'Manager access';
     el('mgrHint').hidden = mgr;
+    if (el('mgrHelp')) el('mgrHelp').hidden = !mgr;
     showPinNag();
     // The Floor tab is a different page for each role; never show a manager's
     // load to the next person who picks the tab.
