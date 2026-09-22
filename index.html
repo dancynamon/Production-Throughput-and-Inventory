@@ -33,6 +33,7 @@
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
   <button class="tab" data-screen="wip">WIP</button>
   <button class="tab" data-screen="buy" data-mgr="1">Buy</button>
+  <button class="tab tab--news" data-screen="news">What's new<span class="tab__dot" id="newsDot" hidden></span></button>
 </nav>
 
 <main>
@@ -97,6 +98,11 @@
       <button type="submit" id="shipBtn" class="btn-primary">Record Shipment</button>
     </form>
     <div id="shipResult" class="result" hidden></div>
+  </section>
+
+  <section id="screen-news" class="screen">
+    <p class="stock-hint">What changed in the app, newest first. Items marked <b>managers</b> are behind the lock.</p>
+    <div id="newsBody"><div class="muted">Loading…</div></div>
   </section>
 
   <section id="screen-floor" class="screen">
@@ -263,7 +269,7 @@
 </main>
 
 <footer class="buildinfo">
-  <div class="helplinks"><a href="help/crew.html" target="_blank" rel="noopener">How to use this app</a><a href="help/managers.html" id="mgrHelp" target="_blank" rel="noopener" hidden>Manager guide</a></div>
+  <div class="helplinks"><a href="help/crew.html" target="_blank" rel="noopener">How to use this app</a><a href="help/managers.html" id="mgrHelp" target="_blank" rel="noopener" hidden>Manager guide</a><a href="help/changelog.html" target="_blank" rel="noopener">What changed</a></div>
   <button type="button" id="buildToggle" class="buildinfo__summary"
           aria-expanded="false" aria-controls="buildDetails">…</button>
   <div id="buildDetails" class="buildinfo__details" hidden></div>
@@ -277,6 +283,7 @@
 
 <script src="config.js"></script>
 <script src="report-core.js"></script>
+<script src="changelog.js"></script>
 <script src="app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {

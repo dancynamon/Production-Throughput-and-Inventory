@@ -118,6 +118,12 @@ URL and leaves `config.js` pointing at the old one. That cost several rounds.
 - `whatAmIRunning` in the Run dropdown prints saved-code state
 - Sheet menu → `What am I running? (diagnostics)`
 
+**Every version gets a `changelog.js` entry** (newest first, `who: crew|mgr`,
+plain words). The app's *What's new* tab renders it and shows a dot until
+read; `help/build.js` renders `help/changelog.html` from the same file.
+Guides live in `help/src/` (fragments) → `node help/build.js` → site pages
++ PDFs via the Playwright script; update them when a screen changes.
+
 Three independent version numbers: `APP_VERSION` (app.js), `BACKEND_VERSION` +
 `BUILD_STAMP` (Code.gs), `CACHE` (sw.js). Changing any shell file means bumping
 `APP_VERSION` **and** `CACHE` together, or installed phones keep the old shell.

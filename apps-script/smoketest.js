@@ -232,6 +232,17 @@ const INVENTORY = [
   await shot(page, 'mypace');
   await page.click('.tab[data-screen="day"]');
 
+  /* ---- What's new: the dot shows until the tab is opened ----------------- */
+  if (await page.$eval('#newsDot', (d) => d.hidden)) errors.push('news dot hidden before first visit');
+  await page.click('.tab[data-screen="news"]');
+  await page.waitForSelector('#newsBody .news', { timeout:5000 });
+  const newsCount = (await page.$$('#newsBody .news')).length;
+  if (newsCount < 5) errors.push('changelog entries: ' + newsCount);
+  if (await page.$('#newsBody .news__mgr')) errors.push('an employee sees manager-only changelog items');
+  if (!(await page.$eval('#newsDot', (d) => d.hidden))) errors.push('news dot still showing after reading');
+  console.log('NEWS:', newsCount, 'versions');
+  await page.click('.tab[data-screen="day"]');
+
   /* ---- Ship tab as an employee: product out of storage, channel named ---- */
   await page.click('.tab[data-screen="ship"]');
   await page.waitForFunction(() => document.querySelectorAll('#shipProduct option').length > 1, { timeout:5000 });

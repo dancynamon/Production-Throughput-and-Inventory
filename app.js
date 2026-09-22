@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.23.1';
+  var APP_VERSION = '2.24.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -756,6 +756,7 @@
     el('screen-' + name).classList.add('screen--active');
     if (name === 'summary') { loadSummary(); loadFixups(); }
     if (name === 'floor') loadFloor();
+    if (name === 'news') renderNews();
     if (name === 'overview') loadOverview();
     if (name === 'capacity') { loadCapacity(); loadCrew(); }
     if (name === 'receive') loadReceiving();
@@ -1452,6 +1453,28 @@
       FLOOR.tables = d.tables; FLOOR.at = d.generatedAt; fn();
     }).catch(function (err) { var box = el('fixups'); if (box) box.innerHTML = sumCard('Fix-ups', '', '<div class="muted small">⚠ ' + escapeHtml(err.message) + '</div>'); });
   }
+
+  /* ---- What's new: the changelog, and a dot until it has been read -------- */
+  var NEWS = (typeof AQ_CHANGELOG !== 'undefined' && AQ_CHANGELOG) || [];
+  function newsSeen() { try { return localStorage.getItem('aq_news_seen') || ''; } catch (e) { return ''; } }
+  function updateNewsDot() {
+    var latest = NEWS.length ? NEWS[0].version : '';
+    var dot = el('newsDot'); if (dot) dot.hidden = !latest || newsSeen() === latest;
+  }
+  function renderNews() {
+    var mgr = localStorage.getItem('aq_role') === 'mgr';
+    el('newsBody').innerHTML = NEWS.length ? NEWS.map(function (v, i) {
+      var items = v.items.filter(function (it) { return mgr || it.who === 'crew'; });
+      if (!items.length) return '';
+      return '<div class="news' + (i === 0 ? ' news--latest' : '') + '"><div class="news__h"><b>' + escapeHtml(v.version) + '</b> ' + escapeHtml(v.title)
+        + '<span>' + escapeHtml(v.date) + (i === 0 ? ' · latest' : '') + '</span></div><ul class="news__list">'
+        + items.map(function (it) { return '<li' + (it.who === 'mgr' ? ' class="news__mgr"' : '') + '>' + escapeHtml(it.text) + (it.who === 'mgr' ? ' <small>managers</small>' : '') + '</li>'; }).join('')
+        + '</ul></div>';
+    }).join('') : '<div class="muted">Nothing recorded yet.</div>';
+    try { if (NEWS.length) localStorage.setItem('aq_news_seen', NEWS[0].version); } catch (e) {}
+    updateNewsDot();
+  }
+  updateNewsDot();
 
   function sumCard(title, meta, inner) {
     return '<div class="sum-card"><div class="sum-card__h">' + escapeHtml(title)
