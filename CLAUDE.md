@@ -123,6 +123,12 @@ plain words). The app's *What's new* tab renders it and shows a dot until
 read; `help/build.js` renders `help/changelog.html` from the same file.
 Guides live in `help/src/` (fragments) → `node help/build.js` → site pages
 + PDFs via the Playwright script; update them when a screen changes.
+**The manager guide is not a public page since 2.24.0**: `build.js` bakes it into
+`Code.gs` between the `GUIDE:BEGIN/END` markers (so rebuild, then commit
+Code.gs), and the `guide` action serves it only to a name on `GUIDE_READERS`
+(Script Property, default Dan,John,Alex; menu *Set manager-guide readers…*)
+who unlocked with their own PIN. The PDF renders from the gitignored
+`help/_private/managers.html`. `help/managers.html` must never come back.
 
 Three independent version numbers: `APP_VERSION` (app.js), `BACKEND_VERSION` +
 `BUILD_STAMP` (Code.gs), `CACHE` (sw.js). Changing any shell file means bumping
