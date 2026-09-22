@@ -16,8 +16,13 @@ let github = null, canary = null;
 const sandbox = {
   UrlFetchApp: { fetch: (url, opts) => {
     calls.push({ url, method: (opts && opts.method) || 'get', payload: opts && opts.payload ? JSON.parse(opts.payload) : undefined });
+    if (url.indexOf('/config.js') !== -1) return { getResponseCode: () => 200, getContentText: () => 'window.AEGIS_CONFIG={API_URL:"https://script.google.com/macros/s/' + (sandbox.__configDep || 'DEP') + '/exec"};' };
     if (url.indexOf('raw.githubusercontent.com') !== -1) return { getResponseCode: () => github.code, getContentText: () => github.body };
-    if (url.indexOf('/exec?action=config') !== -1) return { getResponseCode: () => canary.code, getContentText: () => canary.body };
+    // The live web app answers with whatever is DEPLOYED: the old stamp until
+    // the deployment is moved to version 8, then whatever `canary` says.
+    if (url.indexOf('/exec?action=config') !== -1) return sandbox.__deployedVersion === 8
+      ? { getResponseCode: () => canary.code, getContentText: () => canary.body }
+      : { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, buildStamp: sandbox.__liveStamp }) };
     const m = /projects\/SID\/(.*)$/.exec(url); const p = m ? m[1] : '';
     const method = (opts.method || 'get').toLowerCase();
     let body = {};
@@ -27,6 +32,7 @@ const sandbox = {
     else if (p === 'deployments' && method === 'get') body = sandbox.__deployments;
     else if (p === 'deployments/DEP' && method === 'get') body = { deploymentId: 'DEP', deploymentConfig: { versionNumber: 7, description: 'Prod' } };
     else if (p === 'versions' && method === 'post') body = { versionNumber: 8 };
+    if (p === 'deployments/DEP' && method === 'put') sandbox.__deployedVersion = JSON.parse(opts.payload).deploymentConfig.versionNumber;
     return { getResponseCode: () => 200, getContentText: () => JSON.stringify(body) };
   } },
   ScriptApp: { getOAuthToken: () => 'tok', getScriptId: () => 'SID',
@@ -57,12 +63,21 @@ function check(label, actual, expected) {
 }
 const running = sandbox.BUILD_STAMP;
 const newSrc = (stamp) => `header\nfunction doGet(e) {}\nvar BACKEND_VERSION = '9.9.9';\nvar BUILD_STAMP = '${stamp}';\n`;
-const reset = () => { calls = []; mails = []; store = {}; };
+const reset = () => { calls = []; mails = []; store = {}; sandbox.__deployedVersion = 7; sandbox.__liveStamp = running; sandbox.__configDep = 'DEP'; };
+const wroteContent = () => calls.some((c) => c.method === 'put' && /\/content$/.test(c.url));
+const cutVersion = () => calls.some((c) => c.method === 'post' && /\/versions$/.test(c.url));
 
 /* --- Same stamp: nothing moves ---------------------------------------------- */
 reset(); github = { code: 200, body: newSrc(running) };
-check('same stamp on GitHub: no change, and only GitHub was contacted',
-  [sandbox.updateFromGitHub().changed, calls.length], [false, 1]);
+check('same stamp live: nothing written, no version cut',
+  [sandbox.updateFromGitHub().changed, wroteContent(), cutVersion()], [false, false, false]);
+check('the deployment was taken from config.js on GitHub, among two candidates', store.DEPLOYMENT_ID, 'DEP');
+
+/* --- Saved code ahead of the deployment (a run that died mid-way) ---------- */
+reset(); github = { code: 200, body: newSrc(running) }; sandbox.__liveStamp = '2000-01-01 00:00 UTC'; canary = { code: 200, body: JSON.stringify({ buildStamp: running }) };
+const resumed = sandbox.updateFromGitHub();
+check('GitHub equals the saved code but the live app is behind: cut the version without rewriting the code',
+  [resumed.changed, wroteContent(), cutVersion(), resumed.versionNumber], [true, false, true, 8]);
 
 /* --- New stamp: the full round ---------------------------------------------- */
 reset(); github = { code: 200, body: newSrc('2099-01-01 00:00 UTC') }; canary = { code: 200, body: '{"ok":true,"buildStamp":"2099-01-01 00:00 UTC"}' };
@@ -93,17 +108,23 @@ check('a web app that errors rolls back too', /HTTP 500/.test(err) && /back to v
 reset(); github = { code: 404, body: 'nope' };
 err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
 check('GitHub down: nothing deployed', [/404/.test(err), calls.length], [true, 1]);
-reset(); github = { code: 200, body: '<html>not a script</html>' };
+reset(); sandbox.__deployments = { deployments: [] }; github = { code: 200, body: newSrc('2099-02-02 00:00 UTC') };
 err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
-check('a page that is not Code.gs is refused', /does not look like Code.gs/.test(err), true);
-reset(); sandbox.__deployments = { deployments: [] }; github = { code: 200, body: newSrc('2099-02-02 00:00 UTC') }; canary = { code: 200, body: '2099-02-02 00:00 UTC' };
-err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
-check('no deployment to move: says so rather than creating one', /Deploy once by hand/.test(err), true);
+check('no deployment to move: fails BEFORE writing code, so saved code never runs ahead of live', [/Deploy once by hand/.test(err), wroteContent()], [true, false]);
 sandbox.__deployments = { deployments: [
   { deploymentId: 'DEP', deploymentConfig: { versionNumber: 7 }, entryPoints: [{ entryPointType: 'WEB_APP' }] },
   { deploymentId: 'DEP2', deploymentConfig: { versionNumber: 3 }, entryPoints: [{ entryPointType: 'WEB_APP' }] } ] };
-reset(); err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
-check('two deployments: asks for the ID instead of guessing', /2 web-app deployments/.test(err), true);
+reset(); sandbox.__configDep = 'DEP9'; err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
+check('two deployments and config.js names neither: asks for the ID instead of guessing', /none matches config.js/.test(err), true);
+reset(); sandbox.__configDep = 'DEP2'; github = { code: 200, body: newSrc(running) };
+sandbox.updateFromGitHub();
+check('two deployments: the one config.js names wins', store.DEPLOYMENT_ID, 'DEP2');
+sandbox.__deployments = { deployments: [
+  { deploymentId: 'HEAD', deploymentConfig: {}, entryPoints: [{ entryPointType: 'WEB_APP' }] },
+  { deploymentId: 'DEP', deploymentConfig: { versionNumber: 7 }, entryPoints: [{ entryPointType: 'WEB_APP' }] } ] };
+reset(); github = { code: 200, body: '<html>not a script</html>' };
+err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
+check('a page that is not Code.gs is refused', /does not look like Code.gs/.test(err), true);
 
 /* --- The trigger mails once per distinct failure ---------------------------- */
 reset(); github = { code: 404, body: 'nope' };
@@ -112,7 +133,7 @@ check('the same failure twice is one email', mails.length, 1);
 github = { code: 200, body: newSrc(running) }; sandbox.autoUpdateFromGitHub();
 check('nothing to do sends nothing', mails.length, 1);
 sandbox.__deployments = { deployments: [{ deploymentId: 'DEP', deploymentConfig: { versionNumber: 7 }, entryPoints: [{ entryPointType: 'WEB_APP' }] }] };
-github = { code: 200, body: newSrc('2099-03-03 00:00 UTC') }; canary = { code: 200, body: '2099-03-03 00:00 UTC' };
+sandbox.__deployedVersion = 7; github = { code: 200, body: newSrc('2099-03-03 00:00 UTC') }; canary = { code: 200, body: '2099-03-03 00:00 UTC' };
 sandbox.autoUpdateFromGitHub();
 check('a real update mails a note and clears the remembered failure', [mails.length, /updated to 9\.9\.9/.test(mails[1].subject), store.AUTO_UPDATE_ERROR], [2, true, undefined]);
 sandbox.autoUpdateOn();

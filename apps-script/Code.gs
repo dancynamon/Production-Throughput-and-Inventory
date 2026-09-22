@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-22 19:30 UTC      version 2.23.1
+ *  BUILD:  2026-09-22 20:40 UTC      version 2.23.2
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -232,12 +232,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.23.1';
+var BACKEND_VERSION = '2.23.2';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-22 19:30 UTC';
+var BUILD_STAMP = '2026-09-22 20:40 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -3231,6 +3231,7 @@ function getFinished(p) {
  *  back and written back unchanged, so web-app access settings survive.
  * ========================================================================== */
 var GITHUB_RAW_CODE = 'https://raw.githubusercontent.com/dancynamon/Production-Throughput-and-Inventory/main/apps-script/Code.gs';
+var GITHUB_RAW_CONFIG = 'https://raw.githubusercontent.com/dancynamon/Production-Throughput-and-Inventory/main/config.js';
 var SCRIPT_API = 'https://script.googleapis.com/v1/projects/';
 
 function scriptApi(method, path, payload) {
@@ -3262,8 +3263,11 @@ function fetchGitHubCode() {
   return src;
 }
 
-/* The web-app deployment to advance. Remembered once found; set by hand from
- * the menu if the project has more than one. */
+/* The web-app deployment to advance: the one the phones use. config.js on
+ * GitHub names it (API_URL), which is correct by construction — the app can
+ * only talk to that one. Remembered once found. Falls back to the single
+ * versioned web-app deployment, and to the menu (Set deployment ID…) after
+ * that. */
 function webAppDeploymentId() {
   var props = PropertiesService.getScriptProperties();
   var id = String(props.getProperty('DEPLOYMENT_ID') || '').trim();
@@ -3273,10 +3277,30 @@ function webAppDeploymentId() {
     return d.deploymentConfig && d.deploymentConfig.versionNumber
       && (d.entryPoints || []).some(function (e) { return e.entryPointType === 'WEB_APP'; });
   });
-  if (cands.length === 1) { props.setProperty('DEPLOYMENT_ID', cands[0].deploymentId); return cands[0].deploymentId; }
+  var fromConfig = null;
+  try {
+    var res = UrlFetchApp.fetch(GITHUB_RAW_CONFIG + '?t=' + Date.now(), { muteHttpExceptions: true });
+    var m = res.getResponseCode() === 200 ? /\/macros\/s\/([\w-]+)\/exec/.exec(res.getContentText()) : null;
+    if (m) fromConfig = m[1];
+  } catch (e) { fromConfig = null; }
+  var pick = fromConfig && cands.some(function (d) { return d.deploymentId === fromConfig; }) ? fromConfig
+           : (cands.length === 1 ? cands[0].deploymentId : null);
+  if (pick) { props.setProperty('DEPLOYMENT_ID', pick); return pick; }
   throw new Error(cands.length
-    ? 'This project has ' + cands.length + ' web-app deployments. Aquamentor → Set deployment ID… with the one from config.js.'
+    ? 'This project has ' + cands.length + ' web-app deployments and none matches config.js on GitHub. Aquamentor → Set deployment ID… with the one from config.js.'
     : 'No versioned web-app deployment found. Deploy once by hand (Deploy → New deployment → Web app) first.');
+}
+/* What the phones are running right now — the deployed version's stamp, read
+ * from the live web app. The code a trigger runs is the SAVED code, which
+ * can be ahead of the deployment (a write that never got its version cut),
+ * so BUILD_STAMP here is not the answer. */
+function liveBuildStamp(depId) {
+  try {
+    var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config', { muteHttpExceptions: true, followRedirects: true });
+    if (r.getResponseCode() !== 200) return null;
+    var m = /"buildStamp"\s*:\s*"([^"]+)"/.exec(r.getContentText());
+    return m ? m[1] : null;
+  } catch (e) { return null; }
 }
 function setDeploymentId() {
   var ui = SpreadsheetApp.getUi();
@@ -3293,18 +3317,25 @@ function setDeploymentId() {
 function updateFromGitHub() {
   var src = fetchGitHubCode();
   var stamp = sourceStamp(src), version = sourceVersion(src);
-  if (stamp === BUILD_STAMP) return { changed: false, stamp: stamp, version: version };
+  // Resolve the deployment BEFORE writing anything, so a project that cannot
+  // be deployed is never left with saved code ahead of its live version.
+  var depId = webAppDeploymentId();
+  var live = liveBuildStamp(depId);
+  if (stamp === (live || BUILD_STAMP)) return { changed: false, stamp: stamp, version: version, live: live };
 
   var scriptId = ScriptApp.getScriptId();
-  var content = scriptApi('get', scriptId + '/content');
-  var codeFiles = (content.files || []).filter(function (f) { return f.type === 'SERVER_JS'; });
-  if (codeFiles.length !== 1) throw new Error('Expected exactly one script file in the project, found ' + codeFiles.length + ' (' + codeFiles.map(function (f) { return f.name; }).join(', ') + '). Merge them into one before auto-updating.');
-  var files = content.files.map(function (f) {
-    return f.type === 'SERVER_JS' ? { name: f.name, type: f.type, source: src } : { name: f.name, type: f.type, source: f.source };
-  });
-  scriptApi('put', scriptId + '/content', { files: files });
+  if (stamp !== BUILD_STAMP) {
+    // The saved code is behind GitHub: write it. (Equal means an earlier run
+    // wrote it and failed before cutting the version — just cut it now.)
+    var content = scriptApi('get', scriptId + '/content');
+    var codeFiles = (content.files || []).filter(function (f) { return f.type === 'SERVER_JS'; });
+    if (codeFiles.length !== 1) throw new Error('Expected exactly one script file in the project, found ' + codeFiles.length + ' (' + codeFiles.map(function (f) { return f.name; }).join(', ') + '). Merge them into one before auto-updating.');
+    var files = content.files.map(function (f) {
+      return f.type === 'SERVER_JS' ? { name: f.name, type: f.type, source: src } : { name: f.name, type: f.type, source: f.source };
+    });
+    scriptApi('put', scriptId + '/content', { files: files });
+  }
 
-  var depId = webAppDeploymentId();
   var dep = scriptApi('get', scriptId + '/deployments/' + depId);
   var prev = dep.deploymentConfig.versionNumber, desc = dep.deploymentConfig.description || 'Aquamentor Production';
   var ver = scriptApi('post', scriptId + '/versions', { description: 'Auto-update ' + version + ' (' + stamp + ')' });
