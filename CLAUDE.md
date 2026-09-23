@@ -120,7 +120,8 @@ URL and leaves `config.js` pointing at the old one. That cost several rounds.
 
 **Every version gets a `changelog.js` entry** (newest first, `who: crew|mgr`,
 plain words). The app's *What's new* tab renders it and shows a dot until
-read; `help/build.js` renders `help/changelog.html` from the same file.
+read; **managers only since 2.24.2** (tab, dot and footer link follow the lock;
+no public changelog page — `build.js` writes it to the gitignored `help/_private/`).
 Guides live in `help/src/` (fragments) → `node help/build.js` → site pages
 + PDFs via the Playwright script; update them when a screen changes.
 **The manager guide is not a public page since 2.24.0**: `build.js` bakes it into

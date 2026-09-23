@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '2.24.2', date: '2026-09-23', title: 'What\'s new, managers only', items: [
+    { who: 'mgr',  text: 'The What\'s new tab, its dot, and the What changed link are behind the lock now. The crew hears about changes from you.' }
+  ]},
   { version: '2.24.1', date: '2026-09-22', title: 'Manager guide, managers only', items: [
     { who: 'mgr',  text: 'The manager guide now opens inside the app, behind the lock, for Dan, John and Alex unlocked with their own PIN. It is no longer a public page.' }
   ]},

@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.24.1';
+  var APP_VERSION = '2.24.2';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -711,6 +711,10 @@
     // link is a hint, the server is the gate.
     if (el('mgrHelp')) el('mgrHelp').hidden = !mgr;
     if (!mgr && el('guideBody')) el('guideBody').innerHTML = '';
+    // What's new is a manager tab: the dot and the footer link follow the lock.
+    if (el('mgrNews')) el('mgrNews').hidden = !mgr;
+    if (!mgr && el('newsBody')) el('newsBody').innerHTML = '';
+    updateNewsDot();
     showPinNag();
     // The Floor tab is a different page for each role; never show a manager's
     // load to the next person who picks the tab.
@@ -1460,6 +1464,7 @@
 
   /* ---- Manager guide: fetched behind the lock, shown in a sandboxed frame - */
   el('mgrHelp').addEventListener('click', function (e) { e.preventDefault(); selectScreen('guide'); window.scrollTo(0, 0); });
+  el('mgrNews').addEventListener('click', function (e) { e.preventDefault(); selectScreen('news'); window.scrollTo(0, 0); });
   function loadGuide() {
     var box = el('guideBody');
     box.innerHTML = '<div class="muted">Loading the guide…</div>';
@@ -1478,10 +1483,11 @@
   function newsSeen() { try { return localStorage.getItem('aq_news_seen') || ''; } catch (e) { return ''; } }
   function updateNewsDot() {
     var latest = NEWS.length ? NEWS[0].version : '';
-    var dot = el('newsDot'); if (dot) dot.hidden = !latest || newsSeen() === latest;
+    var dot = el('newsDot'); if (dot) dot.hidden = !isMgr() || !latest || newsSeen() === latest;
   }
   function renderNews() {
-    var mgr = localStorage.getItem('aq_role') === 'mgr';
+    var mgr = isMgr();
+    if (!mgr) { el('newsBody').innerHTML = '<div class="muted">Managers only.</div>'; return; }
     el('newsBody').innerHTML = NEWS.length ? NEWS.map(function (v, i) {
       var items = v.items.filter(function (it) { return mgr || it.who === 'crew'; });
       if (!items.length) return '';

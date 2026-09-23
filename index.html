@@ -33,7 +33,7 @@
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
   <button class="tab" data-screen="wip">WIP</button>
   <button class="tab" data-screen="buy" data-mgr="1">Buy</button>
-  <button class="tab tab--news" data-screen="news">What's new<span class="tab__dot" id="newsDot" hidden></span></button>
+  <button class="tab tab--news" data-screen="news" data-mgr="1">What's new<span class="tab__dot" id="newsDot" hidden></span></button>
 </nav>
 
 <main>
@@ -273,7 +273,7 @@
 </main>
 
 <footer class="buildinfo">
-  <div class="helplinks"><a href="help/crew.html" target="_blank" rel="noopener">How to use this app</a><a href="#" id="mgrHelp" hidden>Manager guide</a><a href="help/changelog.html" target="_blank" rel="noopener">What changed</a></div>
+  <div class="helplinks"><a href="help/crew.html" target="_blank" rel="noopener">How to use this app</a><a href="#" id="mgrHelp" hidden>Manager guide</a><a href="#" id="mgrNews" hidden>What changed</a></div>
   <button type="button" id="buildToggle" class="buildinfo__summary"
           aria-expanded="false" aria-controls="buildDetails">…</button>
   <div id="buildDetails" class="buildinfo__details" hidden></div>

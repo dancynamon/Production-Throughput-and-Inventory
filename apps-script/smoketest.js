@@ -233,16 +233,10 @@ const INVENTORY = [
   await shot(page, 'mypace');
   await page.click('.tab[data-screen="day"]');
 
-  /* ---- What's new: the dot shows until the tab is opened ----------------- */
-  if (await page.$eval('#newsDot', (d) => d.hidden)) errors.push('news dot hidden before first visit');
-  await page.click('.tab[data-screen="news"]');
-  await page.waitForSelector('#newsBody .news', { timeout:5000 });
-  const newsCount = (await page.$$('#newsBody .news')).length;
-  if (newsCount < 5) errors.push('changelog entries: ' + newsCount);
-  if (await page.$('#newsBody .news__mgr')) errors.push('an employee sees manager-only changelog items');
-  if (!(await page.$eval('#newsDot', (d) => d.hidden))) errors.push('news dot still showing after reading');
-  console.log('NEWS:', newsCount, 'versions');
-  await page.click('.tab[data-screen="day"]');
+  /* ---- What's new is managers-only: no tab, no dot, no footer link ------- */
+  if (await page.$eval('.tab[data-screen="news"]', (t) => getComputedStyle(t).display !== 'none')) errors.push('an employee can see the What\'s new tab');
+  if (!(await page.$eval('#newsDot', (d) => d.hidden))) errors.push('news dot showing for an employee');
+  if (!(await page.$eval('#mgrNews', (a) => a.hidden))) errors.push('What changed link showing for an employee');
 
   /* ---- Ship tab as an employee: product out of storage, channel named ---- */
   await page.click('.tab[data-screen="ship"]');
@@ -309,6 +303,17 @@ const INVENTORY = [
   await page.click('#mgrHelp');
   await page.waitForFunction(() => /manager guide is for/.test(document.querySelector('#guideBody').textContent), { timeout:5000 });
   console.log('GUIDE: refused for a shared-PIN unlock, as designed');
+
+  /* ---- What's new: behind the lock, the dot shows until the tab is opened -- */
+  if (await page.$eval('#newsDot', (d) => d.hidden)) errors.push('news dot hidden for a manager before first visit');
+  if (await page.$eval('#mgrNews', (a) => a.hidden)) errors.push('What changed link hidden after unlock');
+  await page.click('#mgrNews');
+  await page.waitForSelector('#newsBody .news', { timeout:5000 });
+  const newsCount = (await page.$$('#newsBody .news')).length;
+  if (newsCount < 5) errors.push('changelog entries: ' + newsCount);
+  if (!(await page.$('#newsBody .news__mgr'))) errors.push('manager-only changelog items missing behind the lock');
+  if (!(await page.$eval('#newsDot', (d) => d.hidden))) errors.push('news dot still showing after reading');
+  console.log('NEWS:', newsCount, 'versions, managers only');
 
   /* ---- Floor tab as a manager: the whole floor ---------------------------- */
   await page.click('.tab[data-screen="floor"]');
