@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-23 00:20 UTC      version 2.24.1
+ *  BUILD:  2026-09-25 15:10 UTC      version 2.24.2
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -232,12 +232,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.24.1';
+var BACKEND_VERSION = '2.24.2';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-23 00:20 UTC';
+var BUILD_STAMP = '2026-09-25 15:10 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -2851,35 +2851,43 @@ function rebuildOverview() {
  *  Menu
  * ========================================================================== */
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Aquamentor')
-    .addItem('Set up / repair missing tabs', 'setup')
-    .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
+  // Five things a manager does often sit at the top; everything that is set
+  // once, scheduled once, or rebuilds the sheet lives one level down.
+  var ui = SpreadsheetApp.getUi();
+  ui.createMenu('Aquamentor')
     .addItem('What am I running? (diagnostics)', 'whatAmIRunning')
-    .addItem('Set manager PIN…', 'setManagerPin')
-    .addItem('Set a person\'s PIN…', 'setPersonPin')
-    .addSeparator()
-    .addItem('Email me the digest now', 'emailDigestNow')
-    .addItem('Turn on Monday 7am digest', 'digestTriggerOn')
-    .addItem('Turn off Monday digest', 'digestTriggerOffMenu')
-    .addItem('Set digest recipients…', 'setDigestRecipients')
-    .addSeparator()
-    .addItem('Import sales from SalesImport tab', 'importSalesFromTab')
-    .addItem('Set Shopify access…', 'setShopifyAccess')
-    .addItem('Sync Shopify shipments now', 'syncShopifyMenu')
-    .addItem('Turn on hourly Shopify sync', 'shopifySyncOn')
-    .addItem('Turn off Shopify sync', 'shopifySyncOffMenu')
-    .addSeparator()
     .addItem('Update from GitHub now', 'updateFromGitHubMenu')
-    .addItem('Turn on auto-update from GitHub (every 30 min)', 'autoUpdateOn')
-    .addItem('Turn off auto-update', 'autoUpdateOffMenu')
-    .addItem('Set deployment ID…', 'setDeploymentId')
-    .addItem('Set manager-guide readers…', 'setGuideReaders')
+    .addItem('Email me the digest now', 'emailDigestNow')
+    .addItem('Import sales from SalesImport tab', 'importSalesFromTab')
+    .addItem('Sync Shopify shipments now', 'syncShopifyMenu')
     .addSeparator()
-    .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
-    .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
-    .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs')
+    .addSubMenu(ui.createMenu('Settings')
+      .addItem('Set manager PIN…', 'setManagerPin')
+      .addItem('Set a person\'s PIN…', 'setPersonPin')
+      .addItem('Set manager-guide readers…', 'setGuideReaders')
+      .addItem('Set digest recipients…', 'setDigestRecipients')
+      .addItem('Set Shopify access…', 'setShopifyAccess')
+      .addItem('Set deployment ID…', 'setDeploymentId'))
+    .addSubMenu(ui.createMenu('Schedules (tap to switch on or off)')
+      .addItem('Monday 7am digest', 'toggleDigest')
+      .addItem('Hourly Shopify sync', 'toggleShopifySync')
+      .addItem('Auto-update from GitHub every 30 min', 'toggleAutoUpdate'))
+    .addSubMenu(ui.createMenu('Maintenance')
+      .addItem('Set up / repair missing tabs', 'setup')
+      .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
+      .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
+      .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
+      .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs'))
     .addToUi();
 }
+
+/* ---- Schedules as one item each: tap flips it, the toast says which way -- */
+function triggerIsOn(handler) {
+  return ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === handler; });
+}
+function toggleDigest()      { triggerIsOn('sendWeeklyDigest')    ? digestTriggerOffMenu() : digestTriggerOn(); }
+function toggleShopifySync() { triggerIsOn('syncShopifyTrigger')  ? shopifySyncOffMenu()   : shopifySyncOn(); }
+function toggleAutoUpdate()  { triggerIsOn('autoUpdateFromGitHub') ? autoUpdateOffMenu()   : autoUpdateOn(); }
 
 
 /* ============================================================================

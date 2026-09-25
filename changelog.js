@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '2.24.3', date: '2026-09-25', title: 'A shorter sheet menu', items: [
+    { who: 'mgr',  text: 'The sheet\'s Aquamentor menu is five everyday actions plus Settings, Schedules and Maintenance. Each schedule is one item: tap it to switch on or off.' }
+  ]},
   { version: '2.24.2', date: '2026-09-23', title: 'What\'s new, managers only', items: [
     { who: 'mgr',  text: 'The What\'s new tab, its dot, and the What changed link are behind the lock now. The crew hears about changes from you.' }
   ]},

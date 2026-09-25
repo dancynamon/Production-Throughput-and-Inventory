@@ -118,6 +118,13 @@ URL and leaves `config.js` pointing at the old one. That cost several rounds.
 - `whatAmIRunning` in the Run dropdown prints saved-code state
 - Sheet menu → `What am I running? (diagnostics)`
 
+**Sheet menu since 2.24.2** (backend): five everyday items on top (diagnostics,
+update from GitHub, digest now, import sales, sync Shopify), then submenus
+*Settings* (all the Set…), *Schedules* (one toggle each: digest, Shopify sync,
+auto-update — `toggleDigest` etc. flip the trigger and toast the new state) and
+*Maintenance* (setup, rebuild, add columns, migrate, erase). The old
+`…On`/`…OffMenu` functions still exist for the Run dropdown and tests.
+
 **Every version gets a `changelog.js` entry** (newest first, `who: crew|mgr`,
 plain words). The app's *What's new* tab renders it and shows a dot until
 read; **managers only since 2.24.2** (tab, dot and footer link follow the lock;
@@ -161,6 +168,7 @@ node apps-script/test-notes.js      # per-stage note lands on its own row
 node apps-script/test-report.js     # report-core: duplicates, reversals, opening counts
 node apps-script/test-update.js     # self-update: replace file, keep manifest, canary, rollback
 node apps-script/test-finished.js   # finished goods: storage, ship, count, imports, Shopify pull
+node apps-script/test-menu.js       # sheet menu: short top level, handlers exist, schedule toggles
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
