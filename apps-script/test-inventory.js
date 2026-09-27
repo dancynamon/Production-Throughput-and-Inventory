@@ -130,6 +130,9 @@ TABS.CountLog = COUNTLOG;
 /* --- Never counted vs zero ----------------------------------------------- */
 check('never-counted materials are counted as such', res.summary.neverCounted, 3);
 check('negative stock is surfaced separately from uncounted', res.summary.negative, 1);
+check('stocktake to-do is never-counted OR negative, each material once',
+  [res.summary.stocktake, res.materials.filter((m) => m.stocktake).length],
+  [res.materials.filter((m) => !m.lastCountedAt || m.onHand < 0).length, res.materials.filter((m) => !m.lastCountedAt || m.onHand < 0).length]);
 check('a negative material is not silently treated as counted',
   { lastCountedAt: by.M038.lastCountedAt, history: by.M038.countsRecorded },
   { lastCountedAt: null, history: 0 });

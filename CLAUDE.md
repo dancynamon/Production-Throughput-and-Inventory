@@ -218,6 +218,11 @@ assert on them rather than trusting the parser.
   trigger pull fulfilled line items straight from the store (custom app,
   read_orders). Amazon and QBO stay paste-based until a sync is worth it.
   Storage has never been counted — first counts set the baseline
+- **2.25.0:** Inventory *Stocktake to-do* filter (never counted OR negative,
+  `summary.stocktake`); `FinishedGoods.MinOnHand` (hand-typed, blank = none)
+  flags storage under it in the panel and the weekly digest; `config` returns
+  `wipCounted` so the WIP tab names products with no floor count; Summary
+  exports gain *Shipments* and *Shipped by month* (pivot done in the app)
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

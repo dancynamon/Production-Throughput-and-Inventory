@@ -177,5 +177,23 @@ check('the view carries storage, movement by channel, and what was never counted
   [view.totals.onHand, view.byChannel, view.products.map((p) => [p.id, p.onHand, p.shipped, p.counted])],
   [9, { Shopify: 7, QuickBooks: 1, Amazon: 3 }, [['XRT50EXO', 10, 10, false], ['LGC30', -1, 1, false]]]);
 
+/* --- Minimum storage (2.25.0) --------------------------------------------------- */
+{
+  const g = sheets.FinishedGoods, h = g.grid[0];
+  if (h.indexOf('MinOnHand') === -1) h.push('MinOnHand');
+  const cMin = h.indexOf('MinOnHand');
+  g.grid[1][cMin] = 12;   // XRT50EXO holds 10: under
+  g.grid[2][cMin] = '';   // LGC30: no floor set
+  const v = sandbox.getFinished({ days: 30 });
+  check('a typed minimum flags storage under it; a blank minimum flags nothing',
+    [v.products.map((p) => [p.id, p.min, p.belowMin]), v.totals.belowMin, v.totals.withMin],
+    [[['XRT50EXO', 12, true], ['LGC30', null, false]], 1, 1]);
+  const html = sandbox.buildDigestHtml({ generatedAt: 'x', production: { windowDays: 7, since: 'x', started: 0, finished: 0, activeDays: 0, events: 0 },
+    pipeline: {}, trust: { materialsCounted: 0, materialsTotal: 0, productsWithBaseline: 0, productsTracked: 0, rowsWithHours: 0, stageLogRows: 0 } },
+    { materials: [] }, { materials: [], countNext: [] }, '', v);
+  check('the digest lists storage under its minimum', /Storage below minimum[\s\S]*XRT-50 Exotube[\s\S]*10 of 12/.test(html), true);
+  check('FINISHED_HEADERS carries MinOnHand', sandbox.FINISHED_HEADERS.indexOf('MinOnHand') !== -1, true);
+}
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

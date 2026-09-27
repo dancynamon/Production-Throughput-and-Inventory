@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.24.3';
+  var APP_VERSION = '2.25.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -131,6 +131,9 @@
       var famOrder = data.familyOrder || [];
       fillSelectGrouped(el('product'), prodOpts, 'Select a product', famOrder);
       fillSelectGrouped(el('wipProduct'), prodOpts, 'Select a product', famOrder);
+      WIPNAG.products = data.products || [];
+      WIPNAG.counted = Array.isArray(data.wipCounted) ? data.wipCounted.slice() : null;
+      renderWipNag();
       fillSelect(el('recvMaterial'), (data.materials || []).map(function (m) {
         return { value: m.id, label: m.name + (m.unit ? ' (' + m.unit + ')' : '') };
       }), 'Select a material');
@@ -569,12 +572,16 @@
       + '<div class="fl-tile"><span class="inv-lbl">Shipped</span><b>' + fmt(t.shipped) + '</b><small>' + d.days + ' days</small></div>'
       + '</div>'
       + (chips ? '<div class="fg-chips">' + chips + '</div>' : '')
+      + (t.belowMin ? '<div class="fl-note"><b>' + t.belowMin + ' product' + (t.belowMin === 1 ? ' is' : 's are') + ' below minimum:</b> '
+          + d.products.filter(function (p) { return p.belowMin; }).map(function (p) { return escapeHtml(p.name) + ' ' + fmt(p.onHand) + ' of ' + fmt(p.min); }).join(' · ') + '</div>'
+        : (t.withMin === 0 ? '<div class="muted small" style="margin:6px 0">No minimums set. Type one per product in the MinOnHand column of the FinishedGoods tab and anything under it is flagged here and in the weekly email.</div>' : ''))
       + (t.neverCounted ? '<div class="fl-note">' + t.neverCounted + ' product' + (t.neverCounted === 1 ? ' has' : 's have') + ' never been counted in storage. Type what is on the shelf below and record it — that becomes the number produced and shipped run from.</div>' : '')
       + '<div class="cap-wrap"><table class="fl-table fg-table"><thead><tr><th>Product</th><th class="r">Storage</th><th class="r">Made</th><th class="r">Shipped</th><th>Last count</th><th class="r">Count</th></tr></thead><tbody>'
       + d.products.map(function (p) {
           var by = Object.keys(p.shippedBy).map(function (c) { return c + ' ' + fmt(p.shippedBy[c]); }).join(' · ');
           var last = p.counted ? escapeHtml(p.lastCountedAt) + (p.lastVariance ? '<br><small class="' + (p.lastVariance > 0 ? 'inv-neg' : 'muted') + '">' + (p.lastVariance > 0 ? fmt(p.lastVariance) + ' short' : fmt(-p.lastVariance) + ' extra') + '</small>' : '') : '<span class="muted">never</span>';
-          return '<tr><td>' + escapeHtml(p.name) + '</td><td class="r"><b' + (p.onHand < 0 ? ' class="inv-neg"' : '') + '>' + fmt(p.onHand) + '</b></td>'
+          return '<tr><td>' + escapeHtml(p.name) + '</td><td class="r"><b' + (p.onHand < 0 || p.belowMin ? ' class="inv-neg"' : '') + '>' + fmt(p.onHand) + '</b>'
+            + (p.min !== null && p.min !== undefined ? '<br><small class="' + (p.belowMin ? 'inv-neg' : 'muted') + '">min ' + fmt(p.min) + '</small>' : '') + '</td>'
             + '<td class="r">' + fmt(p.produced) + '</td><td class="r">' + fmt(p.shipped) + (by ? '<br><small class="muted">' + escapeHtml(by) + '</small>' : '') + '</td>'
             + '<td>' + last + '</td><td class="r"><input type="number" inputmode="numeric" min="0" step="1" class="fg-count" data-fg="' + escapeHtml(p.id) + '" value="' + (FG.edits[p.id] !== undefined ? FG.edits[p.id] : '') + '" placeholder="—"></td></tr>';
         }).join('') + '</tbody></table></div>'
@@ -833,6 +840,7 @@
     var s = INV.summary;
     var stats = [
       { key: 'all',      n: s.materials,    label: 'materials' },
+      { key: 'stocktake', n: s.stocktake,   label: 'stocktake to-do', warn: s.stocktake > 0 },
       { key: 'never',    n: s.neverCounted, label: 'never counted', warn: s.neverCounted > 0 },
       { key: 'negative', n: s.negative,     label: 'negative',      warn: s.negative > 0 },
       { key: 'low',      n: s.low,          label: 'below reorder', warn: s.low > 0 },
@@ -860,6 +868,7 @@
                  .toLowerCase().indexOf(q) === -1) return false;
       switch (INV.filter) {
         case 'never':    return !m.lastCountedAt;
+        case 'stocktake': return !m.lastCountedAt || m.onHand < 0;
         case 'negative': return m.onHand < 0;
         case 'low':      return !!m.low;
         case 'drift':    return !!m.drifting;
@@ -1136,6 +1145,36 @@
 
 
   /* ---- WIP: opening work-in-progress baseline ---------------------------- */
+  /* Names every product with no floor count yet, one tap to start counting it.
+   * A backend older than 2.25 sends no list, and then nothing shows. */
+  var WIPNAG = { products: [], counted: null };
+  function renderWipNag() {
+    var box = el('wipNag'); if (!box) return;
+    if (!WIPNAG.counted) { box.hidden = true; return; }
+    var missing = WIPNAG.products.filter(function (p) {
+      return WIPNAG.counted.indexOf(p.id) === -1 && (LINES[p.line] || []).length >= 2;
+    });
+    if (!missing.length) { box.hidden = true; return; }
+    box.innerHTML = '<b>' + missing.length + ' product' + (missing.length === 1 ? ' has' : 's have')
+      + ' no floor count yet.</b> Tap one to count it, or walk the whole floor.'
+      + '<div class="wip-nag__list">' + missing.map(function (p) {
+          return '<button type="button" class="inv-chip" data-wipnag="' + escapeHtml(p.id) + '">' + escapeHtml(p.name) + '</button>';
+        }).join('') + '</div>';
+    box.hidden = false;
+    box.querySelectorAll('[data-wipnag]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (WALK.on) el('walkToggle').click();
+        el('wipProduct').value = b.getAttribute('data-wipnag');
+        buildWipRows();
+        el('wipProduct').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    });
+  }
+  function markWipCounted(ids) {
+    if (!WIPNAG.counted) return;
+    ids.forEach(function (id) { if (id && WIPNAG.counted.indexOf(id) === -1) WIPNAG.counted.push(id); });
+    renderWipNag();
+  }
   /* The first stage of a line is deliberately absent. On a variant line its
    * input is the shared blank pool, which the backend already derives from the
    * feeder; on a Blank line it is raw foam, which isn't tracked as WIP. */
@@ -1227,6 +1266,7 @@
                 + p.piles.reduce(function (a, x) { return a + x.qty; }, 0) + ' on the floor</span></li>';
             }).join('') + '</ul>';
         el('wipResult').hidden = false;
+        markWipCounted((d.products || []).map(function (p) { return p.productId || p.id; }));
         toast('Floor walk recorded');
       })
       .catch(function (err) { toast('⚠ ' + err.message); })
@@ -1258,6 +1298,7 @@
           + 'now starts from. Anything logged before this moment is superseded, so '
           + 'the same units are not counted twice.</div>';
         box.hidden = false;
+        markWipCounted([d.productId]);
         toast('Opening WIP recorded');
       })
       .catch(function (err) { toast('⚠ ' + err.message); })
@@ -1816,6 +1857,40 @@
       }).then(function () { btn.disabled = false; });
     });
   });
+
+  /* Shipped quantity per month, product and channel, from the raw ShipLog. */
+  var shipMonthlyBtn = el('shipMonthlyBtn');
+  if (shipMonthlyBtn) shipMonthlyBtn.addEventListener('click', function () {
+    shipMonthlyBtn.disabled = true;
+    el('exportNote').textContent = 'Fetching shipments…';
+    api({ action: 'export', table: 'shiplog' }, 60000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Export failed');
+      var rows = shipMonthlyRows(d.headers, d.rows);
+      var stamp = new Date().toISOString().slice(0, 10);
+      downloadText('aquamentor-shipped-by-month-' + stamp + '.csv',
+        toCsv(['Month', 'ProductID', 'ProductName', 'Channel', 'Qty'], rows));
+      el('exportNote').textContent = rows.length + ' month × product × channel rows downloaded.';
+    }).catch(function (err) {
+      el('exportNote').textContent = '⚠ ' + err.message;
+    }).then(function () { shipMonthlyBtn.disabled = false; });
+  });
+  function shipMonthlyRows(headers, rows) {
+    var c = function (h) { return headers.indexOf(h); };
+    var iDate = c('ShipDate'), iTs = c('Timestamp'), iId = c('ProductID'), iName = c('ProductName'), iCh = c('Channel'), iQty = c('Qty');
+    var agg = {}, names = {};
+    rows.forEach(function (r) {
+      var d = String((iDate !== -1 && r[iDate]) || (iTs !== -1 && r[iTs]) || '');
+      var parsed = /^\d{4}-\d{2}/.test(d) ? d.slice(0, 7) : (isNaN(new Date(d)) ? '' : new Date(d).toISOString().slice(0, 7));
+      var month = parsed || 'unknown', id = String(r[iId] || ''), ch = String(r[iCh] || 'Other');
+      var key = month + '\u0001' + id + '\u0001' + ch;
+      agg[key] = (agg[key] || 0) + (Number(r[iQty]) || 0);
+      if (!names[id]) names[id] = String(r[iName] || '');
+    });
+    return Object.keys(agg).sort().reverse().map(function (k) {
+      var p = k.split('\u0001');
+      return [p[0], p[1], names[p[1]], p[2], Math.round(agg[k] * 100) / 100];
+    });
+  }
 
   /* ---- Buy: what the committed work needs ------------------------------- */
   /* The Overview's reorder list answers "what is low". This answers the
