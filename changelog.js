@@ -2,6 +2,12 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '2.25.0', date: '2026-09-27', title: 'Stocktake, minimums, floor counts', items: [
+    { who: 'mgr',  text: 'Inventory: a Stocktake to-do filter lists every material that has never been counted or sits below zero. Count those once and the numbers start meaning something.' },
+    { who: 'mgr',  text: 'Finished goods: type a minimum per product in the MinOnHand column of the FinishedGoods tab. Anything under it turns red here and is listed in the weekly email.' },
+    { who: 'crew', text: 'WIP tab names every product that has never had a floor count. Tap one to count it.' },
+    { who: 'mgr',  text: 'Summary exports: Shipments (every row) and Shipped by month (per product and channel), as spreadsheets.' }
+  ]},
   { version: '2.24.3', date: '2026-09-25', title: 'A shorter sheet menu', items: [
     { who: 'mgr',  text: 'The sheet\'s Aquamentor menu is five everyday actions plus Settings, Schedules and Maintenance. Each schedule is one item: tap it to switch on or off.' }
   ]},

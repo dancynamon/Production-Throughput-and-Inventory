@@ -134,6 +134,8 @@
         <button type="button" class="export__btn" data-export="materials">Materials now</button>
         <button type="button" class="export__btn" data-export="wipbase">WIP baselines</button>
         <button type="button" class="export__btn" data-export="bom">Recipes</button>
+        <button type="button" class="export__btn" data-export="shiplog">Shipments</button>
+        <button type="button" class="export__btn" id="shipMonthlyBtn">Shipped by month</button>
       </div>
       <p class="sum-note" id="exportNote">Each button downloads the whole tab as a .csv file.</p>
     </div>
@@ -207,6 +209,7 @@
       <input id="invSearch" type="search" class="inv-search" placeholder="Find a material…" autocomplete="off">
       <div class="inv-chips" id="invFilters">
         <button type="button" class="inv-chip inv-chip--on" data-filter="all">All</button>
+        <button type="button" class="inv-chip" data-filter="stocktake">Stocktake to-do</button>
         <button type="button" class="inv-chip" data-filter="never">Never counted</button>
         <button type="button" class="inv-chip" data-filter="negative">Negative</button>
         <button type="button" class="inv-chip" data-filter="low">Below reorder</button>
@@ -238,6 +241,7 @@
       Zero is a real answer — leave it at 0 if the station is clear.</p>
     <label class="field"><span>Who are you?</span><select id="wipEmployee" required></select></label>
     <label class="field"><span>Notes (optional)</span><input id="wipNotes" type="text" placeholder="Monday morning walk…"></label>
+    <div id="wipNag" class="fl-note wip-nag" hidden></div>
     <button type="button" id="walkToggle" class="inv-mini walk-toggle">Walk the whole floor instead</button>
 
     <form id="wipForm" autocomplete="off">
