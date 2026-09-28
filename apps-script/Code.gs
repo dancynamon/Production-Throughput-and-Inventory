@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-25 15:10 UTC      version 2.24.2
+ *  BUILD:  2026-09-28 17:30 UTC      version 2.25.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -70,7 +70,7 @@ var TAB = {
  * as WIP at all.
  */
 var WIPBASE_HEADERS = ['Timestamp', 'ProductID', 'ProductName', 'Stage',
-                       'WaitingBefore', 'CountedBy', 'Notes'];
+                       'WaitingBefore', 'CountedBy', 'Notes', 'EstimatedAtCount'];
 
 // Pseudo-stage marking units past the final stage — finished, not yet shipped.
 var WIP_FINISHED = '(finished)';
@@ -142,7 +142,7 @@ function checkPin(name, pin) {
   if (name) {
     var stored = null;
     try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; }
-    if (stored) return withToken({ ok: stored === pinHash(pin), name: name, personal: true });
+    if (stored) return withToken({ ok: stored === pinHash(pin), name: name, personal: true, view: personView(name) });
   }
   // No personal PIN on file for that name (or no name): the shared one.
   return withToken({ ok: pin === managerPin(), name: name || '', personal: false });
@@ -232,12 +232,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.25.0';
+var BACKEND_VERSION = '2.25.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-27 16:20 UTC';
+var BUILD_STAMP = '2026-09-28 17:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -887,7 +887,7 @@ function applySchemaUpgrades() {
   if (!ss.getSheetByName(TAB.wipbase)) {
     writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
     did.push('created WipBaseline');
-  }
+  } else addColumns(TAB.wipbase, ['EstimatedAtCount']);   // the app's guess beside the count
   if (!ss.getSheetByName(TAB.finished)) { finishedSheet(ss); did.push('created FinishedGoods'); }
   else { addColumns(TAB.finished, FINISHED_HEADERS); finishedSheet(ss); }
   if (!ss.getSheetByName(TAB.shiplog)) { writeTab(ss, TAB.shiplog, SHIPLOG_HEADERS, []); did.push('created ShipLog'); }
@@ -1017,6 +1017,7 @@ function doGet(e) {
     else if (action === 'ship')      result = shipOut(p);
     else if (action === 'finished')  result = getFinished(p);
     else if (action === 'countFinished') result = countFinished(p);
+    else if (action === 'reconcile') result = getReconcile();
     else if (action === 'salesImport') result = salesImport(p);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
@@ -2026,7 +2027,7 @@ function setGuideReaders() {
   SpreadsheetApp.getActive().toast('Manager guide readers: ' + guideReaders().join(', '), 'Aquamentor', 6);
 }
 /*GUIDE:BEGIN*/
-var MANAGER_GUIDE_HTML = "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Aquamentor Manager Guide</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap\">\n<style>\n:root{\n  --bg:#f6f4ee; --surface:#ffffff; --surface2:#f1ede4; --ink:#1a2233; --ink2:#4d5566; --muted:#6f6a60;\n  --line:#e2ddd2; --navy:#14213d; --navy-ink:#f6f3ea; --sand:#b9862f; --sand-soft:#f4e9d2;\n  --good:#1f7a3f; --warn:#b5651d; --crit:#b3261e;\n}\n@media (prefers-color-scheme: dark){\n  :root:not([data-theme=\"light\"]){\n    --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n    --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n  }\n}\n:root[data-theme=\"dark\"]{\n  --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n  --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n}\n*{box-sizing:border-box}\nbody{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 \"Source Sans 3\",system-ui,-apple-system,\"Segoe UI\",sans-serif}\n.wrap{max-width:720px;margin:0 auto;padding-inline:20px;padding-block:0 56px}\nh1,h2,h3{font-family:\"Archivo\",system-ui,sans-serif;text-wrap:balance;margin:0}\n.band{background:var(--navy);color:var(--navy-ink);margin-inline:-20px;padding:26px 20px 22px}\n.band .wrap{padding-block:0}\n.band .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(246,243,234,.6)}\n.band h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:4px}\n.band p{margin:10px 0 0;color:rgba(246,243,234,.8);max-width:58ch}\n.band a{color:var(--sand)}\n.band a.app-link,.app-link{display:inline-block;margin-top:14px;background:var(--sand);color:#1a1408;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:8px}\n.band a.app-link:hover{background:#d2a24f;color:#1a1408}\nnav.toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.9rem;margin:18px 0 6px;padding:10px 0;border-bottom:1px solid var(--line)}\nnav.toc a{color:var(--ink2);text-decoration:none;font-weight:600}\nnav.toc a:hover{color:var(--sand)}\nsection{margin-top:34px;scroll-margin-top:12px}\nh2{font-size:1.35rem;font-weight:700;letter-spacing:-.01em;padding-bottom:6px;border-bottom:2px solid var(--sand);display:inline-block}\nh3{font-size:1.05rem;margin-top:22px}\np{margin:10px 0;max-width:66ch}\nul,ol{max-width:66ch;padding-left:22px}\nli{margin:6px 0}\nli::marker{color:var(--sand);font-weight:700}\nb{color:var(--ink)}\n.steps{counter-reset:s;list-style:none;padding:0;max-width:none}\n.steps>li{counter-increment:s;display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}\n.steps>li:first-child{border-top:0}\n.steps>li::before{content:counter(s);font-family:\"Archivo\",system-ui,sans-serif;font-weight:700;font-size:1rem;width:32px;height:32px;border-radius:50%;background:var(--navy);color:var(--navy-ink);display:flex;align-items:center;justify-content:center}\n.steps>li>p{grid-column:2;margin:4px 0 0}\n.steps>li::before{grid-column:1;grid-row:1}\n.steps>li p:first-child{margin-top:4px;font-weight:600}\n.fig{display:flex;gap:16px;align-items:flex-start;margin:16px 0;flex-wrap:wrap}\n.fig img{width:min(100%,280px);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px -14px rgba(20,33,61,.4);background:#fff}\n.fig figcaption{flex:1;min-width:220px;font-size:.92rem;color:var(--ink2);max-width:40ch}\n.fig figcaption b{display:block;color:var(--ink);margin-bottom:4px}\nfigure{margin:0}\n.callout{background:var(--sand-soft);border-left:4px solid var(--sand);border-radius:8px;padding:10px 14px;margin:14px 0;font-size:.95rem;max-width:66ch}\n.callout.no{background:color-mix(in srgb,var(--crit) 10%,var(--surface));border-left-color:var(--crit)}\n.callout b:first-child{display:block;margin-bottom:2px}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}\n.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}\n.card h4{font-family:\"Archivo\",system-ui,sans-serif;font-size:.95rem;margin:0 0 4px}\n.card p{font-size:.92rem;margin:0;color:var(--ink2)}\n.routine{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 14px 10px;margin:14px 0}\n.routine h3{margin-top:10px}\n.routine li{font-size:.95rem}\n.kbd{display:inline-block;font-size:.85em;padding:1px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:var(--surface);font-weight:600;white-space:nowrap}\ntable{border-collapse:collapse;width:100%;font-size:.93rem;margin:12px 0}\nth{text-align:left;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}\ntd{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}\n.tbl-wrap{overflow-x:auto}\nfooter{margin-top:40px;font-size:.85rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}\nfooter a{color:var(--sand)}\n@media print{.band{background:#fff;color:#000;margin:0;padding:0}.band p,.band .eyebrow{color:#333}.app-link,nav.toc{display:none}.fig img{width:200px}}\n</style>\n</head>\n<body>\n\n<div class=\"band\"><div class=\"wrap\">\n  <div class=\"eyebrow\">Aquamentor Production · for Alex and John</div>\n  <h1>Running the floor from the app</h1>\n  <p>Everything the crew does, plus the seven manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>\n  <a class=\"app-link\" href=\"https://prod-through-inv-3.dan-daf.workers.dev\" target=\"_blank\" rel=\"noopener\">Open the app</a>\n</div></div>\n\n<div class=\"wrap\">\n<nav class=\"toc\">\n  <a href=\"#unlock\">Unlock</a><a href=\"#routine\">Daily and weekly</a><a href=\"#tabs\">The tabs</a><a href=\"#trust\">Reading the numbers</a>\n  <a href=\"#fixing\">Fixing entries</a><a href=\"#storage\">Storage and shipping</a><a href=\"#counts\">Counts</a><a href=\"#faq\">When something looks wrong</a>\n</nav>\n\n<section id=\"unlock\">\n  <h2>Unlock</h2>\n  <ol class=\"steps\">\n    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and seven more tabs appear.</p></li>\n    <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>\n  </ol>\n  <div class=\"callout\"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a>.</div>\n</section>\n\n<section id=\"routine\">\n  <h2>Daily and weekly</h2>\n  <div class=\"routine\">\n    <h3>Every day, end of shift · 5 minutes</h3>\n    <ol>\n      <li><b>Floor tab.</b> Where work is piling up, worst first. Anything red means five or more days to clear at the logged pace. Read the \"how much to trust this\" list at the bottom before you act on a pile.</li>\n      <li><b>Summary → Fix-ups.</b> Any entry logged twice shows here with a Reverse button. Tap it if it was a double-tap. Leave it if it was a real second batch.</li>\n      <li><b>Overview.</b> Tomorrow's suggested numbers per station. Tap a target to change it.</li>\n      <li><b>Receive</b> any deliveries that came in today.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Every Monday · 20 minutes</h3>\n    <ol>\n      <li><b>Inventory → Stocktake to-do.</b> Until it reads zero, count a few of these each week: every material never counted or below zero.</li>\n      <li><b>Inventory → Count next.</b> Five materials the app most wants counted. Count them, type the real number, record.</li>\n      <li><b>Inventory → Finished goods.</b> Count what's physically in storage per product and record it. Anything under its minimum is red; set minimums in the MinOnHand column of the sheet's FinishedGoods tab.</li>\n      <li><b>Buy.</b> Anything under \"Order these\" grouped by supplier. <b>Copy order list</b> gives you the PO lines. Pass to Dan or place the order.</li>\n      <li><b>Capacity.</b> Check the bottleneck per line and the crew rates. If a rate says \"no hours\", ask that person to log hours next week.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Monthly, or whenever the piles look wrong</h3>\n    <ol>\n      <li><b>WIP → Walk the whole floor.</b> Count every pile at every station in one pass and submit once. This resets the pipeline to reality and clears every \"logged out of order\" warning.</li>\n    </ol>\n  </div>\n</section>\n\n<section id=\"tabs\">\n  <h2>The tabs</h2>\n  <div class=\"tbl-wrap\"><table>\n    <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>\n    <tbody>\n      <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>\n      <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated entries under Fix-ups. Export CSVs.</td></tr>\n      <tr><td><b>Overview</b></td><td>What's done, what's waiting, what should each station do tomorrow?</td><td>Tap a target number to change it.</td></tr>\n      <tr><td><b>Capacity</b></td><td>What's the bottleneck, when could an order ship, who's fastest at what?</td><td>Use the promise calculator: product + quantity → working days and a date.</td></tr>\n      <tr><td><b>Receive</b></td><td>A delivery arrived. Put it on the shelf.</td><td>Material, quantity, PO number. Recent deliveries listed below.</td></tr>\n      <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>\n      <tr><td><b>WIP</b></td><td>What's physically at each station right now?</td><td>Walk the floor and count. Resets the piles.</td></tr>\n      <tr><td><b>Buy</b></td><td>What runs out, when, and how much to order?</td><td>Order lists per supplier. \"Order by\" dates once lead times are filled in.</td></tr>\n    </tbody>\n  </table></div>\n  <figure class=\"fig\">\n    <img src=\"help/img/floor.png\" alt=\"Manager Floor tab with piles, pace by station, finished per day and a trust list\">\n    <figcaption><b>Floor, manager view</b>The crew sees only their own pace here. You see the whole shop.</figcaption>\n  </figure>\n  <figure class=\"fig\">\n    <img src=\"help/img/buy-orderby.png\" alt=\"Buy tab with a supplier group, a shortfall and an order-by line\">\n    <figcaption><b>Buy</b>Short means the work already on the floor needs more than the shelf holds. \"Order today\" means you're late.</figcaption>\n  </figure>\n</section>\n\n<section id=\"trust\">\n  <h2>Reading the numbers</h2>\n  <ul>\n    <li><b>\"12 short\" / \"5 extra.\"</b> Every difference is in words, never a signed number. Short means the shelf had less than the recipe predicted. Extra means more.</li>\n    <li><b>Pace is per active day.</b> Units divided by the days that station logged anything. Hours are thin, so units per hour is only shown where hours were entered.</li>\n    <li><b>Days to clear.</b> What's waiting at a station divided by that station's pace. No pace yet means nobody has logged that station recently.</li>\n    <li><b>\"Stages logged out of order.\"</b> More units logged at a later station than at the one before it. Someone skipped a station on the phone, or the pile existed before the app did. The pile size is a guess until you walk the floor.</li>\n    <li><b>Likely duplicates.</b> Same person, product, station, quantity and day saved more than once. The Floor tab leaves them out of the numbers. Fix-ups on Summary is where you reverse them.</li>\n    <li><b>Never counted.</b> A material or product with no physical count yet. The first count sets the baseline. The variance on that first count means nothing; the second count is where drift becomes readable.</li>\n    <li><b>Confidence on Capacity.</b> \"Thin\" or \"partial\" means few days or few stations have a rate. Treat the promise date as rough.</li>\n  </ul>\n</section>\n\n<section id=\"fixing\">\n  <h2>Fixing entries</h2>\n  <div class=\"grid\">\n    <div class=\"card\"><h4>Double-tap or wrong number</h4><p>Log My Day → set the date → tap the chip under Today's totals → how many to take back and why. Materials go back too.</p></div>\n    <div class=\"card\"><h4>Repeated entries across days</h4><p>Summary → Fix-ups. One Reverse button per repeat. Reverses the extra copies only.</p></div>\n    <div class=\"card\"><h4>Piles that don't match the floor</h4><p>WIP → Walk the whole floor. Counts win over the log from that moment on.</p></div>\n    <div class=\"card\"><h4>Shelf numbers that don't match</h4><p>Inventory → type the real count → Record. The estimate restarts from your number and the variance is filed.</p></div>\n  </div>\n  <div class=\"callout no\"><b>Never edit the sheet's log tabs by hand.</b> Deleting a row fixes the count but leaves the materials deducted forever. Every fix above puts things back properly.</div>\n</section>\n\n<section id=\"storage\">\n  <h2>Storage and shipping</h2>\n  <figure class=\"fig\">\n    <img src=\"help/img/finished.png\" alt=\"Finished goods panel on the Inventory tab with storage, made, shipped and count columns\">\n    <figcaption><b>Finished goods</b>Top of the Inventory tab. Storage per product, made and shipped in the last 30 days, split by channel, last count, and a box to record a new count.</figcaption>\n  </figure>\n  <p>When a tube is logged as <b>Boxed</b> (or a chair or mat as Box) it lands in storage automatically. It leaves storage three ways:</p>\n  <ul>\n    <li><b>The crew's Ship tab.</b> Product, quantity, channel, order number. This is the everyday path.</li>\n    <li><b>Shopify, automatically.</b> Fulfilled orders come in on their own every hour once Dan connects the store.</li>\n    <li><b>Amazon and QuickBooks orders.</b> Dan imports these from reports. If a shipment is already on file, importing it again changes nothing.</li>\n  </ul>\n  <p>Produced minus shipped should equal what's in storage. When you count storage, the difference is the variance, and it's the number that tells you whether shipments are being recorded.</p>\n</section>\n\n<section id=\"counts\">\n  <h2>Counts</h2>\n  <ol class=\"steps\">\n    <li><p>Pick who you are at the top of the form.</p><p>Counts are signed. Yours goes on the record.</p></li>\n    <li><p>Type only the numbers you actually counted.</p><p>A blank box means \"didn't count\", and that material is left alone. Zero means \"I looked and there's none\", and that counts.</p></li>\n    <li><p>Watch the difference appear as you type.</p><p>\"That can't be right\" costs nothing at the shelf and a walk back from the desk.</p></li>\n    <li><p>Record.</p><p>The estimate restarts from your number. Materials that miss the same way every time are the ones whose recipe is wrong; tell Dan.</p></li>\n  </ol>\n  <div class=\"callout\"><b>Count next</b> on Inventory picks the five materials whose count is worth the most right now: never counted, negative, or drifting. Start there on Monday.</div>\n</section>\n\n<section id=\"faq\">\n  <h2>When something looks wrong</h2>\n  <ul>\n    <li><b>A tab says \"Unknown action\" or \"backend is older than this app.\"</b> The sheet's code is behind. It updates itself within 30 minutes of a change. Wait, then reload. If it persists, tell Dan.</li>\n    <li><b>The footer says app and backend on different versions.</b> Normal for a few minutes after a change. Reload twice.</li>\n    <li><b>You got locked out.</b> A PIN changed, or Dan reset something. Tap 🔒 and unlock again.</li>\n    <li><b>A number is negative.</b> Materials: no opening count was ever taken. Storage: more shipped than was logged as finished. Count it, and the number resets.</li>\n    <li><b>The crew's entries look inflated.</b> Check Summary → Fix-ups first. Then the Floor tab's trust list.</li>\n    <li><b>The crew asks what changed.</b> The What's new tab is yours, not theirs: a dot on it means a version landed since you last looked. Tell them the crew lines in your own words.</li>\n    <li><b>Something else.</b> Tell Dan what tab, what you tapped, and what it said. A screenshot is the fastest way.</li>\n  </ul>\n</section>\n\n<footer>Aquamentor Production · <a href=\"https://prod-through-inv-3.dan-daf.workers.dev\">Open the app</a> · What changed: the What's new tab · <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a></footer>\n</div>\n\n</body>\n</html>\n";
+var MANAGER_GUIDE_HTML = "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Aquamentor Manager Guide</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap\">\n<style>\n:root{\n  --bg:#f6f4ee; --surface:#ffffff; --surface2:#f1ede4; --ink:#1a2233; --ink2:#4d5566; --muted:#6f6a60;\n  --line:#e2ddd2; --navy:#14213d; --navy-ink:#f6f3ea; --sand:#b9862f; --sand-soft:#f4e9d2;\n  --good:#1f7a3f; --warn:#b5651d; --crit:#b3261e;\n}\n@media (prefers-color-scheme: dark){\n  :root:not([data-theme=\"light\"]){\n    --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n    --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n  }\n}\n:root[data-theme=\"dark\"]{\n  --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n  --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n}\n*{box-sizing:border-box}\nbody{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 \"Source Sans 3\",system-ui,-apple-system,\"Segoe UI\",sans-serif}\n.wrap{max-width:720px;margin:0 auto;padding-inline:20px;padding-block:0 56px}\nh1,h2,h3{font-family:\"Archivo\",system-ui,sans-serif;text-wrap:balance;margin:0}\n.band{background:var(--navy);color:var(--navy-ink);margin-inline:-20px;padding:26px 20px 22px}\n.band .wrap{padding-block:0}\n.band .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(246,243,234,.6)}\n.band h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:4px}\n.band p{margin:10px 0 0;color:rgba(246,243,234,.8);max-width:58ch}\n.band a{color:var(--sand)}\n.band a.app-link,.app-link{display:inline-block;margin-top:14px;background:var(--sand);color:#1a1408;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:8px}\n.band a.app-link:hover{background:#d2a24f;color:#1a1408}\nnav.toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.9rem;margin:18px 0 6px;padding:10px 0;border-bottom:1px solid var(--line)}\nnav.toc a{color:var(--ink2);text-decoration:none;font-weight:600}\nnav.toc a:hover{color:var(--sand)}\nsection{margin-top:34px;scroll-margin-top:12px}\nh2{font-size:1.35rem;font-weight:700;letter-spacing:-.01em;padding-bottom:6px;border-bottom:2px solid var(--sand);display:inline-block}\nh3{font-size:1.05rem;margin-top:22px}\np{margin:10px 0;max-width:66ch}\nul,ol{max-width:66ch;padding-left:22px}\nli{margin:6px 0}\nli::marker{color:var(--sand);font-weight:700}\nb{color:var(--ink)}\n.steps{counter-reset:s;list-style:none;padding:0;max-width:none}\n.steps>li{counter-increment:s;display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}\n.steps>li:first-child{border-top:0}\n.steps>li::before{content:counter(s);font-family:\"Archivo\",system-ui,sans-serif;font-weight:700;font-size:1rem;width:32px;height:32px;border-radius:50%;background:var(--navy);color:var(--navy-ink);display:flex;align-items:center;justify-content:center}\n.steps>li>p{grid-column:2;margin:4px 0 0}\n.steps>li::before{grid-column:1;grid-row:1}\n.steps>li p:first-child{margin-top:4px;font-weight:600}\n.fig{display:flex;gap:16px;align-items:flex-start;margin:16px 0;flex-wrap:wrap}\n.fig img{width:min(100%,280px);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px -14px rgba(20,33,61,.4);background:#fff}\n.fig figcaption{flex:1;min-width:220px;font-size:.92rem;color:var(--ink2);max-width:40ch}\n.fig figcaption b{display:block;color:var(--ink);margin-bottom:4px}\nfigure{margin:0}\n.callout{background:var(--sand-soft);border-left:4px solid var(--sand);border-radius:8px;padding:10px 14px;margin:14px 0;font-size:.95rem;max-width:66ch}\n.callout.no{background:color-mix(in srgb,var(--crit) 10%,var(--surface));border-left-color:var(--crit)}\n.callout b:first-child{display:block;margin-bottom:2px}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}\n.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}\n.card h4{font-family:\"Archivo\",system-ui,sans-serif;font-size:.95rem;margin:0 0 4px}\n.card p{font-size:.92rem;margin:0;color:var(--ink2)}\n.routine{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 14px 10px;margin:14px 0}\n.routine h3{margin-top:10px}\n.routine li{font-size:.95rem}\n.kbd{display:inline-block;font-size:.85em;padding:1px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:var(--surface);font-weight:600;white-space:nowrap}\ntable{border-collapse:collapse;width:100%;font-size:.93rem;margin:12px 0}\nth{text-align:left;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}\ntd{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}\n.tbl-wrap{overflow-x:auto}\nfooter{margin-top:40px;font-size:.85rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}\nfooter a{color:var(--sand)}\n@media print{.band{background:#fff;color:#000;margin:0;padding:0}.band p,.band .eyebrow{color:#333}.app-link,nav.toc{display:none}.fig img{width:200px}}\n</style>\n</head>\n<body>\n\n<div class=\"band\"><div class=\"wrap\">\n  <div class=\"eyebrow\">Aquamentor Production · for Alex and John</div>\n  <h1>Running the floor from the app</h1>\n  <p>Everything the crew does, plus the eight manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>\n  <a class=\"app-link\" href=\"https://prod-through-inv-3.dan-daf.workers.dev\" target=\"_blank\" rel=\"noopener\">Open the app</a>\n</div></div>\n\n<div class=\"wrap\">\n<nav class=\"toc\">\n  <a href=\"#unlock\">Unlock</a><a href=\"#reconcile\">Reconcile</a><a href=\"#routine\">Daily and weekly</a><a href=\"#tabs\">The tabs</a><a href=\"#trust\">Reading the numbers</a>\n  <a href=\"#fixing\">Fixing entries</a><a href=\"#storage\">Storage and shipping</a><a href=\"#counts\">Counts</a><a href=\"#faq\">When something looks wrong</a>\n</nav>\n\n<section id=\"unlock\">\n  <h2>Unlock</h2>\n  <ol class=\"steps\">\n    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and the manager tabs appear.</p></li>\n    <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>\n  </ol>\n  <div class=\"callout\"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a>.</div>\n</section>\n\n<section id=\"reconcile\">\n  <h2>Reconcile: the weekly loop</h2>\n  <p>If your job in the app is keeping the numbers honest, this is the only tab you need. Once a week, three counts, then a read on how the crew's entries held up against what was actually there.</p>\n  <figure class=\"fig\">\n    <img src=\"help/img/reconcile.png\" alt=\"Reconcile tab: three numbered count steps marked due or done, then Floor, Shelf and Storage cards scoring the app's estimate against the count\">\n    <figcaption><b>Reconcile</b>Top: what is due. Bottom: worst misses first, in words. Short means the count found less than the app said, extra means more.</figcaption>\n  </figure>\n  <ol class=\"steps\">\n    <li><p>Count the floor.</p><p>Opens the whole-floor walk. Every product, every station, how many are waiting. Zero is a real answer. Tick \"not walked\" on anything you did not get to.</p></li>\n    <li><p>Count the shelf.</p><p>Opens Inventory on the five materials the app most wants counted. Type what is there, leave the rest blank, Record.</p></li>\n    <li><p>Count storage.</p><p>Opens the finished-goods panel. What is physically boxed per product. Record.</p></li>\n    <li><p>Read the cards.</p><p>Floor: the app's pile at each station beside what you counted. Shelf: the recipe's estimate beside the count. Storage: the count, then what was made and shipped since. Anything within 10% is close. The rest is either a station someone is not logging, a recipe that is wrong, or a shipment nobody recorded.</p></li>\n  </ol>\n  <div class=\"callout\"><b>The count-only view.</b> Dan can set a person to see only Log My Day, Ship and Reconcile (sheet menu → Settings → Set a person's view). Everything in this guide still applies; the other tabs are simply out of the way.</div>\n</section>\n\n<section id=\"routine\">\n  <h2>Daily and weekly</h2>\n  <div class=\"routine\">\n    <h3>Every day, end of shift · 5 minutes</h3>\n    <ol>\n      <li><b>Floor tab.</b> Where work is piling up, worst first. Anything red means five or more days to clear at the logged pace. Read the \"how much to trust this\" list at the bottom before you act on a pile.</li>\n      <li><b>Summary → Fix-ups.</b> Any entry logged twice shows here with a Reverse button. Tap it if it was a double-tap. Leave it if it was a real second batch.</li>\n      <li><b>Overview.</b> Tomorrow's suggested numbers per station. Tap a target to change it.</li>\n      <li><b>Receive</b> any deliveries that came in today.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Every Monday · 20 minutes</h3>\n    <ol>\n      <li><b>Reconcile.</b> The three counts (floor, shelf, storage) and the scorecard. Fifteen of the twenty minutes go here.</li>\n      <li><b>Inventory → Stocktake to-do.</b> Until it reads zero, count a few of these each week: every material never counted or below zero.</li>\n      <li><b>Inventory → Finished goods.</b> Count what's physically in storage per product and record it. Anything under its minimum is red; set minimums in the MinOnHand column of the sheet's FinishedGoods tab.</li>\n      <li><b>Buy.</b> Anything under \"Order these\" grouped by supplier. <b>Copy order list</b> gives you the PO lines. Pass to Dan or place the order.</li>\n      <li><b>Capacity.</b> Check the bottleneck per line and the crew rates. If a rate says \"no hours\", ask that person to log hours next week.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Monthly, or whenever the piles look wrong</h3>\n    <ol>\n      <li><b>WIP → Walk the whole floor.</b> Count every pile at every station in one pass and submit once. This resets the pipeline to reality and clears every \"logged out of order\" warning.</li>\n    </ol>\n  </div>\n</section>\n\n<section id=\"tabs\">\n  <h2>The tabs</h2>\n  <div class=\"tbl-wrap\"><table>\n    <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>\n    <tbody>\n      <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons, then read the cards. The weekly loop.</td></tr>\n      <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>\n      <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated entries under Fix-ups. Export CSVs.</td></tr>\n      <tr><td><b>Overview</b></td><td>What's done, what's waiting, what should each station do tomorrow?</td><td>Tap a target number to change it.</td></tr>\n      <tr><td><b>Capacity</b></td><td>What's the bottleneck, when could an order ship, who's fastest at what?</td><td>Use the promise calculator: product + quantity → working days and a date.</td></tr>\n      <tr><td><b>Receive</b></td><td>A delivery arrived. Put it on the shelf.</td><td>Material, quantity, PO number. Recent deliveries listed below.</td></tr>\n      <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>\n      <tr><td><b>WIP</b></td><td>What's physically at each station right now?</td><td>Walk the floor and count. Resets the piles.</td></tr>\n      <tr><td><b>Buy</b></td><td>What runs out, when, and how much to order?</td><td>Order lists per supplier. \"Order by\" dates once lead times are filled in.</td></tr>\n    </tbody>\n  </table></div>\n  <figure class=\"fig\">\n    <img src=\"help/img/floor.png\" alt=\"Manager Floor tab with piles, pace by station, finished per day and a trust list\">\n    <figcaption><b>Floor, manager view</b>The crew sees only their own pace here. You see the whole shop.</figcaption>\n  </figure>\n  <figure class=\"fig\">\n    <img src=\"help/img/buy-orderby.png\" alt=\"Buy tab with a supplier group, a shortfall and an order-by line\">\n    <figcaption><b>Buy</b>Short means the work already on the floor needs more than the shelf holds. \"Order today\" means you're late.</figcaption>\n  </figure>\n</section>\n\n<section id=\"trust\">\n  <h2>Reading the numbers</h2>\n  <ul>\n    <li><b>\"12 short\" / \"5 extra.\"</b> Every difference is in words, never a signed number. Short means the shelf had less than the recipe predicted. Extra means more.</li>\n    <li><b>Pace is per active day.</b> Units divided by the days that station logged anything. Hours are thin, so units per hour is only shown where hours were entered.</li>\n    <li><b>Days to clear.</b> What's waiting at a station divided by that station's pace. No pace yet means nobody has logged that station recently.</li>\n    <li><b>\"Stages logged out of order.\"</b> More units logged at a later station than at the one before it. Someone skipped a station on the phone, or the pile existed before the app did. The pile size is a guess until you walk the floor.</li>\n    <li><b>Likely duplicates.</b> Same person, product, station, quantity and day saved more than once. The Floor tab leaves them out of the numbers. Fix-ups on Summary is where you reverse them.</li>\n    <li><b>Never counted.</b> A material or product with no physical count yet. The first count sets the baseline. The variance on that first count means nothing; the second count is where drift becomes readable.</li>\n    <li><b>Confidence on Capacity.</b> \"Thin\" or \"partial\" means few days or few stations have a rate. Treat the promise date as rough.</li>\n  </ul>\n</section>\n\n<section id=\"fixing\">\n  <h2>Fixing entries</h2>\n  <div class=\"grid\">\n    <div class=\"card\"><h4>Double-tap or wrong number</h4><p>Log My Day → set the date → tap the chip under Today's totals → how many to take back and why. Materials go back too.</p></div>\n    <div class=\"card\"><h4>Repeated entries across days</h4><p>Summary → Fix-ups. One Reverse button per repeat. Reverses the extra copies only.</p></div>\n    <div class=\"card\"><h4>Piles that don't match the floor</h4><p>WIP → Walk the whole floor. Counts win over the log from that moment on.</p></div>\n    <div class=\"card\"><h4>Shelf numbers that don't match</h4><p>Inventory → type the real count → Record. The estimate restarts from your number and the variance is filed.</p></div>\n  </div>\n  <div class=\"callout no\"><b>Never edit the sheet's log tabs by hand.</b> Deleting a row fixes the count but leaves the materials deducted forever. Every fix above puts things back properly.</div>\n</section>\n\n<section id=\"storage\">\n  <h2>Storage and shipping</h2>\n  <figure class=\"fig\">\n    <img src=\"help/img/finished.png\" alt=\"Finished goods panel on the Inventory tab with storage, made, shipped and count columns\">\n    <figcaption><b>Finished goods</b>Top of the Inventory tab. Storage per product, made and shipped in the last 30 days, split by channel, last count, and a box to record a new count.</figcaption>\n  </figure>\n  <p>When a tube is logged as <b>Boxed</b> (or a chair or mat as Box) it lands in storage automatically. It leaves storage three ways:</p>\n  <ul>\n    <li><b>The crew's Ship tab.</b> Product, quantity, channel, order number. This is the everyday path.</li>\n    <li><b>Shopify, automatically.</b> Fulfilled orders come in on their own every hour once Dan connects the store.</li>\n    <li><b>Amazon and QuickBooks orders.</b> Dan imports these from reports. If a shipment is already on file, importing it again changes nothing.</li>\n  </ul>\n  <p>Produced minus shipped should equal what's in storage. When you count storage, the difference is the variance, and it's the number that tells you whether shipments are being recorded.</p>\n</section>\n\n<section id=\"counts\">\n  <h2>Counts</h2>\n  <ol class=\"steps\">\n    <li><p>Pick who you are at the top of the form.</p><p>Counts are signed. Yours goes on the record.</p></li>\n    <li><p>Type only the numbers you actually counted.</p><p>A blank box means \"didn't count\", and that material is left alone. Zero means \"I looked and there's none\", and that counts.</p></li>\n    <li><p>Watch the difference appear as you type.</p><p>\"That can't be right\" costs nothing at the shelf and a walk back from the desk.</p></li>\n    <li><p>Record.</p><p>The estimate restarts from your number. Materials that miss the same way every time are the ones whose recipe is wrong; tell Dan.</p></li>\n  </ol>\n  <div class=\"callout\"><b>Count next</b> on Inventory picks the five materials whose count is worth the most right now: never counted, negative, or drifting. Start there on Monday.</div>\n</section>\n\n<section id=\"faq\">\n  <h2>When something looks wrong</h2>\n  <ul>\n    <li><b>A tab says \"Unknown action\" or \"backend is older than this app.\"</b> The sheet's code is behind. It updates itself within 30 minutes of a change. Wait, then reload. If it persists, tell Dan.</li>\n    <li><b>The footer says app and backend on different versions.</b> Normal for a few minutes after a change. Reload twice.</li>\n    <li><b>You got locked out.</b> A PIN changed, or Dan reset something. Tap 🔒 and unlock again.</li>\n    <li><b>A number is negative.</b> Materials: no opening count was ever taken. Storage: more shipped than was logged as finished. Count it, and the number resets.</li>\n    <li><b>The crew's entries look inflated.</b> Check Summary → Fix-ups first. Then the Floor tab's trust list.</li>\n    <li><b>The crew asks what changed.</b> The What's new tab is yours, not theirs: a dot on it means a version landed since you last looked. Tell them the crew lines in your own words.</li>\n    <li><b>Something else.</b> Tell Dan what tab, what you tapped, and what it said. A screenshot is the fastest way.</li>\n  </ul>\n</section>\n\n<footer>Aquamentor Production · <a href=\"https://prod-through-inv-3.dan-daf.workers.dev\">Open the app</a> · What changed: the What's new tab · <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a></footer>\n</div>\n\n</body>\n</html>\n";
 /*GUIDE:END*/
 
 function getMyPace(p) {
@@ -2169,19 +2170,35 @@ function reverseEntry(p) {
  * queued at Paint 2" is a real measurement, not a blank — so every valid
  * stage is written, not just the ones with a number in them. Shared by the
  * single-product form and the whole-floor walk. */
-function writeWipRows(sh, product, valid, piles, employee, notes, now) {
+function writeWipRows(sh, product, valid, piles, employee, notes, now, estimates) {
   var written = [];
   valid.forEach(function (stage) {
     var raw = piles[stage];
     var qty = (raw === '' || raw === null || raw === undefined) ? 0 : Number(raw);
     if (isNaN(qty) || qty < 0) qty = 0;
+    // What the app believed was there, frozen beside what was actually there.
+    // That pair is the whole point of the count: Reconcile scores it later.
+    var est = estimates && estimates[stage] !== undefined && estimates[stage] !== null ? estimates[stage] : '';
     appendByHeader(sh, {
       Timestamp: now, ProductID: product.ProductID, ProductName: product.ProductName,
-      Stage: stage, WaitingBefore: qty, CountedBy: employee, Notes: notes
+      Stage: stage, WaitingBefore: qty, CountedBy: employee, Notes: notes, EstimatedAtCount: est
     });
-    written.push({ stage: stage, qty: qty });
+    written.push({ stage: stage, qty: qty, estimated: est === '' ? null : est });
   });
   return written;
+}
+
+/* The app's current belief about every pile, keyed the way a walk is keyed:
+ * product → stage → units waiting before that stage, plus (finished). */
+function currentWaitingMap() {
+  var out = {};
+  computeOverview().forEach(function (pr) {
+    var m = {};
+    pr.stages.forEach(function (st) { if (st.waiting !== null && st.waiting !== undefined) m[st.stage] = st.waiting; });
+    m[WIP_FINISHED] = pr.finished;
+    out[pr.productId] = m;
+  });
+  return out;
 }
 
 /* The whole floor in one pass.
@@ -2220,11 +2237,11 @@ function submitWipWalk(p) {
     var sh = ss.getSheetByName(TAB.wipbase);
     if (!sh) sh = writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
 
-    var now = new Date(), recorded = [];
+    var now = new Date(), recorded = [], est = currentWaitingMap();
     ids.forEach(function (pid) {
       var product = byId[pid];
       var valid = stagesForLine(product.Line || 'Blank').concat([WIP_FINISHED]);
-      var written = writeWipRows(sh, product, valid, walk[pid] || {}, employee, notes, now);
+      var written = writeWipRows(sh, product, valid, walk[pid] || {}, employee, notes, now, est[pid]);
       recorded.push({ productId: pid, name: product.ProductName, piles: written });
     });
 
@@ -2497,7 +2514,7 @@ function submitWipBaseline(p) {
     if (!sh) sh = writeTab(ss, TAB.wipbase, WIPBASE_HEADERS, []);
 
     var now = new Date();
-    var written = writeWipRows(sh, product, valid, piles, employee, notes, now);
+    var written = writeWipRows(sh, product, valid, piles, employee, notes, now, currentWaitingMap()[productId]);
 
     var fresh = wipBaselineMap()[productId] || { completed: {} };
     return { ok: true, productId: productId, name: product.ProductName,
@@ -2887,6 +2904,7 @@ function onOpen() {
     .addSubMenu(ui.createMenu('Settings')
       .addItem('Set manager PIN…', 'setManagerPin')
       .addItem('Set a person\'s PIN…', 'setPersonPin')
+      .addItem('Set a person\'s view (count-only or full)…', 'setPersonView')
       .addItem('Set manager-guide readers…', 'setGuideReaders')
       .addItem('Set digest recipients…', 'setDigestRecipients')
       .addItem('Set Shopify access…', 'setShopifyAccess')
@@ -3277,6 +3295,159 @@ function getFinished(p) {
                      belowMin: products.filter(function (x) { return x.belowMin; }).length,
                      withMin: products.filter(function (x) { return x.min !== null; }).length },
            shopify: { configured: !!(shopifyCreds().shop && shopifyCreds().token), last: props ? (props.getProperty('SHOPIFY_LAST') || null) : null } };
+}
+
+
+/* ============================================================================
+ *  Reconcile — the weekly loop for whoever keeps the numbers honest
+ *  ---------------------------------------------------------------------------
+ *  Three counts (the floor, the shelf, storage), each scored against what the
+ *  app believed at the moment of the count. Every comparison here already
+ *  exists somewhere else in the app; this is the one screen that puts the
+ *  three side by side and says which is due. "Short" and "extra" are always
+ *  relative to the app's number: short means the count found less than the
+ *  app said, extra means more. Within 10% (or one unit) counts as close.
+ * ========================================================================== */
+function personView(name) {
+  var v = null;
+  try { v = PropertiesService.getScriptProperties().getProperty('VIEW:' + name); } catch (e) { v = null; }
+  return v === 'count' ? 'count' : 'full';
+}
+function setPersonView() {
+  var ui = SpreadsheetApp.getUi();
+  var names = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return String(r.Name || '').trim(); }).filter(Boolean);
+  var r1 = ui.prompt('Set a person\'s view', 'Name, exactly as on the Employees tab:\n' + names.join(', '), ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var name = String(r1.getResponseText() || '').trim();
+  if (names.indexOf(name) === -1) { ui.alert('Not set', name + ' is not an active name on the Employees tab.', ui.ButtonSet.OK); return; }
+  var r2 = ui.prompt('View for ' + name, 'Type COUNT for the count-only view (Log My Day, Ship, Reconcile) or FULL for every manager tab.\nNow: ' + personView(name), ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var v = String(r2.getResponseText() || '').trim().toLowerCase();
+  if (v !== 'count' && v !== 'full') { ui.alert('Not set', 'Answer COUNT or FULL.', ui.ButtonSet.OK); return; }
+  var props = PropertiesService.getScriptProperties();
+  if (v === 'count') props.setProperty('VIEW:' + name, 'count'); else props.deleteProperty('VIEW:' + name);
+  SpreadsheetApp.getActive().toast(name + ' now gets the ' + v + ' view (takes effect at their next unlock).', 'Aquamentor', 8);
+}
+
+function reconcileWords(estimated, counted) {
+  var v = round2(estimated - counted);
+  if (v === 0) return 'matched';
+  return String(Math.abs(v)) + (v > 0 ? ' short' : ' extra');
+}
+function reconcileClose(estimated, counted) {
+  var off = Math.abs(counted - estimated);
+  return off <= Math.max(1, Math.abs(estimated) * 0.10);
+}
+
+function getReconcile() {
+  var now = new Date();
+
+  /* ---- Floor: the latest walk per product, pile by pile ------------------ */
+  var active = {};
+  readObjects(TAB.products).forEach(function (r) { if (String(r.Active).toUpperCase() !== 'NO') active[r.ProductID] = r; });
+  var rows = readObjects(TAB.wipbase), newest = {};
+  rows.forEach(function (r) {
+    if (!r.ProductID || !r.Timestamp) return;
+    var t = new Date(r.Timestamp).getTime(); if (isNaN(t)) return;
+    if (!newest[r.ProductID] || t > newest[r.ProductID]) newest[r.ProductID] = t;
+  });
+  var walks = {};
+  rows.forEach(function (r) {
+    if (!r.ProductID || !r.Timestamp) return;
+    var t = new Date(r.Timestamp).getTime();
+    if (t !== newest[r.ProductID]) return;
+    var w = walks[r.ProductID] || (walks[r.ProductID] = { id: r.ProductID, name: r.ProductName, at: fmtDate(new Date(t)), ts: t, by: String(r.CountedBy || ''), stages: [] });
+    if (r.Stage === WIP_FINISHED) return;                // storage is scored by its own count
+    if (blankish(r.EstimatedAtCount)) return;           // walked before the app kept its guess
+    var est = Number(r.EstimatedAtCount) || 0, cnt = Number(r.WaitingBefore) || 0;
+    w.stages.push({ stage: r.Stage, estimated: est, counted: cnt, words: reconcileWords(est, cnt), close: reconcileClose(est, cnt) });
+  });
+  var floorProducts = [], flat = [], walkedAt = null, walkedTs = 0, walkedBy = '';
+  Object.keys(walks).forEach(function (pid) {
+    var w = walks[pid];
+    if (w.ts > walkedTs) { walkedTs = w.ts; walkedAt = w.at; walkedBy = w.by; }
+    w.compared = w.stages.length; w.close = w.stages.filter(function (x) { return x.close; }).length;
+    delete w.ts;
+    floorProducts.push(w);
+    w.stages.forEach(function (x) { flat.push({ productId: pid, product: w.name, stage: x.stage, estimated: x.estimated, counted: x.counted, words: x.words, close: x.close, off: Math.abs(x.counted - x.estimated) }); });
+  });
+  floorProducts.sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; });
+  var neverWalked = Object.keys(active).filter(function (pid) { return !walks[pid]; }).map(function (pid) { return active[pid].ProductName; });
+  var floor = {
+    walkedAt: walkedAt, walkedBy: walkedBy, daysSince: walkedAt ? daysSince(walkedAt, now) : null,
+    products: floorProducts, compared: flat.length, close: flat.filter(function (x) { return x.close; }).length,
+    worst: flat.filter(function (x) { return !x.close; }).sort(function (a, b) { return b.off - a.off; }).slice(0, 6),
+    neverWalked: neverWalked
+  };
+
+  /* ---- Shelf: every material's last count against the estimate then ------ */
+  var inv = getInventory({ history: 3 });
+  var nameOf = {}; inv.materials.forEach(function (m) { nameOf[m.id] = m.name; });
+  var shelfCounted = inv.materials.filter(function (m) { return m.history && m.history.length; }).map(function (m) {
+    var h = m.history[0];
+    return { id: m.id, name: m.name, unit: m.unit || '', at: h.at || m.lastCountedAt, daysSince: m.daysSinceCount,
+             estimated: h.estimated, counted: h.counted, variance: h.variance, variancePct: h.variancePct,
+             words: reconcileWords(h.estimated, h.counted), close: reconcileClose(h.estimated, h.counted),
+             drifting: !!m.drifting, driftRun: m.driftRun || 0 };
+  }).sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : 0; });
+  var shelf = {
+    lastAt: inv.summary.lastCountAt, lastBy: inv.summary.lastCountBy, daysSince: inv.summary.daysSinceLastCount,
+    compared: shelfCounted.length, close: shelfCounted.filter(function (x) { return x.close; }).length,
+    worst: shelfCounted.filter(function (x) { return !x.close; }).sort(function (a, b) {
+      var pa = a.variancePct === null ? -1 : Math.abs(a.variancePct), pb = b.variancePct === null ? -1 : Math.abs(b.variancePct);
+      return pb !== pa ? pb - pa : Math.abs(b.variance) - Math.abs(a.variance);
+    }).slice(0, 6),
+    neverCounted: inv.summary.neverCounted, negative: inv.summary.negative, drifting: inv.summary.drifting,
+    countNext: inv.countNext.map(function (id) { return { id: id, name: nameOf[id] || id }; }),
+    counted: shelfCounted
+  };
+
+  /* ---- Storage: last count per product, and what moved since ------------- */
+  var fin = getFinished({ days: 30 });
+  var finHist = {};
+  readObjects(TAB.countlog).forEach(function (r) {
+    if (String(r.Unit) !== 'finished' || !r.MaterialID) return;
+    (finHist[r.MaterialID] = finHist[r.MaterialID] || []).unshift({ at: fmtDate(r.Timestamp), estimated: Number(r.EstimatedAtCount) || 0, counted: Number(r.CountedQty) || 0 });
+  });
+  var lineMap = productLineMap(), lastOf = {};
+  Object.keys(lineMap).forEach(function (pid) { var st = stagesForLine(lineMap[pid]); lastOf[pid] = st[st.length - 1]; });
+  var stageRows = readObjects(TAB.stagelog), shipRows = readObjects(TAB.shiplog);
+  var storageAt = null;
+  var storageProducts = fin.products.map(function (p) {
+    var h = (finHist[p.id] || [])[0] || null, at = p.lastCountedAt;
+    if (at && (!storageAt || at > storageAt)) storageAt = at;
+    var made = 0, shipped = 0;
+    if (at) {
+      stageRows.forEach(function (r) { if (r.ProductID === p.id && r.Stage === lastOf[p.id] && fmtDate(r.WorkDate) >= at) made += Number(r.Qty) || 0; });
+      shipRows.forEach(function (r) { if (r.ProductID === p.id && fmtDate(r.ShipDate) >= at) shipped += Number(r.Qty) || 0; });
+    }
+    var est = h ? h.estimated : null, cnt = h ? h.counted : null;
+    return { id: p.id, name: p.name, onHand: p.onHand, at: at, estimated: est, counted: cnt,
+             words: h ? reconcileWords(est, cnt) : null, close: h ? reconcileClose(est, cnt) : null,
+             madeSince: made, shippedSince: shipped };
+  });
+  var scored = storageProducts.filter(function (x) { return x.words !== null; });
+  var storage = {
+    lastAt: storageAt, daysSince: storageAt ? daysSince(storageAt, now) : null,
+    compared: scored.length, close: scored.filter(function (x) { return x.close; }).length,
+    worst: scored.filter(function (x) { return !x.close; }).sort(function (a, b) { return Math.abs(b.counted - b.estimated) - Math.abs(a.counted - a.estimated); }).slice(0, 6),
+    neverCounted: fin.totals.neverCounted, products: storageProducts
+  };
+
+  /* ---- What is due --------------------------------------------------------- */
+  var todo = [];
+  if (!floor.walkedAt) todo.push({ area: 'floor', due: true, text: 'Walk the floor. It has never been counted.' });
+  else if (floor.daysSince > 14) todo.push({ area: 'floor', due: true, text: 'Walk the floor. The last walk was ' + floor.daysSince + ' days ago.' });
+  else todo.push({ area: 'floor', due: false, text: 'Floor walked ' + floor.daysSince + ' day' + (floor.daysSince === 1 ? '' : 's') + ' ago' + (floor.walkedBy ? ' by ' + floor.walkedBy : '') + '.' });
+  var nextNames = shelf.countNext.map(function (x) { return x.name; });
+  var shelfDue = shelf.lastAt === null || shelf.daysSince === null || shelf.daysSince >= 7;
+  todo.push({ area: 'shelf', due: shelfDue, text: (shelfDue ? 'Count these ' + nextNames.length + ': ' : 'Shelf counted ' + shelf.daysSince + ' day' + (shelf.daysSince === 1 ? '' : 's') + ' ago. Next up: ') + nextNames.join(', ') + '.' });
+  if (!storage.lastAt) todo.push({ area: 'storage', due: true, text: 'Count storage. It has never been counted.' });
+  else if (storage.daysSince >= 7) todo.push({ area: 'storage', due: true, text: 'Count storage. The last count was ' + storage.daysSince + ' days ago.' });
+  else todo.push({ area: 'storage', due: false, text: 'Storage counted ' + storage.daysSince + ' day' + (storage.daysSince === 1 ? '' : 's') + ' ago.' });
+
+  return { ok: true, generatedAt: fmtDate(now), floor: floor, shelf: shelf, storage: storage, todo: todo };
 }
 
 /* ============================================================================

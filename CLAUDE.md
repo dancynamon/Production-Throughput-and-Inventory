@@ -169,6 +169,7 @@ node apps-script/test-report.js     # report-core: duplicates, reversals, openin
 node apps-script/test-update.js     # self-update: replace file, keep manifest, canary, rollback
 node apps-script/test-finished.js   # finished goods: storage, ship, count, imports, Shopify pull
 node apps-script/test-menu.js       # sheet menu: short top level, handlers exist, schedule toggles
+node apps-script/test-reconcile.js  # walk keeps the app's estimate; floor/shelf/storage scored; to-do
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -223,6 +224,19 @@ assert on them rather than trusting the parser.
   flags storage under it in the panel and the weekly digest; `config` returns
   `wipCounted` so the WIP tab names products with no floor count; Summary
   exports gain *Shipments* and *Shipped by month* (pivot done in the app)
+- **Reconcile since 2.25.1** (John's weekly loop). Manager tab, action
+  `reconcile` → `getReconcile()`: floor (latest `WipBaseline` walk per product,
+  `EstimatedAtCount` column added 2.25.1 and written by `writeWipRows` from
+  `currentWaitingMap()`; rows without it, and `(finished)`, are not scored),
+  shelf (`getInventory` history[0] per material), storage (CountLog rows with
+  Unit=finished, plus made/shipped since the count), each with close =
+  within 10% or one unit, worst first, words short/extra relative to the
+  app's number, and a `todo` (floor due after 14 days, shelf/storage after 7).
+  **Count-only view**: Script Property `VIEW:<Name>` = `count` (menu
+  Settings → *Set a person's view…*), returned by `auth` as `view`, stored as
+  `aq_view`; app then shows Log My Day, Ship, Reconcile only, lands on
+  Reconcile, and the WIP/Inventory screens get a back button and lose their
+  side matter (`body.view-count` CSS). Dan meant this for John
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

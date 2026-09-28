@@ -2,6 +2,11 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '2.25.1', date: '2026-09-28', title: 'Reconcile', items: [
+    { who: 'mgr',  text: 'Reconcile tab: three counts a week (floor, shelf, storage), each scored against what the app believed at that moment. Worst misses first, in words.' },
+    { who: 'mgr',  text: 'A count-only view per person (sheet menu → Settings → Set a person\'s view): Log My Day, Ship and Reconcile, nothing else.' },
+    { who: 'mgr',  text: 'A floor walk now keeps the app\'s own estimate beside each count, so the next Reconcile can score it.' }
+  ]},
   { version: '2.25.0', date: '2026-09-27', title: 'Stocktake, minimums, floor counts', items: [
     { who: 'mgr',  text: 'Inventory: a Stocktake to-do filter lists every material that has never been counted or sits below zero. Count those once and the numbers start meaning something.' },
     { who: 'mgr',  text: 'Finished goods: type a minimum per product in the MinOnHand column of the FinishedGoods tab. Anything under it turns red here and is listed in the weekly email.' },

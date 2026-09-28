@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.25.0';
+  var APP_VERSION = '2.25.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -710,6 +710,14 @@
   function applyRole() {
     var mgr = localStorage.getItem('aq_role') === 'mgr';
     document.querySelectorAll('.tab[data-mgr]').forEach(function (t) { t.style.display = mgr ? '' : 'none'; });
+    // Count-only view: a manager whose whole job in the app is the weekly
+    // reconcile sees three tabs. Everything else stays reachable from Reconcile.
+    var count = mgr && countView();
+    document.body.classList.toggle('view-count', count);
+    if (count) document.querySelectorAll('.tab').forEach(function (t) {
+      var s = t.getAttribute('data-screen');
+      t.style.display = (s === 'day' || s === 'ship' || s === 'reconcile') ? '' : 'none';
+    });
     el('mgrBtn').textContent = mgr ? '🔓' : '🔒';
     var mgrName = localStorage.getItem('aq_mgr_name');
     el('mgrBtn').title = mgr ? 'Manager mode' + (mgrName ? ' — ' + mgrName : '') + ' (tap to lock)' : 'Manager access';
@@ -719,7 +727,7 @@
     if (el('mgrHelp')) el('mgrHelp').hidden = !mgr;
     if (!mgr && el('guideBody')) el('guideBody').innerHTML = '';
     // What's new is a manager tab: the dot and the footer link follow the lock.
-    if (el('mgrNews')) el('mgrNews').hidden = !mgr;
+    if (el('mgrNews')) el('mgrNews').hidden = !mgr || count;
     if (!mgr && el('newsBody')) el('newsBody').innerHTML = '';
     updateNewsDot();
     showPinNag();
@@ -735,7 +743,7 @@
   var lockOutShown = false;
   function lockOut(msg) {
     var was = localStorage.getItem('aq_role') === 'mgr';
-    localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token');
+    localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token'); localStorage.removeItem('aq_view');
     applyRole();
     if (was && !lockOutShown) { lockOutShown = true; toast(msg); }
   }
@@ -754,8 +762,10 @@
         localStorage.setItem('aq_role', 'mgr');
         if (d.name) localStorage.setItem('aq_mgr_name', d.name); else localStorage.removeItem('aq_mgr_name');
         if (d.token) localStorage.setItem('aq_mgr_token', d.token); else localStorage.removeItem('aq_mgr_token');
+        if (d.view === 'count') localStorage.setItem('aq_view', 'count'); else localStorage.removeItem('aq_view');
         lockOutShown = false;
         applyRole();
+        if (countView()) selectScreen('reconcile');
         toast('Unlocked' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
       } else toast('Wrong PIN');
     }).catch(function (err) { toast('⚠ ' + err.message); });
@@ -777,9 +787,13 @@
     if (name === 'receive') loadReceiving();
     if (name === 'inventory') { loadInventory(); loadFinished(); }
     if (name === 'buy') loadBuy();
-    if (name === 'wip') buildWipRows();
+    if (name === 'wip') { buildWipRows(); if (countView() && !WALK.on) el('walkToggle').click(); }
     if (name === 'day') loadToday();
+    if (name === 'reconcile') loadReconcile();
+    window.scrollTo(0, 0);
   }
+  function countView() { return isMgr() && localStorage.getItem('aq_view') === 'count'; }
+  document.querySelectorAll('[data-back]').forEach(function (b) { b.addEventListener('click', function () { selectScreen('reconcile'); }); });
   document.querySelectorAll('.tab').forEach(function (tab) {
     tab.addEventListener('click', function () { selectScreen(tab.getAttribute('data-screen')); });
   });
@@ -1519,6 +1533,96 @@
     }).catch(function (err) { box.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + '</div>'; });
   }
 
+  /* ---- Reconcile: three counts, then how the guesses held up --------------- */
+  /* One screen for the person whose job is keeping the numbers honest. The
+   * counts themselves happen on the WIP and Inventory screens (they already
+   * work); this screen says which one is due, opens it, and afterwards shows
+   * the app's guess beside what was actually found, worst first, in words. */
+  var REC = { data: null };
+  function loadReconcile() {
+    var box = el('recBody');
+    box.innerHTML = '<div class="muted">Loading…</div>';
+    api({ action: 'reconcile' }, 40000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load');
+      REC.data = d; renderReconcile();
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      box.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + (stale ? '<br>The sheet\'s code is behind this app. It updates itself within 30 minutes; try again then.' : '') + '</div>';
+    });
+  }
+  function recAgo(n) { return n === null || n === undefined ? '' : n === 0 ? 'today' : n + ' day' + (n === 1 ? '' : 's') + ' ago'; }
+  function recScore(a) {
+    if (!a.compared) return '<span class="rec-score rec-score--none">nothing scored yet</span>';
+    var all = a.close === a.compared;
+    return '<span class="rec-score' + (all ? ' rec-score--good' : '') + '"><b>' + a.close + ' of ' + a.compared + '</b> close</span>';
+  }
+  function renderReconcile() {
+    var d = REC.data, box = el('recBody'); if (!d || !box) return;
+    var byArea = {}; d.todo.forEach(function (t) { byArea[t.area] = t; });
+    var steps = [
+      { area: 'floor', n: 1, title: 'Count the floor', btn: 'Count the floor', go: 'walk',
+        sub: d.floor.walkedAt ? 'Last walked ' + escapeHtml(d.floor.walkedAt) + (d.floor.walkedBy ? ' by ' + escapeHtml(d.floor.walkedBy) : '') : 'Never walked' },
+      { area: 'shelf', n: 2, title: 'Count the shelf', btn: 'Count these ' + d.shelf.countNext.length, go: 'shelf',
+        sub: d.shelf.lastAt ? 'Last count ' + escapeHtml(d.shelf.lastAt) + ' · ' + d.shelf.neverCounted + ' never counted' : 'Never counted' },
+      { area: 'storage', n: 3, title: 'Count storage', btn: 'Count storage', go: 'storage',
+        sub: d.storage.lastAt ? 'Last count ' + escapeHtml(d.storage.lastAt) + (d.storage.neverCounted ? ' · ' + d.storage.neverCounted + ' product' + (d.storage.neverCounted === 1 ? '' : 's') + ' never counted' : '') : 'Never counted' }
+    ];
+    var h = '<div class="rec-steps">' + steps.map(function (s) {
+      var t = byArea[s.area] || { due: true, text: '' };
+      return '<div class="rec-step' + (t.due ? ' rec-step--due' : '') + '"><div class="rec-step__n">' + s.n + '</div>'
+        + '<div class="rec-step__body"><div class="rec-step__t">' + s.title + '<span class="rec-step__flag">' + (t.due ? 'due' : 'done') + '</span></div>'
+        + '<div class="rec-step__sub">' + s.sub + '</div><div class="rec-step__todo">' + escapeHtml(t.text) + '</div></div>'
+        + '<button type="button" class="rec-step__btn' + (t.due ? '' : ' rec-step__btn--quiet') + '" data-rec-go="' + s.go + '">' + escapeHtml(s.btn) + '</button></div>';
+    }).join('') + '</div>';
+
+    h += '<h3 class="rec-h">How the entries held up</h3>';
+    // Floor
+    h += '<div class="rec-card"><div class="rec-card__h">Floor ' + recScore(d.floor) + '</div>';
+    if (!d.floor.compared) h += '<div class="muted small">Walk the floor once and the next walk is scored: the app\'s pile at each station beside what you counted.</div>';
+    else {
+      h += d.floor.worst.length ? '<div class="rec-list">' + d.floor.worst.map(function (w) {
+        return '<div class="rec-row"><span><b>' + escapeHtml(w.product) + '</b> · waiting for ' + escapeHtml(w.stage) + '</span><span class="rec-row__n">app said ' + fmt(w.estimated) + ', floor had ' + fmt(w.counted) + '</span><span class="rec-row__w ' + (w.words === 'matched' ? 'rec-ok' : 'rec-off') + '">' + escapeHtml(w.words) + '</span></div>';
+      }).join('') + '</div>' : '<div class="rec-ok small">Every pile within reach of the app\'s number.</div>';
+      h += '<details class="rec-more"><summary>Every station, last walk</summary>' + d.floor.products.map(function (p) {
+        return '<div class="rec-prod"><b>' + escapeHtml(p.name) + '</b> <small class="muted">' + escapeHtml(p.at) + (p.by ? ' · ' + escapeHtml(p.by) : '') + '</small>' + p.stages.map(function (s) {
+          return '<div class="rec-row rec-row--sm"><span>waiting for ' + escapeHtml(s.stage) + '</span><span class="rec-row__n">' + fmt(s.estimated) + ' → ' + fmt(s.counted) + '</span><span class="rec-row__w ' + (s.close ? 'rec-ok' : 'rec-off') + '">' + escapeHtml(s.words) + '</span></div>';
+        }).join('') + '</div>';
+      }).join('') + '</details>';
+    }
+    if (d.floor.neverWalked.length) h += '<div class="muted small">Never walked: ' + escapeHtml(d.floor.neverWalked.join(', ')) + '.</div>';
+    h += '</div>';
+    // Shelf
+    h += '<div class="rec-card"><div class="rec-card__h">Shelf ' + recScore(d.shelf) + '</div>';
+    if (!d.shelf.compared) h += '<div class="muted small">No material has been counted yet. The first count sets the baseline; the second is where the score starts meaning something.</div>';
+    else {
+      h += d.shelf.worst.length ? '<div class="rec-list">' + d.shelf.worst.map(function (m) {
+        return '<div class="rec-row"><span><b>' + escapeHtml(m.name) + '</b>' + (m.drifting ? ' <small class="rec-drift">' + m.driftRun + ' counts the same way</small>' : '') + '</span><span class="rec-row__n">app said ' + fmt(m.estimated) + ', shelf had ' + fmt(m.counted) + ' ' + escapeHtml(m.unit) + '</span><span class="rec-row__w rec-off">' + escapeHtml(m.words) + (m.variancePct === null ? '' : ' (' + fmt(Math.abs(m.variancePct)) + '%)') + '</span></div>';
+      }).join('') + '</div>' : '<div class="rec-ok small">Every counted material within 10% of the app\'s number.</div>';
+      h += '<details class="rec-more"><summary>Every counted material</summary>' + d.shelf.counted.map(function (m) {
+        return '<div class="rec-row rec-row--sm"><span>' + escapeHtml(m.name) + ' <small class="muted">' + escapeHtml(m.at || '') + '</small></span><span class="rec-row__n">' + fmt(m.estimated) + ' → ' + fmt(m.counted) + '</span><span class="rec-row__w ' + (m.close ? 'rec-ok' : 'rec-off') + '">' + escapeHtml(m.words) + '</span></div>';
+      }).join('') + '</details>';
+    }
+    h += '<div class="muted small">' + d.shelf.neverCounted + ' never counted · ' + d.shelf.negative + ' negative · ' + d.shelf.drifting + ' drifting</div></div>';
+    // Storage
+    h += '<div class="rec-card"><div class="rec-card__h">Storage ' + recScore(d.storage) + '</div>';
+    var scored = d.storage.products.filter(function (p) { return p.words !== null; });
+    if (!scored.length) h += '<div class="muted small">Storage has never been counted. Count it once and the next count is scored, with what was made and shipped in between.</div>';
+    else h += '<div class="rec-list">' + scored.map(function (p) {
+      return '<div class="rec-row"><span><b>' + escapeHtml(p.name) + '</b> <small class="muted">' + escapeHtml(p.at) + '</small></span><span class="rec-row__n">app said ' + fmt(p.estimated) + ', storage had ' + fmt(p.counted) + '</span><span class="rec-row__w ' + (p.close ? 'rec-ok' : 'rec-off') + '">' + escapeHtml(p.words) + '</span>'
+        + '<span class="rec-row__since">since then: made ' + fmt(p.madeSince) + ', shipped ' + fmt(p.shippedSince) + ' · app now says ' + fmt(p.onHand) + '</span></div>';
+    }).join('') + '</div>';
+    h += '</div>';
+    box.innerHTML = h;
+    box.querySelectorAll('[data-rec-go]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var go = b.getAttribute('data-rec-go');
+        if (go === 'walk') { selectScreen('wip'); if (!WALK.on) el('walkToggle').click(); }
+        else if (go === 'shelf') { selectScreen('inventory'); setInvFilter('next'); var r = el('invRows'); if (r && r.scrollIntoView) r.scrollIntoView({ block: 'start' }); }
+        else { selectScreen('inventory'); var f = el('fgPanel'); if (f && f.scrollIntoView) f.scrollIntoView({ block: 'start' }); }
+      });
+    });
+  }
+
   /* ---- What's new: the changelog, and a dot until it has been read -------- */
   var NEWS = (typeof AQ_CHANGELOG !== 'undefined' && AQ_CHANGELOG) || [];
   function newsSeen() { try { return localStorage.getItem('aq_news_seen') || ''; } catch (e) { return ''; } }
@@ -2152,6 +2256,7 @@
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
   applyRole();
+  if (countView()) selectScreen('reconcile');
   renderBuildInfo();   // show the app version immediately; the rest fills in from ?action=config
   loadConfig();
 })();

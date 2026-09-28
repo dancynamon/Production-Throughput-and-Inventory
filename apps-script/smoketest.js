@@ -94,6 +94,17 @@ const INVENTORY = [
                 { id:'SHP24', name:'Shape 24x24', onHand:0, counted:false, lastCountedAt:null, lastVariance:null, produced:0, shipped:0, shippedBy:{}, skus:{Shopify:'',Amazon:'',QuickBooks:''} }],
       byChannel:{Shopify:12}, recent:[{at:'2026-09-16',productId:'XRT50',name:'XRT-50 Rescue Tube',qty:12,channel:'Shopify',ref:'#6107',by:'Maria'}],
       totals:{onHand:28,produced:40,shipped:12,neverCounted:1}, shopify:{configured:false,last:null} };
+    else if (action === 'reconcile') data = { ok:true, generatedAt:'2026-09-28',
+      floor:{ walkedAt:'2026-09-22', walkedBy:'John', daysSince:6, compared:3, close:1, neverWalked:['50" Blank'],
+        products:[{id:'LGC30',name:'Lifeguard Chair 30"',at:'2026-09-22',by:'John',compared:2,close:1,stages:[{stage:'Assemble',estimated:5,counted:6,words:'1 extra',close:true},{stage:'Box',estimated:9,counted:2,words:'7 short',close:false}]}],
+        worst:[{productId:'XRT50',product:'XRT-50 Rescue Tube',stage:'Boxed',estimated:30,counted:42,words:'12 extra',close:false,off:12},{productId:'LGC30',product:'Lifeguard Chair 30"',stage:'Box',estimated:9,counted:2,words:'7 short',close:false,off:7}] },
+      shelf:{ lastAt:'2026-09-21', lastBy:'John', daysSince:7, compared:2, close:1, neverCounted:2, negative:1, drifting:0,
+        countNext:[{id:'M033',name:'Rescue Tube Custom Boxes'},{id:'M038',name:'Foam Sheet'}],
+        worst:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards',at:'2026-09-21',estimated:100,counted:88,variance:12,variancePct:12,words:'12 short',close:false,drifting:false,driftRun:1}],
+        counted:[{id:'M014',name:'1" Red PP Webbing',unit:'Yards',at:'2026-09-21',estimated:100,counted:88,variance:12,variancePct:12,words:'12 short',close:false},{id:'M020',name:'Foam Sheet',unit:'Sheets',at:'2026-09-14',estimated:38,counted:40,variance:-2,variancePct:-5.26,words:'2 extra',close:true}] },
+      storage:{ lastAt:'2026-09-20', daysSince:8, compared:1, close:0, neverCounted:1, worst:[],
+        products:[{id:'XRT50',name:'XRT-50 Rescue Tube',onHand:53,at:'2026-09-20',estimated:28,counted:25,words:'3 short',close:false,madeSince:40,shippedSince:12},{id:'LGC30',name:'Lifeguard Chair 30"',onHand:0,at:null,estimated:null,counted:null,words:null,close:null,madeSince:0,shippedSince:0}] },
+      todo:[{area:'floor',due:false,text:'Floor walked 6 days ago by John.'},{area:'shelf',due:true,text:'Count these 2: Rescue Tube Custom Boxes, Foam Sheet.'},{area:'storage',due:true,text:'Count storage. The last count was 8 days ago.'}] };
     else if (action === 'countFinished') data = { ok:true, message:'Counted 1 finished product.', counted:[{id:'XRT50',name:'XRT-50 Rescue Tube',estimated:28,counted:25,variance:3,variancePct:10.71}], unknown:[] };
     else if (action === 'submitDay') data = { ok:true, message:'Logged 202 tube-stages for XRT-50 Rescue Tube on 2026-07-01',
       logged:[{stage:'Cut',qty:112},{stage:'Boxed',qty:40}],
@@ -237,6 +248,7 @@ const INVENTORY = [
   if (await page.$eval('.tab[data-screen="news"]', (t) => getComputedStyle(t).display !== 'none')) errors.push('an employee can see the What\'s new tab');
   if (!(await page.$eval('#newsDot', (d) => d.hidden))) errors.push('news dot showing for an employee');
   if (!(await page.$eval('#mgrNews', (a) => a.hidden))) errors.push('What changed link showing for an employee');
+  if (await page.$eval('.tab[data-screen="reconcile"]', (t) => getComputedStyle(t).display !== 'none')) errors.push('an employee can see the Reconcile tab');
 
   /* ---- Ship tab as an employee: product out of storage, channel named ---- */
   await page.click('.tab[data-screen="ship"]');
@@ -303,6 +315,30 @@ const INVENTORY = [
   await page.click('#mgrHelp');
   await page.waitForFunction(() => /manager guide is for/.test(document.querySelector('#guideBody').textContent), { timeout:5000 });
   console.log('GUIDE: refused for a shared-PIN unlock, as designed');
+
+  /* ---- Reconcile: three steps, the worst misses in words, buttons that go -- */
+  await page.click('.tab[data-screen="reconcile"]');
+  await page.waitForSelector('#recBody .rec-step', { timeout:5000 });
+  const recSteps = await page.$$eval('#recBody .rec-step', (s) => s.map((x) => x.querySelector('.rec-step__flag').textContent));
+  if (JSON.stringify(recSteps) !== '["done","due","due"]') errors.push('reconcile steps: ' + JSON.stringify(recSteps));
+  const recTxt = await page.textContent('#recBody');
+  if (!/XRT-50 Rescue Tube · waiting for Boxed/.test(recTxt) || !/12 extra/.test(recTxt)) errors.push('floor worst missing');
+  if (!/app said 100, shelf had 88 Yards/.test(recTxt) || !/12 short \(12%\)/.test(recTxt)) errors.push('shelf worst missing');
+  if (!/since then: made 40, shipped 12 · app now says 53/.test(recTxt)) errors.push('storage since-count line missing');
+  if (!/Count these 2: Rescue Tube Custom Boxes, Foam Sheet/.test(recTxt)) errors.push('shelf to-do missing');
+  if (!/Never walked: 50" Blank/.test(recTxt)) errors.push('never-walked missing');
+  console.log('RECONCILE:', recSteps.join('/'), '· floor 1 of 3 · shelf 1 of 2 · storage 0 of 1');
+  await shot(page, 'reconcile');
+  await page.click('[data-rec-go="walk"]');
+  await page.waitForFunction(() => document.querySelector('#screen-wip').classList.contains('screen--active') && !document.querySelector('#walkPanel').hidden, { timeout:5000 });
+  await page.click('#walkToggle');   // back to single-product mode, as the later walk check expects
+  await page.click('.tab[data-screen="reconcile"]');
+  await page.waitForSelector('#recBody .rec-step', { timeout:5000 });
+  await page.click('[data-rec-go="shelf"]');
+  await page.waitForFunction(() => document.querySelector('#screen-inventory').classList.contains('screen--active') && document.querySelector('#invFilters .inv-chip--on').getAttribute('data-filter') === 'next', { timeout:5000 });
+  console.log('RECONCILE: buttons open the walk and the count-next list');
+  await page.click('#invFilters [data-filter="all"]');   // leave the screen as the later checks expect it
+  await page.click('.tab[data-screen="day"]');
 
   /* ---- What's new: behind the lock, the dot shows until the tab is opened -- */
   if (await page.$eval('#newsDot', (d) => d.hidden)) errors.push('news dot hidden for a manager before first visit');
@@ -527,6 +563,20 @@ const INVENTORY = [
   // The uncommitted blank pool is stated, not silently folded into a variant.
   const pool = await page.textContent('#buyPools');
   if (!/70/.test(pool) || !/not yet committed/.test(pool)) errors.push('pool not surfaced: ' + pool);
+
+  /* ---- Count-only view: three tabs, lands on Reconcile, back button shows -- */
+  await page.evaluate(() => { localStorage.setItem('aq_view', 'count'); });
+  await page.reload();
+  await page.waitForSelector('#recBody .rec-step', { timeout:8000 });
+  const visTabs = await page.$$eval('.tab', (t) => t.filter((x) => getComputedStyle(x).display !== 'none').map((x) => x.getAttribute('data-screen')));
+  if (JSON.stringify(visTabs) !== '["day","ship","reconcile"]') errors.push('count view tabs: ' + JSON.stringify(visTabs));
+  if (!(await page.$eval('#screen-reconcile', (s) => s.classList.contains('screen--active')))) errors.push('count view did not land on Reconcile');
+  await page.click('[data-rec-go="walk"]');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('#screen-wip .rec-back')).display !== 'none' && getComputedStyle(document.querySelector('#walkToggle')).display === 'none', { timeout:5000 });
+  await page.click('#screen-wip .rec-back');
+  await page.waitForFunction(() => document.querySelector('#screen-reconcile').classList.contains('screen--active'), { timeout:5000 });
+  console.log('COUNT VIEW:', visTabs.join(', '), '· back button returns to Reconcile');
+  await shot(page, 'countview');
 
   await browser.close(); server.close();
   if (errors.length) { console.error('PAGE ERRORS:', errors); process.exit(1); }

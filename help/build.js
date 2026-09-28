@@ -33,7 +33,7 @@ const BAKED = ['managers'];
   if (PUBLIC.includes(name)) fs.writeFileSync(path.join(__dirname, name + '.html'), doc);
   else if (!BAKED.includes(name)) {
     fs.mkdirSync(path.join(__dirname, '_private'), { recursive: true });
-    fs.writeFileSync(path.join(__dirname, '_private', name + '.html'), doc);
+    fs.writeFileSync(path.join(__dirname, '_private', name + '.html'), doc.replace(/src="img\//g, 'src="../img/'));
   } else {
     // Full document for the app's iframe (srcdoc resolves relative URLs against
     // the app, so image and page paths get the help/ prefix). Also written to
@@ -46,7 +46,7 @@ const BAKED = ['managers'];
     const literal = JSON.stringify(inApp).replace(/<\/script/gi, '<\\/script');
     fs.writeFileSync(gs, code.slice(0, start) + '/*GUIDE:BEGIN*/\nvar MANAGER_GUIDE_HTML = ' + literal + ';\n' + code.slice(end));
     fs.mkdirSync(path.join(__dirname, '_private'), { recursive: true });
-    fs.writeFileSync(path.join(__dirname, '_private', name + '.html'), doc);
+    fs.writeFileSync(path.join(__dirname, '_private', name + '.html'), doc.replace(/src="img\//g, 'src="../img/'));
   }
   // Artifact copy: fragment with the style inlined where the marker sits.
   fs.writeFileSync(path.join(__dirname, name + '.artifact.html'), frag.replace('<!--STYLE-->', style));

@@ -65,8 +65,13 @@ check('auth rejects an empty PIN', auth(''), false);
 store['PIN:Dan'] = sandbox.pinHash('990011');
 const authAs = (name, pin) => JSON.parse(sandbox.doGet({ parameter: { action: 'auth', name, pin } }).getContent());
 const sansToken = (r) => { const c = { ...r }; delete c.token; return c; };
-check('a person with a PIN on file unlocks with name + their PIN',
-  sansToken(authAs('Dan', '990011')), { ok: true, name: 'Dan', personal: true });
+check('a person with a PIN on file unlocks with name + their PIN, full view by default',
+  sansToken(authAs('Dan', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full' });
+store['VIEW:Dan'] = 'count';
+check('a person set to the count-only view is told so at unlock', authAs('Dan', '990011').view, 'count');
+store['VIEW:Dan'] = 'nonsense';
+check('anything but count means full', authAs('Dan', '990011').view, 'full');
+delete store['VIEW:Dan'];
 check('the wrong personal PIN is refused, and the shared PIN does NOT rescue it',
   [authAs('Dan', '731905').ok, authAs('Dan', '000000').ok], [false, false]);
 check('a person with NO PIN on file falls back to the shared PIN',

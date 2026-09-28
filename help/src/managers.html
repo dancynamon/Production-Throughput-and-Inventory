@@ -3,23 +3,39 @@
 <div class="band"><div class="wrap">
   <div class="eyebrow">Aquamentor Production · for Alex and John</div>
   <h1>Running the floor from the app</h1>
-  <p>Everything the crew does, plus the seven manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>
+  <p>Everything the crew does, plus the eight manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>
   <a class="app-link" href="https://prod-through-inv-3.dan-daf.workers.dev" target="_blank" rel="noopener">Open the app</a>
 </div></div>
 
 <div class="wrap">
 <nav class="toc">
-  <a href="#unlock">Unlock</a><a href="#routine">Daily and weekly</a><a href="#tabs">The tabs</a><a href="#trust">Reading the numbers</a>
+  <a href="#unlock">Unlock</a><a href="#reconcile">Reconcile</a><a href="#routine">Daily and weekly</a><a href="#tabs">The tabs</a><a href="#trust">Reading the numbers</a>
   <a href="#fixing">Fixing entries</a><a href="#storage">Storage and shipping</a><a href="#counts">Counts</a><a href="#faq">When something looks wrong</a>
 </nav>
 
 <section id="unlock">
   <h2>Unlock</h2>
   <ol class="steps">
-    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and seven more tabs appear.</p></li>
+    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and the manager tabs appear.</p></li>
     <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>
   </ol>
   <div class="callout"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href="crew.html">Crew guide</a>.</div>
+</section>
+
+<section id="reconcile">
+  <h2>Reconcile: the weekly loop</h2>
+  <p>If your job in the app is keeping the numbers honest, this is the only tab you need. Once a week, three counts, then a read on how the crew's entries held up against what was actually there.</p>
+  <figure class="fig">
+    <img src="img/reconcile.png" alt="Reconcile tab: three numbered count steps marked due or done, then Floor, Shelf and Storage cards scoring the app's estimate against the count">
+    <figcaption><b>Reconcile</b>Top: what is due. Bottom: worst misses first, in words. Short means the count found less than the app said, extra means more.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><p>Count the floor.</p><p>Opens the whole-floor walk. Every product, every station, how many are waiting. Zero is a real answer. Tick "not walked" on anything you did not get to.</p></li>
+    <li><p>Count the shelf.</p><p>Opens Inventory on the five materials the app most wants counted. Type what is there, leave the rest blank, Record.</p></li>
+    <li><p>Count storage.</p><p>Opens the finished-goods panel. What is physically boxed per product. Record.</p></li>
+    <li><p>Read the cards.</p><p>Floor: the app's pile at each station beside what you counted. Shelf: the recipe's estimate beside the count. Storage: the count, then what was made and shipped since. Anything within 10% is close. The rest is either a station someone is not logging, a recipe that is wrong, or a shipment nobody recorded.</p></li>
+  </ol>
+  <div class="callout"><b>The count-only view.</b> Dan can set a person to see only Log My Day, Ship and Reconcile (sheet menu → Settings → Set a person's view). Everything in this guide still applies; the other tabs are simply out of the way.</div>
 </section>
 
 <section id="routine">
@@ -36,8 +52,8 @@
   <div class="routine">
     <h3>Every Monday · 20 minutes</h3>
     <ol>
+      <li><b>Reconcile.</b> The three counts (floor, shelf, storage) and the scorecard. Fifteen of the twenty minutes go here.</li>
       <li><b>Inventory → Stocktake to-do.</b> Until it reads zero, count a few of these each week: every material never counted or below zero.</li>
-      <li><b>Inventory → Count next.</b> Five materials the app most wants counted. Count them, type the real number, record.</li>
       <li><b>Inventory → Finished goods.</b> Count what's physically in storage per product and record it. Anything under its minimum is red; set minimums in the MinOnHand column of the sheet's FinishedGoods tab.</li>
       <li><b>Buy.</b> Anything under "Order these" grouped by supplier. <b>Copy order list</b> gives you the PO lines. Pass to Dan or place the order.</li>
       <li><b>Capacity.</b> Check the bottleneck per line and the crew rates. If a rate says "no hours", ask that person to log hours next week.</li>
@@ -56,6 +72,7 @@
   <div class="tbl-wrap"><table>
     <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>
     <tbody>
+      <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons, then read the cards. The weekly loop.</td></tr>
       <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>
       <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated entries under Fix-ups. Export CSVs.</td></tr>
       <tr><td><b>Overview</b></td><td>What's done, what's waiting, what should each station do tomorrow?</td><td>Tap a target number to change it.</td></tr>

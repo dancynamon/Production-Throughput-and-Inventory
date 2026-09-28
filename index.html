@@ -26,6 +26,7 @@
   <button class="tab tab--active" data-screen="day">Log My Day</button>
   <button class="tab" data-screen="floor">Floor</button>
   <button class="tab" data-screen="ship">Ship</button>
+  <button class="tab" data-screen="reconcile" data-mgr="1">Reconcile</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="capacity" data-mgr="1">Capacity</button>
@@ -98,6 +99,11 @@
       <button type="submit" id="shipBtn" class="btn-primary">Record Shipment</button>
     </form>
     <div id="shipResult" class="result" hidden></div>
+  </section>
+
+  <section id="screen-reconcile" class="screen">
+    <p class="stock-hint">Once a week: count the floor, count the shelf, count storage. Then see how the crew's entries held up against what was actually there. <b>Short</b> means the count found less than the app said, <b>extra</b> means more.</p>
+    <div id="recBody"><div class="muted">Loading…</div></div>
   </section>
 
   <section id="screen-guide" class="screen">
@@ -195,6 +201,7 @@
 
   <!-- ============ INVENTORY (view current stock + physical count) ============ -->
   <section id="screen-inventory" class="screen">
+    <button type="button" class="rec-back" data-back>← Back to Reconcile</button>
     <p class="stock-hint">Current stock, and the panel for correcting it.
       <b>Est.</b> is what the recipe says should be on the shelf; type what is
       actually there and the difference appears as you go. A blank box means
@@ -235,6 +242,7 @@
 
   <!-- ============ WIP (opening work-in-progress baseline) ============ -->
   <section id="screen-wip" class="screen">
+    <button type="button" class="rec-back" data-back>← Back to Reconcile</button>
     <p class="stock-hint">One-time count per product, to tell the app what was
       already mid-pipeline before tracking started. Walk the floor and count the
       pile <b>waiting</b> at each station, plus anything finished but not shipped.
