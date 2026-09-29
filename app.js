@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.25.1';
+  var APP_VERSION = '2.25.2';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -42,9 +42,20 @@
         params = Object.assign({}, params, { token: localStorage.getItem('aq_mgr_token'),
                                              mgrName: localStorage.getItem('aq_mgr_name') || '' });
       }
-      var qs = Object.keys(params).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
+      var qs = Object.keys(params).filter(function (k) { return k !== '__retry'; }).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
       script.src = API + '?' + qs + '&callback=' + cb;
-      script.onerror = function () { cleanup(); reject(new Error('Network error reaching the server.')); };
+      // onerror means the script host never answered at all (not a slow sheet:
+      // that is the timeout above). One quiet retry covers a dropped packet;
+      // a second failure is the network, and the message says which host, so
+      // a DNS blocker or a captive Wi-Fi is recognisable from the toast.
+      script.onerror = function () {
+        cleanup();
+        if (!params.__retry) {
+          setTimeout(function () { api(Object.assign({}, params, { __retry: 1 }), timeoutMs).then(resolve, reject); }, 1500);
+          return;
+        }
+        reject(new Error('Can\'t reach script.google.com from this phone or network. Try Wi-Fi off, or tap Connection test below.'));
+      };
       document.body.appendChild(script);
     });
   }
@@ -2257,6 +2268,9 @@
   })();
   applyRole();
   if (countView()) selectScreen('reconcile');
+  // A plain link to the backend, for when the toast says it cannot be reached:
+  // if this opens and shows text, the network is fine and the app is at fault.
+  if (API && el('connTest')) { el('connTest').href = API + '?action=config'; el('connTest').target = '_blank'; el('connTest').rel = 'noopener'; }
   renderBuildInfo();   // show the app version immediately; the rest fills in from ?action=config
   loadConfig();
 })();

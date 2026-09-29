@@ -269,10 +269,12 @@ const INVENTORY = [
   await page.click('.tab[data-screen="day"]');
 
   /* ---- Offline queue: a day entry survives a dead network ----------------- */
-  let killNext = true;
+  // Two aborts, not one: the app retries a dropped request once before it
+  // gives up, and a dead network drops the retry too.
+  let killLeft = 2;
   await page.route(FAKE_API + '**', (route) => {
     const u = new URL(route.request().url());
-    if (u.searchParams.get('action') === 'submitDay' && killNext) { killNext = false; return route.abort('failed'); }
+    if (u.searchParams.get('action') === 'submitDay' && killLeft > 0) { killLeft--; return route.abort('failed'); }
     return route.fallback();
   });
   await page.selectOption('#product','SHP24');
@@ -576,6 +578,15 @@ const INVENTORY = [
   await page.click('#screen-wip .rec-back');
   await page.waitForFunction(() => document.querySelector('#screen-reconcile').classList.contains('screen--active'), { timeout:5000 });
   console.log('COUNT VIEW:', visTabs.join(', '), '· back button returns to Reconcile');
+  const connHref = await page.$eval('#connTest', (a) => a.getAttribute('href'));
+  if (!/action=config$/.test(connHref)) errors.push('connection test link: ' + connHref);
+  // The script host vanishing (not a slow answer): one retry, then a message that names the host.
+  let dropped = 0;
+  await page.route(FAKE_API + '**', (route) => { if (new URL(route.request().url()).searchParams.get('action') === 'config') { dropped++; return route.abort('failed'); } return route.fallback(); });
+  const msg = await page.evaluate(() => new Promise((res) => { document.querySelectorAll('script').length; window.__toastSeen = null; const t = document.getElementById('toast'); const mo = new MutationObserver(() => { if (t.textContent && /script\.google\.com/.test(t.textContent)) { mo.disconnect(); res(t.textContent); } }); mo.observe(t, { childList:true, characterData:true, subtree:true }); document.getElementById('refreshBtn').click(); setTimeout(() => res('no toast'), 8000); }));
+  if (dropped < 2) errors.push('no retry on a dropped request: ' + dropped);
+  if (!/script\.google\.com/.test(msg)) errors.push('unreachable host not named: ' + msg);
+  console.log('DROPPED HOST:', dropped, 'attempts ·', msg.slice(0, 60));
   await shot(page, 'countview');
 
   await browser.close(); server.close();

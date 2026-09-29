@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '2.25.2', date: '2026-09-29', title: 'When the sheet can\'t be reached', items: [
+    { who: 'crew', text: 'If the phone cannot reach the sheet, the app tries once more on its own, then says so by name. A Connection test link at the bottom opens the backend directly: if that shows text, the network is fine.' }
+  ]},
   { version: '2.25.1', date: '2026-09-28', title: 'Reconcile', items: [
     { who: 'mgr',  text: 'Reconcile tab: three counts a week (floor, shelf, storage), each scored against what the app believed at that moment. Worst misses first, in words.' },
     { who: 'mgr',  text: 'A count-only view per person (sheet menu → Settings → Set a person\'s view): Log My Day, Ship and Reconcile, nothing else.' },
