@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.2';
+  var FLOOR_VERSION = '3.01.4';
   var STAGES = ['Meshed', 'Patched', 'Boxed'];
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.

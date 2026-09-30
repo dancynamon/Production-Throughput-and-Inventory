@@ -5,12 +5,14 @@
 /* Bump this whenever any file in SHELL changes, and keep the number in step
  * with APP_VERSION in app.js — otherwise installed phones keep serving the old
  * shell and the footer version is how you'd find out. */
-var CACHE = 'aquamentor-prod-v50';
+var CACHE = 'aquamentor-prod-v51';
 var SHELL = [
+  // Extensionless on purpose: Cloudflare answers /index.html and /floor.html
+  // with a 307, and a cached redirect served for a page load is refused by
+  // the browser ("site can't be reached"). 3.01.4.
   './',
-  './index.html',
   './style.css',
-  './floor.html',
+  './floor',
   './floor.css',
   './floor-core.js',
   './floor.js',
@@ -45,8 +47,9 @@ self.addEventListener('fetch', function (e) {
   // Cache-first for the app shell, falling back to network.
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(function (cached) {
+      if (cached && cached.redirected) cached = null;   // never hand a redirect to a navigation
       return cached || fetch(e.request).then(function (resp) {
-        if (resp && resp.status === 200 && url.origin === self.location.origin) {
+        if (resp && resp.status === 200 && !resp.redirected && url.origin === self.location.origin) {
           var copy = resp.clone();
           caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
         }

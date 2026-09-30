@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.4', date: '2026-10-01', title: 'Floor mode opens again', items: [
+    { who: 'crew', text: 'Fixed: opening Floor mode could show "site can\'t be reached" on a phone that had the app before. Reload once if you still see it.' }
+  ]},
   { version: '3.01.3', date: '2026-10-01', title: 'Setting crew PINs', items: [
     { who: 'mgr',  text: 'Crew clock PINs are set in the app: Time tab, Clock PINs, Set PIN beside each name. The count-only view (John) now has the Time tab too. Nobody needs the sheet for this.' },
     { who: 'mgr',  text: 'In the sheet menu, Settings now says which PIN is which: "Set a manager\'s PIN (full app)" and "Set a crew clock PIN (Floor mode)".' }

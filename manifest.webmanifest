@@ -2,7 +2,7 @@
   "name": "Aegis Production Log",
   "short_name": "Aegis Log",
   "description": "Log daily production and track raw-material inventory.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

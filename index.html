@@ -23,7 +23,7 @@
     }
     var full = /[?&]full=1\b/.test(location.search);
     var mgr = localStorage.getItem('aq_role') === 'mgr' && localStorage.getItem('aq_mgr_token');
-    if (!full && !mgr) location.replace('floor.html');
+    if (!full && !mgr) location.replace('floor');
   } catch (e) { /* storage blocked: stay on the full app */ }
 })();
 </script>
@@ -34,7 +34,7 @@
 <header class="topbar">
   <div class="topbar__logo">AQ</div>
   <div class="topbar__title">Aquamentor Production</div>
-  <a class="topbar__floor" href="floor.html">Floor mode</a>
+  <a class="topbar__floor" href="floor">Floor mode</a>
   <button id="mgrBtn" class="topbar__refresh" aria-label="Manager access" title="Manager access">🔒</button>
   <button id="refreshBtn" class="topbar__refresh" aria-label="Refresh">⟳</button>
 </header>
@@ -60,7 +60,7 @@
       <label class="field"><span>PIN</span><input id="loginPin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
       <button type="submit" id="loginBtn" class="btn-primary">Log in</button>
     </form>
-    <p class="locked-card__crew">Crew: <a href="floor.html">go to Floor mode</a>.</p>
+    <p class="locked-card__crew">Crew: <a href="floor">go to Floor mode</a>.</p>
   </section>
   <!-- In flow, not fixed: a fixed banner would sit on top of the Inventory
        tab's Record Count bar, which is the one control a manager most needs. -->

@@ -274,6 +274,11 @@ assert on them rather than trusting the parser.
   view shows Reconcile, Inventory, Time. Anyone other than the sheet owner running a sheet menu
   item gets Google's consent screen for GCP project `aquamentor-deploy`; its app name comes from
   that project's OAuth branding; John reported an "n8n" authorization prompt on 2026-10-01 (unverified)
+- **3.01.4:** Cloudflare 307s `/index.html` -> `/` and `/floor.html` -> `/floor`. The service
+  worker had cached those redirects and served them to page loads, which Chrome refuses ("site
+  can't be reached"; curl looks fine because it skips the SW). Shell URLs and links are now
+  extensionless (`./`, `floor`, `./?full=1`, manifest `start_url` `./`) and `sw.js` never serves
+  or stores a redirected response. Don't reintroduce `.html` links to shell pages
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
