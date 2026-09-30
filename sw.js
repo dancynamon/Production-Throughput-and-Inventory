@@ -5,11 +5,15 @@
 /* Bump this whenever any file in SHELL changes, and keep the number in step
  * with APP_VERSION in app.js — otherwise installed phones keep serving the old
  * shell and the footer version is how you'd find out. */
-var CACHE = 'aquamentor-prod-v43';
+var CACHE = 'aquamentor-prod-v47';
 var SHELL = [
   './',
   './index.html',
   './style.css',
+  './floor.html',
+  './floor.css',
+  './floor-core.js',
+  './floor.js',
   './app.js',
   './report-core.js',
   './changelog.js',
@@ -40,7 +44,7 @@ self.addEventListener('fetch', function (e) {
 
   // Cache-first for the app shell, falling back to network.
   e.respondWith(
-    caches.match(e.request).then(function (cached) {
+    caches.match(e.request, { ignoreSearch: true }).then(function (cached) {
       return cached || fetch(e.request).then(function (resp) {
         if (resp && resp.status === 200 && url.origin === self.location.origin) {
           var copy = resp.clone();

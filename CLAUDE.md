@@ -170,6 +170,8 @@ node apps-script/test-update.js     # self-update: replace file, keep manifest, 
 node apps-script/test-finished.js   # finished goods: storage, ship, count, imports, Shopify pull
 node apps-script/test-menu.js       # sheet menu: short top level, handlers exist, schedule toggles
 node apps-script/test-reconcile.js  # walk keeps the app's estimate; floor/shelf/storage scored; to-do
+node apps-script/test-floor.js      # floor mode: clock in/out, auto-close, floorPace dedupe, open access
+node apps-script/test-timeclock.js  # PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -237,6 +239,24 @@ assert on them rather than trusting the parser.
   `aq_view`; app then shows Log My Day, Ship, Reconcile only, lands on
   Reconcile, and the WIP/Inventory screens get a back button and lose their
   side matter (`body.view-count` CSS). Dan meant this for John
+- **Floor mode since 3.01.0** (versions jumped 2.25.2 -> 3.01.0; strings, not numbers, everywhere) (`/floor` -> `floor.html` + `floor.js` + `floor.css`): the crew's
+  one-screen page; opening the root URL without a manager unlock redirects to `/floor` (`?full=1` escapes; Floor has a "Full app (managers)" link), only for speed. Logs through the SAME `submitDay` (Meshed / Patched / Boxed,
+  XRT50EXO / XRT40EXO, or the STD pair; `notes` = `floor <id>` so two identical +12 taps are not
+  read as a duplicate by the recon dedupe) and undoes through `reverse`. New open actions `clock`
+  (TimeLog tab: Timestamp, WorkDate, Employee, In, Out, Hours, Source, ClientId; open shift
+  closed at 14 h with Source `auto`) and `floorPace` (deduped StageLog + TimeLog). Like `submitDay`
+  they carry no PIN. Targets: Script Properties `FLOOR_WEEKLY_TARGET` (default 320) and
+  `FLOOR_DAILY_TARGET` (default weekly / 5); the Planning seeds are placeholders and are not read.
+  **3.01.0 made the clock the real time clock:** every `clock` in/out needs the person's own 4-digit
+  PIN (`Employees.PinHash`, `salt:sha256`, never returned; 5 wrong = 15 min lock in CacheService) and
+  a GPS fix inside `SHOP_LAT`/`SHOP_LNG`/`SHOP_RADIUS_M` (150 m; accuracy over 300 m or no fix is
+  refused; shop not set yet = allowed but `NoGeofence`). `submitDay` stays PIN-free. Forgot-to-punch
+  = `timeRequest` (open, needs PIN) -> `TimeRequests` tab -> manager `timeDecide`. Manager-only
+  (token) actions: `timeView`, `setClockPin`, `setShopLocation`, `timeDecide`, `timeEdit` (reason
+  required; `OriginalIn/OriginalOut/EditedBy/EditedAt/EditReason/EditLog` keep the trail), `timeExport`
+  (from/to -> hours per person per day). `sendDailyTimeSummary` at 6pm New York via menu
+  Settings -> Install daily 6pm time summary; extra recipients in Script Property `SUMMARY_TO`.
+  Par = clocked hours x weekly target / `FLOOR_WEEKLY_CREW_HOURS` (default 165), no wall-clock window.
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

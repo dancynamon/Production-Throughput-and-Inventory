@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-28 17:30 UTC      version 2.25.1
+ *  BUILD:  2026-09-30 05:00 UTC      version 3.01.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -38,6 +38,8 @@ var TAB = {
   wipbase:   'WipBaseline',
   finished:  'FinishedGoods',
   shiplog:   'ShipLog',
+  timelog:   'TimeLog',
+  timereq:   'TimeRequests',
   overview:  'Overview'
 };
 
@@ -164,7 +166,7 @@ function checkPin(name, pin) {
 // myPace hands a person their OWN rows and nothing else — the crew's Floor
 // tab. The whole floor (floorData) is a manager view. wipWalk is the floor
 // count — a measurement the crew takes, so it is theirs to record.
-var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk', 'ship'];
+var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk', 'ship', 'clock', 'floorPace', 'timeRequest'];
 
 function tokenSecret() {
   var props = PropertiesService.getScriptProperties();
@@ -232,12 +234,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '2.25.1';
+var BACKEND_VERSION = '3.01.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-28 17:30 UTC';
+var BUILD_STAMP = '2026-09-30 05:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -891,6 +893,10 @@ function applySchemaUpgrades() {
   if (!ss.getSheetByName(TAB.finished)) { finishedSheet(ss); did.push('created FinishedGoods'); }
   else { addColumns(TAB.finished, FINISHED_HEADERS); finishedSheet(ss); }
   if (!ss.getSheetByName(TAB.shiplog)) { writeTab(ss, TAB.shiplog, SHIPLOG_HEADERS, []); did.push('created ShipLog'); }
+  if (!ss.getSheetByName(TAB.timelog)) { writeTab(ss, TAB.timelog, TIMELOG_HEADERS, []); did.push('created TimeLog'); }
+  else addColumns(TAB.timelog, TIMELOG_HEADERS);           // punch location + edit audit columns
+  if (!ss.getSheetByName(TAB.timereq)) { writeTab(ss, TAB.timereq, TIMEREQ_HEADERS, []); did.push('created TimeRequests'); }
+  addColumns(TAB.employees, ['PinHash']);                  // clock PIN, salted hash only
 
   SpreadsheetApp.getActive().toast(
     did.length ? did.join('; ') + '. No existing values were changed.'
@@ -1015,6 +1021,15 @@ function doGet(e) {
     else if (action === 'myPace')    result = getMyPace(p);
     else if (action === 'guide')     result = getGuide(p);
     else if (action === 'ship')      result = shipOut(p);
+    else if (action === 'clock')     result = clockShift(p);
+    else if (action === 'floorPace') result = getFloorPace(p);
+    else if (action === 'timeRequest')  result = submitTimeRequest(p);
+    else if (action === 'timeView')     result = getTimeView(p);
+    else if (action === 'setClockPin')  result = managerSetClockPin(p);
+    else if (action === 'setShopLocation') result = managerSetShopLocation(p);
+    else if (action === 'timeDecide')   result = decideTimeRequest(p);
+    else if (action === 'timeEdit')     result = editTimeRow(p);
+    else if (action === 'timeExport')   result = exportTime(p);
     else if (action === 'finished')  result = getFinished(p);
     else if (action === 'countFinished') result = countFinished(p);
     else if (action === 'reconcile') result = getReconcile();
@@ -2027,7 +2042,7 @@ function setGuideReaders() {
   SpreadsheetApp.getActive().toast('Manager guide readers: ' + guideReaders().join(', '), 'Aquamentor', 6);
 }
 /*GUIDE:BEGIN*/
-var MANAGER_GUIDE_HTML = "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Aquamentor Manager Guide</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap\">\n<style>\n:root{\n  --bg:#f6f4ee; --surface:#ffffff; --surface2:#f1ede4; --ink:#1a2233; --ink2:#4d5566; --muted:#6f6a60;\n  --line:#e2ddd2; --navy:#14213d; --navy-ink:#f6f3ea; --sand:#b9862f; --sand-soft:#f4e9d2;\n  --good:#1f7a3f; --warn:#b5651d; --crit:#b3261e;\n}\n@media (prefers-color-scheme: dark){\n  :root:not([data-theme=\"light\"]){\n    --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n    --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n  }\n}\n:root[data-theme=\"dark\"]{\n  --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n  --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n}\n*{box-sizing:border-box}\nbody{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 \"Source Sans 3\",system-ui,-apple-system,\"Segoe UI\",sans-serif}\n.wrap{max-width:720px;margin:0 auto;padding-inline:20px;padding-block:0 56px}\nh1,h2,h3{font-family:\"Archivo\",system-ui,sans-serif;text-wrap:balance;margin:0}\n.band{background:var(--navy);color:var(--navy-ink);margin-inline:-20px;padding:26px 20px 22px}\n.band .wrap{padding-block:0}\n.band .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(246,243,234,.6)}\n.band h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:4px}\n.band p{margin:10px 0 0;color:rgba(246,243,234,.8);max-width:58ch}\n.band a{color:var(--sand)}\n.band a.app-link,.app-link{display:inline-block;margin-top:14px;background:var(--sand);color:#1a1408;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:8px}\n.band a.app-link:hover{background:#d2a24f;color:#1a1408}\nnav.toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.9rem;margin:18px 0 6px;padding:10px 0;border-bottom:1px solid var(--line)}\nnav.toc a{color:var(--ink2);text-decoration:none;font-weight:600}\nnav.toc a:hover{color:var(--sand)}\nsection{margin-top:34px;scroll-margin-top:12px}\nh2{font-size:1.35rem;font-weight:700;letter-spacing:-.01em;padding-bottom:6px;border-bottom:2px solid var(--sand);display:inline-block}\nh3{font-size:1.05rem;margin-top:22px}\np{margin:10px 0;max-width:66ch}\nul,ol{max-width:66ch;padding-left:22px}\nli{margin:6px 0}\nli::marker{color:var(--sand);font-weight:700}\nb{color:var(--ink)}\n.steps{counter-reset:s;list-style:none;padding:0;max-width:none}\n.steps>li{counter-increment:s;display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}\n.steps>li:first-child{border-top:0}\n.steps>li::before{content:counter(s);font-family:\"Archivo\",system-ui,sans-serif;font-weight:700;font-size:1rem;width:32px;height:32px;border-radius:50%;background:var(--navy);color:var(--navy-ink);display:flex;align-items:center;justify-content:center}\n.steps>li>p{grid-column:2;margin:4px 0 0}\n.steps>li::before{grid-column:1;grid-row:1}\n.steps>li p:first-child{margin-top:4px;font-weight:600}\n.fig{display:flex;gap:16px;align-items:flex-start;margin:16px 0;flex-wrap:wrap}\n.fig img{width:min(100%,280px);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px -14px rgba(20,33,61,.4);background:#fff}\n.fig figcaption{flex:1;min-width:220px;font-size:.92rem;color:var(--ink2);max-width:40ch}\n.fig figcaption b{display:block;color:var(--ink);margin-bottom:4px}\nfigure{margin:0}\n.callout{background:var(--sand-soft);border-left:4px solid var(--sand);border-radius:8px;padding:10px 14px;margin:14px 0;font-size:.95rem;max-width:66ch}\n.callout.no{background:color-mix(in srgb,var(--crit) 10%,var(--surface));border-left-color:var(--crit)}\n.callout b:first-child{display:block;margin-bottom:2px}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}\n.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}\n.card h4{font-family:\"Archivo\",system-ui,sans-serif;font-size:.95rem;margin:0 0 4px}\n.card p{font-size:.92rem;margin:0;color:var(--ink2)}\n.routine{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 14px 10px;margin:14px 0}\n.routine h3{margin-top:10px}\n.routine li{font-size:.95rem}\n.kbd{display:inline-block;font-size:.85em;padding:1px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:var(--surface);font-weight:600;white-space:nowrap}\ntable{border-collapse:collapse;width:100%;font-size:.93rem;margin:12px 0}\nth{text-align:left;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}\ntd{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}\n.tbl-wrap{overflow-x:auto}\nfooter{margin-top:40px;font-size:.85rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}\nfooter a{color:var(--sand)}\n@media print{.band{background:#fff;color:#000;margin:0;padding:0}.band p,.band .eyebrow{color:#333}.app-link,nav.toc{display:none}.fig img{width:200px}}\n</style>\n</head>\n<body>\n\n<div class=\"band\"><div class=\"wrap\">\n  <div class=\"eyebrow\">Aquamentor Production · for Alex and John</div>\n  <h1>Running the floor from the app</h1>\n  <p>Everything the crew does, plus the eight manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>\n  <a class=\"app-link\" href=\"https://prod-through-inv-3.dan-daf.workers.dev\" target=\"_blank\" rel=\"noopener\">Open the app</a>\n</div></div>\n\n<div class=\"wrap\">\n<nav class=\"toc\">\n  <a href=\"#unlock\">Unlock</a><a href=\"#reconcile\">Reconcile</a><a href=\"#routine\">Daily and weekly</a><a href=\"#tabs\">The tabs</a><a href=\"#trust\">Reading the numbers</a>\n  <a href=\"#fixing\">Fixing entries</a><a href=\"#storage\">Storage and shipping</a><a href=\"#counts\">Counts</a><a href=\"#faq\">When something looks wrong</a>\n</nav>\n\n<section id=\"unlock\">\n  <h2>Unlock</h2>\n  <ol class=\"steps\">\n    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and the manager tabs appear.</p></li>\n    <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>\n  </ol>\n  <div class=\"callout\"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a>.</div>\n</section>\n\n<section id=\"reconcile\">\n  <h2>Reconcile: the weekly loop</h2>\n  <p>If your job in the app is keeping the numbers honest, this is the only tab you need. Once a week, three counts, then a read on how the crew's entries held up against what was actually there.</p>\n  <figure class=\"fig\">\n    <img src=\"help/img/reconcile.png\" alt=\"Reconcile tab: three numbered count steps marked due or done, then Floor, Shelf and Storage cards scoring the app's estimate against the count\">\n    <figcaption><b>Reconcile</b>Top: what is due. Bottom: worst misses first, in words. Short means the count found less than the app said, extra means more.</figcaption>\n  </figure>\n  <ol class=\"steps\">\n    <li><p>Count the floor.</p><p>Opens the whole-floor walk. Every product, every station, how many are waiting. Zero is a real answer. Tick \"not walked\" on anything you did not get to.</p></li>\n    <li><p>Count the shelf.</p><p>Opens Inventory on the five materials the app most wants counted. Type what is there, leave the rest blank, Record.</p></li>\n    <li><p>Count storage.</p><p>Opens the finished-goods panel. What is physically boxed per product. Record.</p></li>\n    <li><p>Read the cards.</p><p>Floor: the app's pile at each station beside what you counted. Shelf: the recipe's estimate beside the count. Storage: the count, then what was made and shipped since. Anything within 10% is close. The rest is either a station someone is not logging, a recipe that is wrong, or a shipment nobody recorded.</p></li>\n  </ol>\n  <div class=\"callout\"><b>The count-only view.</b> Dan can set a person to see only Log My Day, Ship and Reconcile (sheet menu → Settings → Set a person's view). Everything in this guide still applies; the other tabs are simply out of the way.</div>\n</section>\n\n<section id=\"routine\">\n  <h2>Daily and weekly</h2>\n  <div class=\"routine\">\n    <h3>Every day, end of shift · 5 minutes</h3>\n    <ol>\n      <li><b>Floor tab.</b> Where work is piling up, worst first. Anything red means five or more days to clear at the logged pace. Read the \"how much to trust this\" list at the bottom before you act on a pile.</li>\n      <li><b>Summary → Fix-ups.</b> Any entry logged twice shows here with a Reverse button. Tap it if it was a double-tap. Leave it if it was a real second batch.</li>\n      <li><b>Overview.</b> Tomorrow's suggested numbers per station. Tap a target to change it.</li>\n      <li><b>Receive</b> any deliveries that came in today.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Every Monday · 20 minutes</h3>\n    <ol>\n      <li><b>Reconcile.</b> The three counts (floor, shelf, storage) and the scorecard. Fifteen of the twenty minutes go here.</li>\n      <li><b>Inventory → Stocktake to-do.</b> Until it reads zero, count a few of these each week: every material never counted or below zero.</li>\n      <li><b>Inventory → Finished goods.</b> Count what's physically in storage per product and record it. Anything under its minimum is red; set minimums in the MinOnHand column of the sheet's FinishedGoods tab.</li>\n      <li><b>Buy.</b> Anything under \"Order these\" grouped by supplier. <b>Copy order list</b> gives you the PO lines. Pass to Dan or place the order.</li>\n      <li><b>Capacity.</b> Check the bottleneck per line and the crew rates. If a rate says \"no hours\", ask that person to log hours next week.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Monthly, or whenever the piles look wrong</h3>\n    <ol>\n      <li><b>WIP → Walk the whole floor.</b> Count every pile at every station in one pass and submit once. This resets the pipeline to reality and clears every \"logged out of order\" warning.</li>\n    </ol>\n  </div>\n</section>\n\n<section id=\"tabs\">\n  <h2>The tabs</h2>\n  <div class=\"tbl-wrap\"><table>\n    <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>\n    <tbody>\n      <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons, then read the cards. The weekly loop.</td></tr>\n      <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>\n      <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated entries under Fix-ups. Export CSVs.</td></tr>\n      <tr><td><b>Overview</b></td><td>What's done, what's waiting, what should each station do tomorrow?</td><td>Tap a target number to change it.</td></tr>\n      <tr><td><b>Capacity</b></td><td>What's the bottleneck, when could an order ship, who's fastest at what?</td><td>Use the promise calculator: product + quantity → working days and a date.</td></tr>\n      <tr><td><b>Receive</b></td><td>A delivery arrived. Put it on the shelf.</td><td>Material, quantity, PO number. Recent deliveries listed below.</td></tr>\n      <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>\n      <tr><td><b>WIP</b></td><td>What's physically at each station right now?</td><td>Walk the floor and count. Resets the piles.</td></tr>\n      <tr><td><b>Buy</b></td><td>What runs out, when, and how much to order?</td><td>Order lists per supplier. \"Order by\" dates once lead times are filled in.</td></tr>\n    </tbody>\n  </table></div>\n  <figure class=\"fig\">\n    <img src=\"help/img/floor.png\" alt=\"Manager Floor tab with piles, pace by station, finished per day and a trust list\">\n    <figcaption><b>Floor, manager view</b>The crew sees only their own pace here. You see the whole shop.</figcaption>\n  </figure>\n  <figure class=\"fig\">\n    <img src=\"help/img/buy-orderby.png\" alt=\"Buy tab with a supplier group, a shortfall and an order-by line\">\n    <figcaption><b>Buy</b>Short means the work already on the floor needs more than the shelf holds. \"Order today\" means you're late.</figcaption>\n  </figure>\n</section>\n\n<section id=\"trust\">\n  <h2>Reading the numbers</h2>\n  <ul>\n    <li><b>\"12 short\" / \"5 extra.\"</b> Every difference is in words, never a signed number. Short means the shelf had less than the recipe predicted. Extra means more.</li>\n    <li><b>Pace is per active day.</b> Units divided by the days that station logged anything. Hours are thin, so units per hour is only shown where hours were entered.</li>\n    <li><b>Days to clear.</b> What's waiting at a station divided by that station's pace. No pace yet means nobody has logged that station recently.</li>\n    <li><b>\"Stages logged out of order.\"</b> More units logged at a later station than at the one before it. Someone skipped a station on the phone, or the pile existed before the app did. The pile size is a guess until you walk the floor.</li>\n    <li><b>Likely duplicates.</b> Same person, product, station, quantity and day saved more than once. The Floor tab leaves them out of the numbers. Fix-ups on Summary is where you reverse them.</li>\n    <li><b>Never counted.</b> A material or product with no physical count yet. The first count sets the baseline. The variance on that first count means nothing; the second count is where drift becomes readable.</li>\n    <li><b>Confidence on Capacity.</b> \"Thin\" or \"partial\" means few days or few stations have a rate. Treat the promise date as rough.</li>\n  </ul>\n</section>\n\n<section id=\"fixing\">\n  <h2>Fixing entries</h2>\n  <div class=\"grid\">\n    <div class=\"card\"><h4>Double-tap or wrong number</h4><p>Log My Day → set the date → tap the chip under Today's totals → how many to take back and why. Materials go back too.</p></div>\n    <div class=\"card\"><h4>Repeated entries across days</h4><p>Summary → Fix-ups. One Reverse button per repeat. Reverses the extra copies only.</p></div>\n    <div class=\"card\"><h4>Piles that don't match the floor</h4><p>WIP → Walk the whole floor. Counts win over the log from that moment on.</p></div>\n    <div class=\"card\"><h4>Shelf numbers that don't match</h4><p>Inventory → type the real count → Record. The estimate restarts from your number and the variance is filed.</p></div>\n  </div>\n  <div class=\"callout no\"><b>Never edit the sheet's log tabs by hand.</b> Deleting a row fixes the count but leaves the materials deducted forever. Every fix above puts things back properly.</div>\n</section>\n\n<section id=\"storage\">\n  <h2>Storage and shipping</h2>\n  <figure class=\"fig\">\n    <img src=\"help/img/finished.png\" alt=\"Finished goods panel on the Inventory tab with storage, made, shipped and count columns\">\n    <figcaption><b>Finished goods</b>Top of the Inventory tab. Storage per product, made and shipped in the last 30 days, split by channel, last count, and a box to record a new count.</figcaption>\n  </figure>\n  <p>When a tube is logged as <b>Boxed</b> (or a chair or mat as Box) it lands in storage automatically. It leaves storage three ways:</p>\n  <ul>\n    <li><b>The crew's Ship tab.</b> Product, quantity, channel, order number. This is the everyday path.</li>\n    <li><b>Shopify, automatically.</b> Fulfilled orders come in on their own every hour once Dan connects the store.</li>\n    <li><b>Amazon and QuickBooks orders.</b> Dan imports these from reports. If a shipment is already on file, importing it again changes nothing.</li>\n  </ul>\n  <p>Produced minus shipped should equal what's in storage. When you count storage, the difference is the variance, and it's the number that tells you whether shipments are being recorded.</p>\n</section>\n\n<section id=\"counts\">\n  <h2>Counts</h2>\n  <ol class=\"steps\">\n    <li><p>Pick who you are at the top of the form.</p><p>Counts are signed. Yours goes on the record.</p></li>\n    <li><p>Type only the numbers you actually counted.</p><p>A blank box means \"didn't count\", and that material is left alone. Zero means \"I looked and there's none\", and that counts.</p></li>\n    <li><p>Watch the difference appear as you type.</p><p>\"That can't be right\" costs nothing at the shelf and a walk back from the desk.</p></li>\n    <li><p>Record.</p><p>The estimate restarts from your number. Materials that miss the same way every time are the ones whose recipe is wrong; tell Dan.</p></li>\n  </ol>\n  <div class=\"callout\"><b>Count next</b> on Inventory picks the five materials whose count is worth the most right now: never counted, negative, or drifting. Start there on Monday.</div>\n</section>\n\n<section id=\"faq\">\n  <h2>When something looks wrong</h2>\n  <ul>\n    <li><b>A tab says \"Unknown action\" or \"backend is older than this app.\"</b> The sheet's code is behind. It updates itself within 30 minutes of a change. Wait, then reload. If it persists, tell Dan.</li>\n    <li><b>The footer says app and backend on different versions.</b> Normal for a few minutes after a change. Reload twice.</li>\n    <li><b>You got locked out.</b> A PIN changed, or Dan reset something. Tap 🔒 and unlock again.</li>\n    <li><b>A number is negative.</b> Materials: no opening count was ever taken. Storage: more shipped than was logged as finished. Count it, and the number resets.</li>\n    <li><b>The crew's entries look inflated.</b> Check Summary → Fix-ups first. Then the Floor tab's trust list.</li>\n    <li><b>The crew asks what changed.</b> The What's new tab is yours, not theirs: a dot on it means a version landed since you last looked. Tell them the crew lines in your own words.</li>\n    <li><b>Something else.</b> Tell Dan what tab, what you tapped, and what it said. A screenshot is the fastest way.</li>\n  </ul>\n</section>\n\n<footer>Aquamentor Production · <a href=\"https://prod-through-inv-3.dan-daf.workers.dev\">Open the app</a> · What changed: the What's new tab · <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a></footer>\n</div>\n\n</body>\n</html>\n";
+var MANAGER_GUIDE_HTML = "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Aquamentor Manager Guide</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Archivo:wght@600;700&family=Source+Sans+3:wght@400;600;700&display=swap\">\n<style>\n:root{\n  --bg:#f6f4ee; --surface:#ffffff; --surface2:#f1ede4; --ink:#1a2233; --ink2:#4d5566; --muted:#6f6a60;\n  --line:#e2ddd2; --navy:#14213d; --navy-ink:#f6f3ea; --sand:#b9862f; --sand-soft:#f4e9d2;\n  --good:#1f7a3f; --warn:#b5651d; --crit:#b3261e;\n}\n@media (prefers-color-scheme: dark){\n  :root:not([data-theme=\"light\"]){\n    --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n    --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n  }\n}\n:root[data-theme=\"dark\"]{\n  --bg:#15171c; --surface:#1e2127; --surface2:#262a32; --ink:#f1efe9; --ink2:#c4c1b8; --muted:#8f8c84;\n  --line:#2e3138; --navy:#0f1728; --navy-ink:#f1efe9; --sand:#d2a24f; --sand-soft:#33301f; --good:#3fbf3f; --warn:#e29a5a; --crit:#f07a70;\n}\n*{box-sizing:border-box}\nbody{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 \"Source Sans 3\",system-ui,-apple-system,\"Segoe UI\",sans-serif}\n.wrap{max-width:720px;margin:0 auto;padding-inline:20px;padding-block:0 56px}\nh1,h2,h3{font-family:\"Archivo\",system-ui,sans-serif;text-wrap:balance;margin:0}\n.band{background:var(--navy);color:var(--navy-ink);margin-inline:-20px;padding:26px 20px 22px}\n.band .wrap{padding-block:0}\n.band .eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(246,243,234,.6)}\n.band h1{font-size:1.75rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:4px}\n.band p{margin:10px 0 0;color:rgba(246,243,234,.8);max-width:58ch}\n.band a{color:var(--sand)}\n.band a.app-link,.app-link{display:inline-block;margin-top:14px;background:var(--sand);color:#1a1408;text-decoration:none;font-weight:700;padding:9px 14px;border-radius:8px}\n.band a.app-link:hover{background:#d2a24f;color:#1a1408}\nnav.toc{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:.9rem;margin:18px 0 6px;padding:10px 0;border-bottom:1px solid var(--line)}\nnav.toc a{color:var(--ink2);text-decoration:none;font-weight:600}\nnav.toc a:hover{color:var(--sand)}\nsection{margin-top:34px;scroll-margin-top:12px}\nh2{font-size:1.35rem;font-weight:700;letter-spacing:-.01em;padding-bottom:6px;border-bottom:2px solid var(--sand);display:inline-block}\nh3{font-size:1.05rem;margin-top:22px}\np{margin:10px 0;max-width:66ch}\nul,ol{max-width:66ch;padding-left:22px}\nli{margin:6px 0}\nli::marker{color:var(--sand);font-weight:700}\nb{color:var(--ink)}\n.steps{counter-reset:s;list-style:none;padding:0;max-width:none}\n.steps>li{counter-increment:s;display:grid;grid-template-columns:38px 1fr;gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--line)}\n.steps>li:first-child{border-top:0}\n.steps>li::before{content:counter(s);font-family:\"Archivo\",system-ui,sans-serif;font-weight:700;font-size:1rem;width:32px;height:32px;border-radius:50%;background:var(--navy);color:var(--navy-ink);display:flex;align-items:center;justify-content:center}\n.steps>li>p{grid-column:2;margin:4px 0 0}\n.steps>li::before{grid-column:1;grid-row:1}\n.steps>li p:first-child{margin-top:4px;font-weight:600}\n.fig{display:flex;gap:16px;align-items:flex-start;margin:16px 0;flex-wrap:wrap}\n.fig img{width:min(100%,280px);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px -14px rgba(20,33,61,.4);background:#fff}\n.fig figcaption{flex:1;min-width:220px;font-size:.92rem;color:var(--ink2);max-width:40ch}\n.fig figcaption b{display:block;color:var(--ink);margin-bottom:4px}\nfigure{margin:0}\n.callout{background:var(--sand-soft);border-left:4px solid var(--sand);border-radius:8px;padding:10px 14px;margin:14px 0;font-size:.95rem;max-width:66ch}\n.callout.no{background:color-mix(in srgb,var(--crit) 10%,var(--surface));border-left-color:var(--crit)}\n.callout b:first-child{display:block;margin-bottom:2px}\n.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:14px 0}\n.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}\n.card h4{font-family:\"Archivo\",system-ui,sans-serif;font-size:.95rem;margin:0 0 4px}\n.card p{font-size:.92rem;margin:0;color:var(--ink2)}\n.routine{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:4px 14px 10px;margin:14px 0}\n.routine h3{margin-top:10px}\n.routine li{font-size:.95rem}\n.kbd{display:inline-block;font-size:.85em;padding:1px 7px;border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;background:var(--surface);font-weight:600;white-space:nowrap}\ntable{border-collapse:collapse;width:100%;font-size:.93rem;margin:12px 0}\nth{text-align:left;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}\ntd{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}\n.tbl-wrap{overflow-x:auto}\nfooter{margin-top:40px;font-size:.85rem;color:var(--muted);border-top:1px solid var(--line);padding-top:12px}\nfooter a{color:var(--sand)}\n@media print{.band{background:#fff;color:#000;margin:0;padding:0}.band p,.band .eyebrow{color:#333}.app-link,nav.toc{display:none}.fig img{width:200px}}\n</style>\n</head>\n<body>\n\n<div class=\"band\"><div class=\"wrap\">\n  <div class=\"eyebrow\">Aquamentor Production · for Alex and John</div>\n  <h1>Running the floor from the app</h1>\n  <p>Everything the crew does, plus the eight manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>\n  <a class=\"app-link\" href=\"https://prod-through-inv-3.dan-daf.workers.dev\" target=\"_blank\" rel=\"noopener\">Open the app</a>\n</div></div>\n\n<div class=\"wrap\">\n<nav class=\"toc\">\n  <a href=\"#unlock\">Unlock</a><a href=\"#time\">Time clock</a><a href=\"#reconcile\">Reconcile</a><a href=\"#routine\">Daily and weekly</a><a href=\"#tabs\">The tabs</a><a href=\"#trust\">Reading the numbers</a>\n  <a href=\"#fixing\">Fixing entries</a><a href=\"#storage\">Storage and shipping</a><a href=\"#counts\">Counts</a><a href=\"#faq\">When something looks wrong</a>\n</nav>\n\n<section id=\"unlock\">\n  <h2>Unlock</h2>\n  <ol class=\"steps\">\n    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and the manager tabs appear.</p></li>\n    <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>\n  </ol>\n  <div class=\"callout\"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a>.</div>\n</section>\n\n<section id=\"time\">\n  <h2>Time clock</h2>\n  <p>Floor mode's clock is the real time clock. Every clock in and every clock out needs the person's own 4-digit PIN and, once the shop location is set, the phone has to be at the shop. Open the <b>Time</b> tab.</p>\n  <ol class=\"steps\">\n    <li><p><b>Set the shop location once.</b> Stand inside the shop and tap <b>Set shop location to where I'm standing</b>. Check the coordinates in the box and confirm.</p><p>Until you do, punches work from anywhere and are flagged \"No location check\", and a red banner shows on this tab. The default radius is 150 m; change it with the SHOP_RADIUS_M script property.</p></li>\n    <li><p><b>Give everyone a PIN.</b> Under <b>Clock PINs</b> tap <b>Set PIN</b> beside a name. Someone with no PIN sees \"Ask a manager to set your PIN.\" <b>Reset PIN</b> also lifts a lockout (five wrong PINs lock a name for 15 minutes).</p><p>PINs are stored as a salted hash. Nobody, including you, can read one back.</p></li>\n    <li><p><b>Forgot-to-punch requests.</b> Under <b>Time requests</b>, read the reason and tap <b>Approve</b> or <b>Deny</b>. Approving writes the punch to the time log and keeps the original values and who approved it.</p></li>\n    <li><p><b>Edit a shift.</b> Tap <b>Edit</b> on any row, change In or Out, and give a reason. The reason is required and every edit is kept in the row's history. Only managers can edit time.</p></li>\n  </ol>\n  <p>Flags to look at: clocked in 2 hours or more with nothing logged; a shift open over 10 hours; a shift the 14-hour rule closed on its own (any edit clears the review flag); a punch with no location check; an edited row.</p>\n  <div class=\"callout\"><b>Honest limits.</b> GPS on a phone can be faked. This stops casual cheating, such as punching in from home, not a determined person.</div>\n  <p>A summary email goes out at 6pm New York time: who worked, in and out, hours, meshed, patched and boxed per person, boxed per clocked hour, open shifts, flags and pending requests. Turn it on once from the sheet: <b>Aquamentor → Settings → Install daily 6pm time summary</b>. It goes to the sheet owner; add more addresses in the SUMMARY_TO script property. For the weekly payroll check, the <code>timeExport</code> action returns hours per person per day.</p>\n</section>\n\n<section id=\"reconcile\">\n  <h2>Reconcile: the weekly loop</h2>\n  <p>If your job in the app is keeping the numbers honest, this is the only tab you need. Once a week, three counts, then a read on how the crew's entries held up against what was actually there.</p>\n  <figure class=\"fig\">\n    <img src=\"help/img/reconcile.png\" alt=\"Reconcile tab: three numbered count steps marked due or done, then Floor, Shelf and Storage cards scoring the app's estimate against the count\">\n    <figcaption><b>Reconcile</b>Top: what is due. Bottom: worst misses first, in words. Short means the count found less than the app said, extra means more.</figcaption>\n  </figure>\n  <ol class=\"steps\">\n    <li><p>Count the floor.</p><p>Opens the whole-floor walk. Every product, every station, how many are waiting. Zero is a real answer. Tick \"not walked\" on anything you did not get to.</p></li>\n    <li><p>Count the shelf.</p><p>Opens Inventory on the five materials the app most wants counted. Type what is there, leave the rest blank, Record.</p></li>\n    <li><p>Count storage.</p><p>Opens the finished-goods panel. What is physically boxed per product. Record.</p></li>\n    <li><p>Read the cards.</p><p>Floor: the app's pile at each station beside what you counted. Shelf: the recipe's estimate beside the count. Storage: the count, then what was made and shipped since. Anything within 10% is close. The rest is either a station someone is not logging, a recipe that is wrong, or a shipment nobody recorded.</p></li>\n  </ol>\n  <div class=\"callout\"><b>The count-only view.</b> Dan can set a person to see only Log My Day, Ship and Reconcile (sheet menu → Settings → Set a person's view). Everything in this guide still applies; the other tabs are simply out of the way.</div>\n</section>\n\n<section id=\"routine\">\n  <h2>Daily and weekly</h2>\n  <div class=\"routine\">\n    <h3>Every day, end of shift · 5 minutes</h3>\n    <ol>\n      <li><b>Floor tab.</b> Where work is piling up, worst first. Anything red means five or more days to clear at the logged pace. Read the \"how much to trust this\" list at the bottom before you act on a pile.</li>\n      <li><b>Summary → Fix-ups.</b> Any entry logged twice shows here with a Reverse button. Tap it if it was a double-tap. Leave it if it was a real second batch.</li>\n      <li><b>Overview.</b> Tomorrow's suggested numbers per station. Tap a target to change it.</li>\n      <li><b>Receive</b> any deliveries that came in today.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Every Monday · 20 minutes</h3>\n    <ol>\n      <li><b>Reconcile.</b> The three counts (floor, shelf, storage) and the scorecard. Fifteen of the twenty minutes go here.</li>\n      <li><b>Inventory → Stocktake to-do.</b> Until it reads zero, count a few of these each week: every material never counted or below zero.</li>\n      <li><b>Inventory → Finished goods.</b> Count what's physically in storage per product and record it. Anything under its minimum is red; set minimums in the MinOnHand column of the sheet's FinishedGoods tab.</li>\n      <li><b>Buy.</b> Anything under \"Order these\" grouped by supplier. <b>Copy order list</b> gives you the PO lines. Pass to Dan or place the order.</li>\n      <li><b>Capacity.</b> Check the bottleneck per line and the crew rates. If a rate says \"no hours\", ask that person to log hours next week.</li>\n    </ol>\n  </div>\n  <div class=\"routine\">\n    <h3>Monthly, or whenever the piles look wrong</h3>\n    <ol>\n      <li><b>WIP → Walk the whole floor.</b> Count every pile at every station in one pass and submit once. This resets the pipeline to reality and clears every \"logged out of order\" warning.</li>\n    </ol>\n  </div>\n</section>\n\n<section id=\"tabs\">\n  <h2>The tabs</h2>\n  <div class=\"tbl-wrap\"><table>\n    <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>\n    <tbody>\n      <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons, then read the cards. The weekly loop.</td></tr>\n      <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>\n      <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated entries under Fix-ups. Export CSVs.</td></tr>\n      <tr><td><b>Overview</b></td><td>What's done, what's waiting, what should each station do tomorrow?</td><td>Tap a target number to change it.</td></tr>\n      <tr><td><b>Capacity</b></td><td>What's the bottleneck, when could an order ship, who's fastest at what?</td><td>Use the promise calculator: product + quantity → working days and a date.</td></tr>\n      <tr><td><b>Receive</b></td><td>A delivery arrived. Put it on the shelf.</td><td>Material, quantity, PO number. Recent deliveries listed below.</td></tr>\n      <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>\n      <tr><td><b>WIP</b></td><td>What's physically at each station right now?</td><td>Walk the floor and count. Resets the piles.</td></tr>\n      <tr><td><b>Buy</b></td><td>What runs out, when, and how much to order?</td><td>Order lists per supplier. \"Order by\" dates once lead times are filled in.</td></tr>\n    </tbody>\n  </table></div>\n  <figure class=\"fig\">\n    <img src=\"help/img/floor.png\" alt=\"Manager Floor tab with piles, pace by station, finished per day and a trust list\">\n    <figcaption><b>Floor, manager view</b>The crew sees only their own pace here. You see the whole shop.</figcaption>\n  </figure>\n  <figure class=\"fig\">\n    <img src=\"help/img/buy-orderby.png\" alt=\"Buy tab with a supplier group, a shortfall and an order-by line\">\n    <figcaption><b>Buy</b>Short means the work already on the floor needs more than the shelf holds. \"Order today\" means you're late.</figcaption>\n  </figure>\n</section>\n\n<section id=\"trust\">\n  <h2>Reading the numbers</h2>\n  <ul>\n    <li><b>\"12 short\" / \"5 extra.\"</b> Every difference is in words, never a signed number. Short means the shelf had less than the recipe predicted. Extra means more.</li>\n    <li><b>Pace is per active day.</b> Units divided by the days that station logged anything. Hours are thin, so units per hour is only shown where hours were entered.</li>\n    <li><b>Days to clear.</b> What's waiting at a station divided by that station's pace. No pace yet means nobody has logged that station recently.</li>\n    <li><b>\"Stages logged out of order.\"</b> More units logged at a later station than at the one before it. Someone skipped a station on the phone, or the pile existed before the app did. The pile size is a guess until you walk the floor.</li>\n    <li><b>Likely duplicates.</b> Same person, product, station, quantity and day saved more than once. The Floor tab leaves them out of the numbers. Fix-ups on Summary is where you reverse them.</li>\n    <li><b>Never counted.</b> A material or product with no physical count yet. The first count sets the baseline. The variance on that first count means nothing; the second count is where drift becomes readable.</li>\n    <li><b>Confidence on Capacity.</b> \"Thin\" or \"partial\" means few days or few stations have a rate. Treat the promise date as rough.</li>\n  </ul>\n</section>\n\n<section id=\"fixing\">\n  <h2>Fixing entries</h2>\n  <div class=\"grid\">\n    <div class=\"card\"><h4>Double-tap or wrong number</h4><p>Log My Day → set the date → tap the chip under Today's totals → how many to take back and why. Materials go back too.</p></div>\n    <div class=\"card\"><h4>Repeated entries across days</h4><p>Summary → Fix-ups. One Reverse button per repeat. Reverses the extra copies only.</p></div>\n    <div class=\"card\"><h4>Piles that don't match the floor</h4><p>WIP → Walk the whole floor. Counts win over the log from that moment on.</p></div>\n    <div class=\"card\"><h4>Shelf numbers that don't match</h4><p>Inventory → type the real count → Record. The estimate restarts from your number and the variance is filed.</p></div>\n  </div>\n  <div class=\"callout no\"><b>Never edit the sheet's log tabs by hand.</b> Deleting a row fixes the count but leaves the materials deducted forever. Every fix above puts things back properly.</div>\n</section>\n\n<section id=\"storage\">\n  <h2>Storage and shipping</h2>\n  <figure class=\"fig\">\n    <img src=\"help/img/finished.png\" alt=\"Finished goods panel on the Inventory tab with storage, made, shipped and count columns\">\n    <figcaption><b>Finished goods</b>Top of the Inventory tab. Storage per product, made and shipped in the last 30 days, split by channel, last count, and a box to record a new count.</figcaption>\n  </figure>\n  <p>When a tube is logged as <b>Boxed</b> (or a chair or mat as Box) it lands in storage automatically. It leaves storage three ways:</p>\n  <ul>\n    <li><b>The crew's Ship tab.</b> Product, quantity, channel, order number. This is the everyday path.</li>\n    <li><b>Shopify, automatically.</b> Fulfilled orders come in on their own every hour once Dan connects the store.</li>\n    <li><b>Amazon and QuickBooks orders.</b> Dan imports these from reports. If a shipment is already on file, importing it again changes nothing.</li>\n  </ul>\n  <p>Produced minus shipped should equal what's in storage. When you count storage, the difference is the variance, and it's the number that tells you whether shipments are being recorded.</p>\n</section>\n\n<section id=\"counts\">\n  <h2>Counts</h2>\n  <ol class=\"steps\">\n    <li><p>Pick who you are at the top of the form.</p><p>Counts are signed. Yours goes on the record.</p></li>\n    <li><p>Type only the numbers you actually counted.</p><p>A blank box means \"didn't count\", and that material is left alone. Zero means \"I looked and there's none\", and that counts.</p></li>\n    <li><p>Watch the difference appear as you type.</p><p>\"That can't be right\" costs nothing at the shelf and a walk back from the desk.</p></li>\n    <li><p>Record.</p><p>The estimate restarts from your number. Materials that miss the same way every time are the ones whose recipe is wrong; tell Dan.</p></li>\n  </ol>\n  <div class=\"callout\"><b>Count next</b> on Inventory picks the five materials whose count is worth the most right now: never counted, negative, or drifting. Start there on Monday.</div>\n</section>\n\n<section id=\"faq\">\n  <h2>When something looks wrong</h2>\n  <ul>\n    <li><b>A tab says \"Unknown action\" or \"backend is older than this app.\"</b> The sheet's code is behind. It updates itself within 30 minutes of a change. Wait, then reload. If it persists, tell Dan.</li>\n    <li><b>The footer says app and backend on different versions.</b> Normal for a few minutes after a change. Reload twice.</li>\n    <li><b>You got locked out.</b> A PIN changed, or Dan reset something. Tap 🔒 and unlock again.</li>\n    <li><b>A number is negative.</b> Materials: no opening count was ever taken. Storage: more shipped than was logged as finished. Count it, and the number resets.</li>\n    <li><b>The crew's entries look inflated.</b> Check Summary → Fix-ups first. Then the Floor tab's trust list.</li>\n    <li><b>The crew asks what changed.</b> The What's new tab is yours, not theirs: a dot on it means a version landed since you last looked. Tell them the crew lines in your own words.</li>\n    <li><b>Something else.</b> Tell Dan what tab, what you tapped, and what it said. A screenshot is the fastest way.</li>\n  </ul>\n</section>\n\n<footer>Aquamentor Production · <a href=\"https://prod-through-inv-3.dan-daf.workers.dev\">Open the app</a> · What changed: the What's new tab · <a href=\"help/crew.html\" target=\"_blank\">Crew guide</a></footer>\n</div>\n\n</body>\n</html>\n";
 /*GUIDE:END*/
 
 function getMyPace(p) {
@@ -2045,6 +2060,647 @@ function getMyPace(p) {
   });
   return { ok: true, name: match, since: sinceIso, generatedAt: all.generatedAt,
            tables: { products: all.products, stages: all.stages, planning: all.planning, stagelog: mine, wipbase: [] } };
+}
+
+/* ============================================================================
+ *  FLOOR MODE (3.01.0) — one-screen page for the crew, floor.html
+ *
+ *  Only to track production SPEED. Output still goes through submitDay into
+ *  StageLog, so every existing report keeps working; this adds a clock
+ *  (TimeLog) and one read that answers "are we on pace?".
+ *
+ *  PIN: production logging (submitDay) stays open and PIN-free. The CLOCK is
+ *  the real time clock: every punch needs the person's own 4-digit PIN
+ *  (salted hash in Employees.PinHash, 5 wrong tries locks the name 15 min)
+ *  and, once the shop location is set, a GPS fix inside the fence. Time edits
+ *  are manager-only, audited, and never overwrite the original punch.
+ *
+ *    ?action=clock&employee=Joe&dir=in|out&pin=1234&lat=&lng=&accuracy=&clientId=...
+ *    ?action=floorPace&employee=Joe&workDate=YYYY-MM-DD
+ * ========================================================================== */
+var TIMELOG_HEADERS = ['Timestamp', 'WorkDate', 'Employee', 'In', 'Out', 'Hours', 'Source', 'ClientId',
+  'InLat', 'InLng', 'InAccuracy', 'InDistanceM', 'OutLat', 'OutLng', 'OutAccuracy', 'OutDistanceM', 'NoGeofence',
+  'OriginalIn', 'OriginalOut', 'EditedBy', 'EditedAt', 'EditReason', 'EditLog'];
+var TIMEREQ_HEADERS = ['RequestId', 'Timestamp', 'Employee', 'Dir', 'RequestedTime', 'WorkDate', 'Reason',
+  'Status', 'DecidedBy', 'DecidedAt', 'DecisionNote'];
+var FLOOR_STAGES = ['Meshed', 'Patched', 'Boxed'];
+var FLOOR_PRODUCTS = ['XRT50EXO', 'XRT40EXO', 'XRT50STD', 'XRT40STD'];
+var SHIFT_MAX_HOURS = 14;          // a shift left open longer than this is closed at this
+var FLOOR_WEEKLY_DEFAULT = 320;    // boxed per week; override: Script Property FLOOR_WEEKLY_TARGET
+var FLOOR_CREW_HOURS_DEFAULT = 165; // crew clocked hours in a week; Script Property FLOOR_WEEKLY_CREW_HOURS
+
+function tsMs(v) {
+  if (v instanceof Date) return v.getTime();
+  var t = Date.parse(String(v || ''));
+  return isNaN(t) ? NaN : t;
+}
+function activeEmployeeMatch(name) {
+  name = String(name || '').trim();
+  if (!name) return null;
+  var known = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return String(r.Name || '').trim(); });
+  return known.filter(function (n) { return n.toLowerCase() === name.toLowerCase(); })[0] || null;
+}
+function floorTimeSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(TAB.timelog) || writeTab(ss, TAB.timelog, TIMELOG_HEADERS, []);
+}
+/* TimeLog rows with their sheet row number, oldest first. */
+function readShifts(sh) {
+  var values = sh.getDataRange().getValues(), out = [];
+  if (values.length < 2) return out;
+  var H = values[0];
+  var col = {}; H.forEach(function (h, i) { col[h] = i; });
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i];
+    if (r.join('') === '') continue;
+    out.push({ row: i + 1, col: col, employee: String(r[col.Employee] || '').trim(),
+               workDate: fmtDate(r[col.WorkDate]), inMs: tsMs(r[col.In]),
+               outMs: (r[col.Out] === '' || r[col.Out] === null || r[col.Out] === undefined) ? null : tsMs(r[col.Out]),
+               hours: Number(r[col.Hours]) || 0,
+               source: String(r[col.Source] || ''), editedBy: String(r[col.EditedBy] || '').trim(),
+               editReason: String(r[col.EditReason] || ''), editLog: String(r[col.EditLog] || ''),
+               originalIn: r[col.OriginalIn] === undefined ? undefined : r[col.OriginalIn],
+               originalOut: r[col.OriginalOut] === undefined ? undefined : r[col.OriginalOut],
+               noGeofence: truthy(r[col.NoGeofence]) });
+  }
+  return out;
+}
+function closeShift(sh, s, endMs, source) {
+  var hrs = round2(Math.max(0, (endMs - s.inMs) / 3600000));
+  setCell(sh, s, 'Out', new Date(endMs));
+  setCell(sh, s, 'Hours', hrs);
+  setCell(sh, s, 'Source', source);
+  s.outMs = endMs; s.hours = hrs;
+  return hrs;
+}
+/* Clocked hours for one person on one WorkDate, counting a still-open shift up to now. */
+function hoursOn(shifts, employee, workDate, nowMs) {
+  var h = 0;
+  shifts.forEach(function (s) {
+    if (s.employee.toLowerCase() !== employee.toLowerCase() || s.workDate !== workDate) return;
+    h += s.outMs === null ? Math.min(SHIFT_MAX_HOURS, Math.max(0, (nowMs - s.inMs) / 3600000)) : s.hours;
+  });
+  return round2(h);
+}
+function shiftState(shifts, employee, workDate, nowMs) {
+  var open = null;
+  shifts.forEach(function (s) {
+    if (s.employee.toLowerCase() === employee.toLowerCase() && s.outMs === null) open = s;
+  });
+  return { clockedIn: !!open, since: open ? open.inMs : null, hoursToday: hoursOn(shifts, employee, workDate, nowMs) };
+}
+
+/* ---- Clock PIN: personal, four digits, salted hash only -------------------
+ * Employees.PinHash holds "<salt>:<sha256 hex>". No read action returns that
+ * column: getConfig maps Employees to names, and Employees is not exportable.
+ * Five wrong PINs lock the name for 15 minutes (script cache). */
+var PIN_LOCK_TRIES = 5, PIN_LOCK_SECONDS = 900;
+
+function clockPinHash(name, pin, salt) {
+  return salt + ':' + pinHash('clock|' + salt + '|' + String(name).toLowerCase() + '|' + pin);
+}
+function employeeSheetRow(name) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB.employees);
+  if (!sh) return null;
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return null;
+  var H = values[0], cName = H.indexOf('Name'), cPin = H.indexOf('PinHash');
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][cName] || '').trim().toLowerCase() === String(name).toLowerCase()) {
+      return { sh: sh, row: i + 1, cPin: cPin, hash: cPin === -1 ? '' : String(values[i][cPin] || '') };
+    }
+  }
+  return null;
+}
+function pinCache() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
+function verifyClockPin(name, pin) {
+  var cache = pinCache(), key = String(name).toLowerCase();
+  if (cache && cache.get('pinlock:' + key)) {
+    return { ok: false, locked: true, error: 'Too many wrong PINs. Locked for 15 minutes. Ask a manager.' };
+  }
+  var er = employeeSheetRow(name);
+  if (!er || !er.hash) return { ok: false, error: 'Ask a manager to set your PIN.' };
+  var parts = er.hash.split(':');
+  pin = String(pin || '').trim();
+  if (parts.length === 2 && /^\d{4}$/.test(pin) && clockPinHash(name, pin, parts[0]) === er.hash) {
+    if (cache) { try { cache.put('pinfail:' + key, '0', 1); } catch (e0) {} }
+    return { ok: true };
+  }
+  var fails = 1;
+  if (cache) {
+    try { fails = (Number(cache.get('pinfail:' + key)) || 0) + 1; cache.put('pinfail:' + key, String(fails), PIN_LOCK_SECONDS); } catch (e1) {}
+    if (fails >= PIN_LOCK_TRIES) {
+      try { cache.put('pinlock:' + key, '1', PIN_LOCK_SECONDS); cache.put('pinfail:' + key, '0', 1); } catch (e2) {}
+      return { ok: false, locked: true, error: 'Too many wrong PINs. Locked for 15 minutes. Ask a manager.' };
+    }
+  }
+  return { ok: false, error: 'Wrong PIN.' + (cache ? ' ' + (PIN_LOCK_TRIES - fails) + ' tries left.' : '') };
+}
+function setClockPinFor(name, pin) {
+  var er = employeeSheetRow(name);
+  if (!er) return { ok: false, error: name + ' is not on the Employees tab.' };
+  if (er.cPin === -1) return { ok: false, error: 'Employees has no PinHash column yet. Run Add missing columns.' };
+  pin = String(pin || '').trim();
+  if (pin === '') { er.sh.getRange(er.row, er.cPin + 1).setValue(''); return { ok: true, cleared: true }; }
+  if (!/^\d{4}$/.test(pin)) return { ok: false, error: 'The PIN must be exactly 4 digits.' };
+  er.sh.getRange(er.row, er.cPin + 1).setValue(clockPinHash(name, pin, Utilities.getUuid().replace(/-/g, '').slice(0, 12)));
+  var cache = pinCache();
+  if (cache) { try { cache.remove('pinlock:' + String(name).toLowerCase()); cache.put('pinfail:' + String(name).toLowerCase(), '0', 1); } catch (e) {} }
+  return { ok: true };
+}
+
+/* ---- Shop geofence ---------------------------------------------------------
+ * SHOP_LAT / SHOP_LNG (Script Properties, set from the manager Time screen) and
+ * SHOP_RADIUS_M (default 150). Until the shop is set, punches are allowed and
+ * flagged NoGeofence. GPS can be spoofed: this stops casual cheating only. */
+var GEO_MAX_ACCURACY_M = 300, SHOP_RADIUS_DEFAULT = 150;
+function shopConfig() {
+  var lat = NaN, lng = NaN, radius = SHOP_RADIUS_DEFAULT;
+  try {
+    var pr = PropertiesService.getScriptProperties();
+    var la = pr.getProperty('SHOP_LAT'), ln = pr.getProperty('SHOP_LNG'), r = Number(pr.getProperty('SHOP_RADIUS_M'));
+    if (la !== null && la !== '' && ln !== null && ln !== '') { lat = Number(la); lng = Number(ln); }
+    if (isFinite(r) && r > 0) radius = r;
+  } catch (e) { /* no properties service */ }
+  return { set: isFinite(lat) && isFinite(lng), lat: lat, lng: lng, radius: radius };
+}
+function haversineM(lat1, lng1, lat2, lng2) {
+  var R = 6371000, rad = Math.PI / 180;
+  var dLat = (lat2 - lat1) * rad, dLng = (lng2 - lng1) * rad;
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function geoCheck(p) {
+  var shop = shopConfig();
+  var lat = p.lat === undefined || p.lat === '' ? NaN : Number(p.lat), lng = p.lng === undefined || p.lng === '' ? NaN : Number(p.lng);
+  var acc = p.accuracy === undefined || p.accuracy === '' ? NaN : Number(p.accuracy);
+  var haveFix = isFinite(lat) && isFinite(lng) && isFinite(acc) && acc >= 0;
+  if (!shop.set) return { ok: true, noGeofence: true, lat: haveFix ? lat : '', lng: haveFix ? lng : '', acc: haveFix ? acc : '', dist: '' };
+  if (!haveFix || acc > GEO_MAX_ACCURACY_M) {
+    return { ok: false, error: 'Turn on location. Punches only work at the shop.' + (haveFix ? ' (GPS is only good to ' + Math.round(acc) + ' m right now.)' : '') };
+  }
+  var d = haversineM(lat, lng, shop.lat, shop.lng);
+  if (d - acc > shop.radius) {
+    return { ok: false, error: 'You are about ' + Math.round(d) + ' m from the shop. Punches only work at the shop.' };
+  }
+  return { ok: true, noGeofence: false, lat: lat, lng: lng, acc: acc, dist: Math.round(d) };
+}
+
+function setCell(sh, s, name, val) {
+  if (s.col[name] === undefined) return;
+  sh.getRange(s.row, s.col[name] + 1).setValue(val);
+}
+function truthy(v) { return v === true || String(v).toUpperCase() === 'TRUE' || String(v).toUpperCase() === 'YES'; }
+
+function clockShift(p) {
+  var dir = String(p.dir || '').trim().toLowerCase();
+  if (dir !== 'in' && dir !== 'out') return { ok: false, error: 'dir must be in or out.' };
+  var employee = activeEmployeeMatch(p.employee);
+  if (!employee) return { ok: false, error: String(p.employee || '').trim() ? (String(p.employee).trim() + ' is not on the Employees tab.') : 'Pick your name first.' };
+
+  // Every punch, in or out, needs the person's own PIN and, once the shop is
+  // set, a GPS fix inside the fence.
+  var pv = verifyClockPin(employee, p.pin);
+  if (!pv.ok) return { ok: false, error: pv.error, locked: !!pv.locked, needPin: true };
+  var geo = geoCheck(p);
+  if (!geo.ok) return { ok: false, error: geo.error, needLocation: true };
+
+  var clientId = String(p.clientId || '').trim();
+  var cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
+  if (cache && clientId) {
+    var seen = null;
+    try { seen = cache.get('clock:' + clientId); } catch (e1) { seen = null; }
+    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = floorTimeSheet();
+    var now = new Date(), nowMs = now.getTime();
+    var workDate = fmtDate(now);
+    var shifts = readShifts(sh);
+    var mine = shifts.filter(function (s) { return s.employee.toLowerCase() === employee.toLowerCase() && s.outMs === null; });
+    var open = mine.length ? mine[mine.length - 1] : null;
+    var autoClosed = null, result;
+
+    // A shift left open past the limit is closed at the limit, whichever button is next.
+    if (open && (nowMs - open.inMs) / 3600000 > SHIFT_MAX_HOURS) {
+      var hrsA = closeShift(sh, open, open.inMs + SHIFT_MAX_HOURS * 3600000, 'auto');
+      autoClosed = { workDate: open.workDate, hours: hrsA };
+      open = null;
+    }
+
+    if (dir === 'in') {
+      if (open) {
+        result = { ok: true, dir: 'in', already: true, message: employee + ' is already clocked in.' };
+      } else {
+        appendByHeader(sh, { Timestamp: now, WorkDate: workDate, Employee: employee, In: now, Out: '',
+                             Hours: '', Source: 'floor', ClientId: clientId,
+                             InLat: geo.lat, InLng: geo.lng, InAccuracy: geo.acc, InDistanceM: geo.dist,
+                             NoGeofence: geo.noGeofence ? 'TRUE' : '' });
+        result = { ok: true, dir: 'in', already: false, message: 'Clocked in.' };
+      }
+    } else {
+      if (!open) {
+        result = { ok: false, dir: 'out', error: autoClosed
+          ? 'Your last shift was left open and was closed at ' + SHIFT_MAX_HOURS + ' hours. A manager will review it. You are not clocked in.'
+          : 'You are not clocked in.' };
+      } else {
+        var hrs = closeShift(sh, open, nowMs, 'floor');
+        setCell(sh, open, 'OutLat', geo.lat); setCell(sh, open, 'OutLng', geo.lng);
+        setCell(sh, open, 'OutAccuracy', geo.acc); setCell(sh, open, 'OutDistanceM', geo.dist);
+        if (geo.noGeofence) setCell(sh, open, 'NoGeofence', 'TRUE');
+        result = { ok: true, dir: 'out', shiftHours: hrs, message: 'Clocked out. Shift ' + hrs + ' h.' };
+      }
+    }
+    if (result.ok) { result.atShop = !geo.noGeofence; result.distanceM = geo.dist === '' ? null : geo.dist; }
+    if (autoClosed) result.autoClosed = autoClosed;
+    var after = readShifts(sh);
+    var st = shiftState(after, employee, workDate, nowMs);
+    result.employee = employee; result.workDate = workDate;
+    result.clockedIn = st.clockedIn; result.since = st.since; result.hoursToday = st.hoursToday;
+    if (cache && clientId) {
+      try { cache.put('clock:' + clientId, JSON.stringify(result), 21600); } catch (e2) { /* best effort */ }
+    }
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/* ---- "I forgot to punch": a request, never an edit --------------------------
+ * The employee proves who they are with their PIN and files a TimeRequests row
+ * (Pending). Nothing in TimeLog changes until a manager approves it. */
+function timeReqSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  return ss.getSheetByName(TAB.timereq) || writeTab(ss, TAB.timereq, TIMEREQ_HEADERS, []);
+}
+function submitTimeRequest(p) {
+  var employee = activeEmployeeMatch(p.employee);
+  if (!employee) return { ok: false, error: 'Pick your name first.' };
+  var dir = String(p.dir || '').trim().toLowerCase();
+  if (dir !== 'in' && dir !== 'out') return { ok: false, error: 'Say whether you forgot to clock in or out.' };
+  var reason = String(p.reason || '').trim();
+  if (!reason) return { ok: false, error: 'Say why. A manager reads it.' };
+  var at = Number(p.at), nowMs = Date.now();
+  if (!isFinite(at) || at <= 0) return { ok: false, error: 'Pick the time.' };
+  if (at > nowMs + 60000) return { ok: false, error: 'That time is in the future.' };
+  if (nowMs - at > 14 * 86400000) return { ok: false, error: 'Too long ago. Ask a manager to fix it.' };
+  var pv = verifyClockPin(employee, p.pin);
+  if (!pv.ok) return { ok: false, error: pv.error, locked: !!pv.locked, needPin: true };
+  var id = 'R' + nowMs.toString(36) + Math.random().toString(36).slice(2, 5);
+  appendByHeader(timeReqSheet(), { RequestId: id, Timestamp: new Date(nowMs), Employee: employee, Dir: dir,
+    RequestedTime: new Date(at), WorkDate: fmtDate(new Date(at)), Reason: reason, Status: 'Pending' });
+  return { ok: true, requestId: id, message: 'Sent. A manager will review it.' };
+}
+function readRequests() {
+  var sh = timeReqSheet(), values = sh.getDataRange().getValues(), out = [];
+  if (values.length < 2) return out;
+  var H = values[0], col = {}; H.forEach(function (h, i) { col[h] = i; });
+  for (var i = 1; i < values.length; i++) {
+    var r = values[i]; if (r.join('') === '') continue;
+    out.push({ row: i + 1, col: col, id: String(r[col.RequestId] || ''), employee: String(r[col.Employee] || ''),
+               dir: String(r[col.Dir] || ''), atMs: tsMs(r[col.RequestedTime]), reason: String(r[col.Reason] || ''),
+               status: String(r[col.Status] || ''), submittedMs: tsMs(r[col.Timestamp]) });
+  }
+  return out;
+}
+
+/* ---- Manager side (token-gated: none of these are in OPEN_ACTIONS) ------------ */
+function mgrBy(p) { return String(p.mgrName || '').trim() || 'manager'; }
+
+function managerSetClockPin(p) {
+  var employee = activeEmployeeMatch(p.employee);
+  if (!employee) return { ok: false, error: 'Unknown employee.' };
+  var r = setClockPinFor(employee, p.pin);
+  if (r.ok) r.message = r.cleared ? 'PIN removed for ' + employee : 'PIN set for ' + employee;
+  return r;
+}
+function managerSetShopLocation(p) {
+  var lat = Number(p.lat), lng = Number(p.lng);
+  if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) {
+    return { ok: false, error: 'Those coordinates do not look right.' };
+  }
+  var pr = PropertiesService.getScriptProperties();
+  pr.setProperty('SHOP_LAT', String(lat)); pr.setProperty('SHOP_LNG', String(lng));
+  return { ok: true, message: 'Shop location set to ' + lat.toFixed(5) + ', ' + lng.toFixed(5), shop: publicShop() };
+}
+function publicShop() { var s = shopConfig(); return { set: s.set, lat: s.set ? s.lat : null, lng: s.set ? s.lng : null, radiusM: s.radius }; }
+
+/* Write an audited change to a TimeLog row. Original values are recorded ONCE,
+ * the first time a row is touched, and never overwritten after that. */
+function auditedShiftWrite(sh, s, inMs, outMs, by, reason, source) {
+  var oldIn = s.inMs, oldOut = s.outMs;
+  if (s.originalIn === '' || s.originalIn === undefined) setCell(sh, s, 'OriginalIn', oldIn ? new Date(oldIn) : '(none)');
+  if (s.originalOut === '' || s.originalOut === undefined) setCell(sh, s, 'OriginalOut', oldOut === null ? '(open)' : new Date(oldOut));
+  setCell(sh, s, 'In', new Date(inMs));
+  setCell(sh, s, 'WorkDate', fmtDate(new Date(inMs)));
+  setCell(sh, s, 'Out', outMs === null ? '' : new Date(outMs));
+  setCell(sh, s, 'Hours', outMs === null ? '' : round2(Math.max(0, (outMs - inMs) / 3600000)));
+  setCell(sh, s, 'Source', source);
+  setCell(sh, s, 'EditedBy', by); setCell(sh, s, 'EditedAt', new Date());
+  setCell(sh, s, 'EditReason', reason);
+  var change = 'in ' + (oldIn ? new Date(oldIn).toISOString() : '(none)') + ' -> ' + new Date(inMs).toISOString()
+    + ', out ' + (oldOut === null ? '(open)' : new Date(oldOut).toISOString()) + ' -> ' + (outMs === null ? '(open)' : new Date(outMs).toISOString());
+  setCell(sh, s, 'EditLog', (s.editLog ? s.editLog + '\n' : '') + new Date().toISOString() + ' ' + by + ': ' + reason + ' [' + change + ']');
+}
+
+function editTimeRow(p) {
+  var reason = String(p.reason || '').trim();
+  if (!reason) return { ok: false, error: 'A reason is required for every edit.' };
+  var sh = floorTimeSheet(), shifts = readShifts(sh);
+  var row = Number(p.row);
+  var s = shifts.filter(function (x) { return x.row === row; })[0];
+  if (!s) return { ok: false, error: 'No such TimeLog row.' };
+  var inMs = p.inMs === undefined || p.inMs === '' ? s.inMs : Number(p.inMs);
+  var outMs = (p.outMs === undefined) ? s.outMs : (p.outMs === '' ? null : Number(p.outMs));
+  if (!isFinite(inMs) || (outMs !== null && !isFinite(outMs))) return { ok: false, error: 'Bad time.' };
+  if (outMs !== null && outMs <= inMs) return { ok: false, error: 'Out must be after In.' };
+  if (outMs !== null && (outMs - inMs) / 3600000 > 24) return { ok: false, error: 'A shift cannot be longer than 24 hours.' };
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try { auditedShiftWrite(sh, s, inMs, outMs, mgrBy(p), reason, 'manual'); } finally { lock.releaseLock(); }
+  return { ok: true, message: 'Saved. The original times are kept.' };
+}
+
+function decideTimeRequest(p) {
+  var id = String(p.id || '').trim(), decision = String(p.decision || '').toLowerCase();
+  if (decision !== 'approve' && decision !== 'deny') return { ok: false, error: 'approve or deny.' };
+  var rsh = timeReqSheet(), req = readRequests().filter(function (r) { return r.id === id; })[0];
+  if (!req) return { ok: false, error: 'No such request.' };
+  if (req.status !== 'Pending') return { ok: false, error: 'Already ' + req.status.toLowerCase() + '.' };
+  var by = mgrBy(p), note = String(p.note || '').trim();
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    if (decision === 'approve') {
+      var sh = floorTimeSheet(), shifts = readShifts(sh);
+      var mineOpen = shifts.filter(function (s) { return s.employee.toLowerCase() === req.employee.toLowerCase() && s.outMs === null; });
+      var open = mineOpen.length ? mineOpen[mineOpen.length - 1] : null;
+      if (req.dir === 'in') {
+        if (open) return { ok: false, error: req.employee + ' has an open shift. Close it first (edit its Out), then approve.' };
+        appendByHeader(sh, { Timestamp: new Date(), WorkDate: fmtDate(new Date(req.atMs)), Employee: req.employee,
+          In: new Date(req.atMs), Out: '', Hours: '', Source: 'request', ClientId: id, NoGeofence: 'TRUE',
+          OriginalIn: '(none)', OriginalOut: '(open)', EditedBy: by, EditedAt: new Date(), EditReason: req.reason,
+          EditLog: new Date().toISOString() + ' ' + by + ': approved request ' + id + ' (' + req.reason + ') [in (none) -> ' + new Date(req.atMs).toISOString() + ']' });
+      } else {
+        if (!open) return { ok: false, error: req.employee + ' has no open shift to close. Deny it, or edit the row directly.' };
+        if (req.atMs <= open.inMs) return { ok: false, error: 'That Out is before their In.' };
+        auditedShiftWrite(sh, open, open.inMs, req.atMs, by, 'approved request ' + id + ': ' + req.reason, 'request');
+        setCell(sh, open, 'NoGeofence', 'TRUE');
+      }
+    }
+    var status = decision === 'approve' ? 'Approved' : 'Denied';
+    rsh.getRange(req.row, req.col.Status + 1).setValue(status);
+    rsh.getRange(req.row, req.col.DecidedBy + 1).setValue(by);
+    rsh.getRange(req.row, req.col.DecidedAt + 1).setValue(new Date());
+    rsh.getRange(req.row, req.col.DecisionNote + 1).setValue(note);
+  } finally { lock.releaseLock(); }
+  return { ok: true, message: decision === 'approve' ? 'Approved and written to the time log.' : 'Denied.' };
+}
+
+/* ---- Flags ---------------------------------------------------------------------
+ *  noProduction  clocked in 2+ h with no StageLog row by that person between In and
+ *                Out (or now); a 15 minute grace after Out covers logging just after
+ *  openLong      still clocked in after 10 h
+ *  autoClosed    closed by the 14 h rule and not yet reviewed (any manager edit clears it)
+ *  noGeofence    a punch made before the shop location was set, or approved by request
+ *  edited        a manager changed or created the row */
+var FLAG_NOPROD_HOURS = 2, FLAG_OPEN_HOURS = 10, FLAG_GRACE_MS = 15 * 60000;
+function computeTimeFlags(shifts, stageRows, nowMs, sinceDate) {
+  var flags = [];
+  shifts.forEach(function (s) {
+    if (sinceDate && s.workDate < sinceDate && s.outMs !== null) return;
+    var endMs = s.outMs === null ? nowMs : s.outMs, hrs = (endMs - s.inMs) / 3600000;
+    var add = function (type, detail) { flags.push({ type: type, employee: s.employee, workDate: s.workDate, row: s.row, detail: detail }); };
+    if (hrs >= FLAG_NOPROD_HOURS) {
+      var any = stageRows.some(function (r) {
+        var t = tsMs(r.Timestamp);
+        return String(r.Employee || '').trim().toLowerCase() === s.employee.toLowerCase() && (Number(r.Qty) || 0) > 0
+          && t >= s.inMs && t <= endMs + (s.outMs === null ? 0 : FLAG_GRACE_MS);
+      });
+      if (!any) add('noProduction', 'Clocked in ' + round2(hrs) + ' h, nothing logged');
+    }
+    if (s.outMs === null && hrs > FLAG_OPEN_HOURS) add('openLong', 'Still clocked in after ' + round2(hrs) + ' h');
+    if (s.source === 'auto' && !s.editedBy) add('autoClosed', 'Auto-closed at ' + SHIFT_MAX_HOURS + ' h, needs review');
+    if (s.noGeofence) add('noGeofence', 'Punch made without a shop location check');
+    if (s.editedBy) add('edited', 'Edited by ' + s.editedBy + (s.editReason ? ': ' + s.editReason : ''));
+  });
+  return flags;
+}
+
+function iso(ms) { return ms === null || ms === undefined || !isFinite(ms) ? null : new Date(ms).toISOString(); }
+
+function getTimeView(p) {
+  var days = Math.max(1, Math.min(60, Number(p.days) || 14));
+  var nowMs = Date.now(), since = fmtDate(new Date(nowMs - days * 86400000));
+  var sh = floorTimeSheet(), shifts = readShifts(sh);
+  var stage = readObjects(TAB.stagelog);
+  var flags = computeTimeFlags(shifts, stage, nowMs, since);
+  var byRow = {}; flags.forEach(function (f) { (byRow[f.row] = byRow[f.row] || []).push(f.type); });
+  var rows = shifts.filter(function (s) { return s.workDate >= since || s.outMs === null; }).map(function (s) {
+    return { row: s.row, employee: s.employee, workDate: s.workDate, in: iso(s.inMs), out: iso(s.outMs),
+             hours: s.outMs === null ? round2(Math.min(SHIFT_MAX_HOURS, (nowMs - s.inMs) / 3600000)) : s.hours,
+             open: s.outMs === null, source: s.source, edited: !!s.editedBy, flags: byRow[s.row] || [] };
+  }).reverse();
+  var emps = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return { name: String(r.Name || '').trim(), hasPin: !!String(r.PinHash || '').trim() }; });
+  var pending = readRequests().filter(function (r) { return r.status === 'Pending'; })
+    .map(function (r) { return { id: r.id, employee: r.employee, dir: r.dir, at: iso(r.atMs), reason: r.reason, submitted: iso(r.submittedMs) }; });
+  return { ok: true, shop: publicShop(), employees: emps, pending: pending, flags: flags, shifts: rows, generatedAt: nowMs };
+}
+
+/* Per-person hours per day for a date range, for the weekly payroll comparison. */
+function exportTime(p) {
+  var from = String(p.from || '').trim(), to = String(p.to || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return { ok: false, error: 'from and to must be YYYY-MM-DD, from <= to.' };
+  var nowMs = Date.now(), people = {}, daysSeen = {};
+  readShifts(floorTimeSheet()).forEach(function (s) {
+    if (s.workDate < from || s.workDate > to) return;
+    var hrs = s.outMs === null ? Math.min(SHIFT_MAX_HOURS, Math.max(0, (nowMs - s.inMs) / 3600000)) : s.hours;
+    var who = people[s.employee] = people[s.employee] || { days: {}, total: 0, openShifts: 0, editedShifts: 0, autoClosedShifts: 0 };
+    who.days[s.workDate] = round2((who.days[s.workDate] || 0) + hrs);
+    who.total = round2(who.total + hrs);
+    if (s.outMs === null) who.openShifts++;
+    if (s.editedBy) who.editedShifts++;
+    if (s.source === 'auto') who.autoClosedShifts++;
+    daysSeen[s.workDate] = true;
+  });
+  return { ok: true, from: from, to: to, days: Object.keys(daysSeen).sort(), people: people };
+}
+
+/* ---- Daily summary email, 6pm New York ------------------------------------------ */
+function esc2(t) { return String(t === null || t === undefined ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+function clockLabel(ms) {
+  if (ms === null || ms === undefined) return '';
+  try { return Utilities.formatDate(new Date(ms), 'America/New_York', 'h:mm a'); } catch (e) { return new Date(ms).toISOString().slice(11, 16) + ' UTC'; }
+}
+function collectTimeSummary(today, nowMs) {
+  var shifts = readShifts(floorTimeSheet());
+  var pace = getFloorPace({ workDate: today });
+  var stage = readObjects(TAB.stagelog);
+  var sinceFlags = today;
+  var flags = computeTimeFlags(shifts, stage, nowMs, sinceFlags).filter(function (f) { return f.workDate === today || f.type === 'openLong' || f.type === 'autoClosed'; });
+  var people = {};
+  shifts.filter(function (s) { return s.workDate === today; }).forEach(function (s) {
+    var who = people[s.employee] = people[s.employee] || { name: s.employee, shifts: [], hours: 0, open: false };
+    who.shifts.push({ in: s.inMs, out: s.outMs });
+    if (s.outMs === null) who.open = true;
+  });
+  Object.keys(pace.people).forEach(function (n) {
+    var pr = pace.people[n];
+    if (!people[n] && !(pr.today.Boxed || pr.today.Meshed || pr.today.Patched)) return;
+    var who = people[n] = people[n] || { name: n, shifts: [], hours: 0, open: false };
+    who.hours = pr.hoursToday; who.meshed = pr.today.Meshed; who.patched = pr.today.Patched; who.boxed = pr.today.Boxed;
+    who.boxedPerHour = pr.hoursToday > 0 ? round2(pr.today.Boxed / pr.hoursToday) : null;
+  });
+  var pending = readRequests().filter(function (r) { return r.status === 'Pending'; });
+  return { date: today, people: Object.keys(people).sort().map(function (n) { return people[n]; }),
+           crew: { hours: pace.crew.hoursToday, boxed: pace.crew.today.Boxed, boxedPerHour: pace.crew.boxedPerHourToday,
+                   target: pace.target, par: pace.par },
+           flags: flags, pending: pending.map(function (r) { return { employee: r.employee, dir: r.dir, at: r.atMs, reason: r.reason }; }) };
+}
+function buildTimeSummaryHtml(d) {
+  var th = 'style="text-align:left;padding:4px 10px;border-bottom:1px solid #999"', td = 'style="padding:4px 10px;border-bottom:1px solid #ddd"';
+  var h = '<h2>Time and pace, ' + esc2(d.date) + '</h2>';
+  h += '<table cellspacing="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:14px"><tr>'
+    + ['Who', 'In / out', 'Hours', 'Meshed', 'Patched', 'Boxed', 'Boxed per hr'].map(function (c) { return '<th ' + th + '>' + c + '</th>'; }).join('') + '</tr>';
+  d.people.forEach(function (w) {
+    var span = w.shifts.map(function (s) { return clockLabel(s.in) + ' to ' + (s.out === null ? '<b>still in</b>' : clockLabel(s.out)); }).join('; ');
+    h += '<tr><td ' + td + '>' + esc2(w.name) + '</td><td ' + td + '>' + span + '</td><td ' + td + '>' + esc2(w.hours) + '</td><td ' + td + '>'
+      + esc2(w.meshed || 0) + '</td><td ' + td + '>' + esc2(w.patched || 0) + '</td><td ' + td + '>' + esc2(w.boxed || 0) + '</td><td ' + td + '>'
+      + (w.boxedPerHour === null || w.boxedPerHour === undefined ? '-' : esc2(w.boxedPerHour)) + '</td></tr>';
+  });
+  if (!d.people.length) h += '<tr><td ' + td + ' colspan="7">Nobody clocked in or logged anything.</td></tr>';
+  h += '<tr><td ' + td + '><b>Crew</b></td><td ' + td + '></td><td ' + td + '><b>' + esc2(d.crew.hours) + '</b></td><td ' + td + '></td><td ' + td + '></td><td ' + td + '><b>'
+    + esc2(d.crew.boxed) + '</b> of ' + esc2(d.crew.target.dailyBoxed) + '</td><td ' + td + '><b>' + (d.crew.boxedPerHour === null || d.crew.boxedPerHour === undefined ? '-' : esc2(d.crew.boxedPerHour))
+    + '</b> (par ' + esc2(d.crew.target.parPerHour) + ')</td></tr></table>';
+  var openNow = d.people.filter(function (w) { return w.open; }).map(function (w) { return w.name; });
+  h += '<h3>Open shifts</h3><p>' + (openNow.length ? esc2(openNow.join(', ')) + ' still clocked in.' : 'None.') + '</p>';
+  h += '<h3>Flags</h3>' + (d.flags.length ? '<ul>' + d.flags.map(function (f) { return '<li><b>' + esc2(f.employee) + '</b> ' + esc2(f.workDate) + ': ' + esc2(f.detail) + '</li>'; }).join('') + '</ul>' : '<p>None.</p>');
+  h += '<h3>Pending time requests</h3>' + (d.pending.length ? '<ul>' + d.pending.map(function (r) { return '<li><b>' + esc2(r.employee) + '</b> forgot to clock ' + esc2(r.dir) + ' at ' + esc2(clockLabel(r.at)) + ': ' + esc2(r.reason) + '</li>'; }).join('') + '</ul><p>Approve or deny in the app, Time tab.</p>' : '<p>None.</p>');
+  return h;
+}
+function summaryRecipients() {
+  var list = [];
+  try { var me = Session.getEffectiveUser().getEmail(); if (me) list.push(me); } catch (e) {}
+  try {
+    var extra = PropertiesService.getScriptProperties().getProperty('SUMMARY_TO');
+    if (extra) String(extra).split(/[,;\s]+/).forEach(function (a) { if (a && list.indexOf(a) === -1) list.push(a); });
+  } catch (e2) {}
+  return list;
+}
+function sendDailyTimeSummary() {
+  var nowMs = Date.now(), d = collectTimeSummary(fmtDate(new Date(nowMs)), nowMs);
+  var to = summaryRecipients();
+  if (!to.length) return { ok: false, error: 'No recipient.' };
+  if (!d.people.length && !d.pending.length && !d.flags.length) return { ok: true, skipped: true };
+  MailApp.sendEmail({ to: to.join(','), subject: 'Aquamentor time and pace, ' + d.date, htmlBody: buildTimeSummaryHtml(d),
+                      body: 'This summary is HTML; open it in a mail client that shows HTML.' });
+  return { ok: true, sent: to.length };
+}
+/* Idempotent: removes any earlier copy first, so running it twice leaves one trigger. */
+function installDailyTimeSummary() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'sendDailyTimeSummary') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('sendDailyTimeSummary').timeBased().everyDays(1).atHour(18).nearMinute(0).inTimezone('America/New_York').create();
+  try { SpreadsheetApp.getActive().toast('Daily time summary is on: 6pm New York, to ' + summaryRecipients().join(', '), 'Aquamentor', 8); } catch (e) {}
+}
+
+function weekStartOf(iso) {                       // Monday on or before iso (YYYY-MM-DD)
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso));
+  var d = m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : new Date();
+  var back = (d.getUTCDay() + 6) % 7;             // Mon=0 ... Sun=6
+  d = new Date(d.getTime() - back * 86400000);
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+}
+
+function floorTarget() {
+  var weekly = FLOOR_WEEKLY_DEFAULT, src = 'default', crewHours = FLOOR_CREW_HOURS_DEFAULT;
+  var daily = null;
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var w = Number(props.getProperty('FLOOR_WEEKLY_TARGET'));
+    if (isFinite(w) && w > 0) { weekly = w; src = 'FLOOR_WEEKLY_TARGET'; }
+    var d = Number(props.getProperty('FLOOR_DAILY_TARGET'));
+    if (isFinite(d) && d > 0) daily = d;
+    var ch = Number(props.getProperty('FLOOR_WEEKLY_CREW_HOURS'));
+    if (isFinite(ch) && ch > 0) crewHours = ch;
+  } catch (e) { /* no properties service (tests) */ }
+  return { weekly: weekly, daily: daily === null ? round2(weekly / 5) : daily, source: src,
+           crewHours: crewHours, parPerHour: weekly / crewHours };
+}
+
+function getFloorPace(p) {
+  var today = String(p.workDate || '').trim() || fmtDate(new Date());
+  var weekStart = weekStartOf(today);
+  var nowMs = Date.now();
+  var me = p.employee ? activeEmployeeMatch(p.employee) : null;
+
+  // Same rule production-recon uses: identical WorkDate/Employee/ProductID/
+  // Stage/Qty/Notes count once. Reversals (negative rows) always count.
+  var seen = {}, per = {}, crewToday = { Meshed: 0, Patched: 0, Boxed: 0 }, crewWeek = { Meshed: 0, Patched: 0, Boxed: 0 };
+  var dupsDropped = 0;
+  function bucket(who) {
+    return per[who] = per[who] || { today: { Meshed: 0, Patched: 0, Boxed: 0 }, week: { Meshed: 0, Patched: 0, Boxed: 0 }, hoursToday: 0, hoursWeek: 0 };
+  }
+  readObjects(TAB.stagelog).forEach(function (r) {
+    var date = fmtDate(r.WorkDate), stage = String(r.Stage || '').trim(), pid = String(r.ProductID || '').trim();
+    if (date < weekStart || date > today) return;
+    if (FLOOR_STAGES.indexOf(stage) === -1 || FLOOR_PRODUCTS.indexOf(pid) === -1) return;
+    var qty = Number(r.Qty) || 0, who = String(r.Employee || '').trim();
+    if (!qty || !who) return;
+    if (qty > 0) {
+      var k = [date, who, pid, stage, qty, String(r.Notes || '')].join('|');
+      if (seen[k]) { dupsDropped++; return; }
+      seen[k] = true;
+    }
+    var b = bucket(who);
+    b.week[stage] += qty;
+    if (date === today) b.today[stage] += qty;
+  });
+
+  var shifts = [];
+  try { shifts = readShifts(floorTimeSheet()); } catch (e) { shifts = []; }
+  var names = {}; Object.keys(per).forEach(function (n) { names[n] = true; });
+  shifts.forEach(function (s) { if (s.employee && s.workDate >= weekStart && s.workDate <= today) names[s.employee] = true; });
+  var crewHoursToday = 0, crewHoursWeek = 0;
+  Object.keys(names).forEach(function (who) {
+    var b = bucket(who);
+    b.hoursToday = hoursOn(shifts, who, today, nowMs);
+    var wk = 0;
+    shifts.forEach(function (s) {
+      if (s.employee.toLowerCase() !== who.toLowerCase() || s.workDate < weekStart || s.workDate > today) return;
+      wk += s.outMs === null ? Math.min(SHIFT_MAX_HOURS, Math.max(0, (nowMs - s.inMs) / 3600000)) : s.hours;
+    });
+    b.hoursWeek = round2(wk);
+    FLOOR_STAGES.forEach(function (st) {
+      b.today[st] = round2(Math.max(0, b.today[st])); b.week[st] = round2(Math.max(0, b.week[st]));
+      crewToday[st] += b.today[st]; crewWeek[st] += b.week[st];
+    });
+    crewHoursToday += b.hoursToday; crewHoursWeek += b.hoursWeek;
+  });
+  crewHoursToday = round2(crewHoursToday); crewHoursWeek = round2(crewHoursWeek);
+
+  var t = floorTarget();
+  var out = {
+    ok: true, today: today, weekStart: weekStart, generatedAt: nowMs,
+    crew: { today: crewToday, week: crewWeek, hoursToday: crewHoursToday, hoursWeek: crewHoursWeek,
+            boxedPerHourToday: crewHoursToday > 0 ? round2(crewToday.Boxed / crewHoursToday) : null,
+            boxedPerHourWeek: crewHoursWeek > 0 ? round2(crewWeek.Boxed / crewHoursWeek) : null },
+    people: per, target: { dailyBoxed: t.daily, weeklyBoxed: t.weekly, source: t.source,
+                           weeklyCrewHours: t.crewHours, parPerHour: round2(t.parPerHour) },
+    // Par is driven by clocked hours (open shifts counted to now), not by a clock on the wall.
+    par: { today: round2(crewHoursToday * t.parPerHour), week: round2(crewHoursWeek * t.parPerHour) },
+    duplicatesDropped: dupsDropped
+  };
+  if (me) {
+    out.me = { name: me, today: bucket(me).today, week: bucket(me).week, hoursToday: bucket(me).hoursToday };
+    var st2 = shiftState(shifts, me, today, nowMs);
+    out.me.clockedIn = st2.clockedIn; out.me.since = st2.since;
+  }
+  return out;
 }
 
 function exportTable(p) {
@@ -2908,6 +3564,7 @@ function onOpen() {
       .addItem('Set manager-guide readers…', 'setGuideReaders')
       .addItem('Set digest recipients…', 'setDigestRecipients')
       .addItem('Set Shopify access…', 'setShopifyAccess')
+      .addItem('Install daily 6pm time summary', 'installDailyTimeSummary')
       .addItem('Set deployment ID…', 'setDeploymentId'))
     .addSubMenu(ui.createMenu('Schedules (tap to switch on or off)')
       .addItem('Monday 7am digest', 'toggleDigest')

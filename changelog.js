@@ -2,6 +2,14 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.0', date: '2026-09-30', title: 'Floor mode and the real time clock', items: [
+    { who: 'crew', text: 'Floor mode is now where the app opens: one screen, tap your name once, clock in and out, and log Meshed, Patched or Boxed with +1, +5, +12 (a box) and Submit. It writes to the same log as Log My Day, so every report still works. Undo lasts two minutes.' },
+    { who: 'crew', text: 'Clocking in and out asks for your own 4-digit PIN on a number pad and only works at the shop (the phone asks for your location). Forgot to punch? Tap "I forgot to punch": a manager reviews it.' },
+    { who: 'crew', text: 'The pace strip shows crew boxed today and this week against 64 and 320, with par that follows the hours people are clocked in.' },
+    { who: 'mgr',  text: 'Managers still get the full app: use the Full app (managers) link on Floor mode, or add ?full=1 to the address. Once unlocked, the app opens straight to the full view.' },
+    { who: 'mgr',  text: 'New Time tab: set the shop location from where you stand, set and reset clock PINs, approve or deny forgot-to-punch requests, edit any shift (a reason is required and the original times are kept), and see flags: 2+ hours with nothing logged, open over 10 hours, auto-closed shifts, no location check, edited.' },
+    { who: 'mgr',  text: 'Par is about 1.94 boxed per clocked crew hour (320 a week over 165 crew hours; Script Property FLOOR_WEEKLY_CREW_HOURS changes the 165). A 6pm New York summary email (sheet menu, Settings, Install daily 6pm time summary) and a timeExport action support the weekly payroll check. GPS can be faked; this stops casual cheating, not a determined person.' }
+  ]},
   { version: '2.25.2', date: '2026-09-29', title: 'When the sheet can\'t be reached', items: [
     { who: 'crew', text: 'If the phone cannot reach the sheet, the app tries once more on its own, then says so by name. A Connection test link at the bottom opens the backend directly: if that shows text, the network is fine.' }
   ]},

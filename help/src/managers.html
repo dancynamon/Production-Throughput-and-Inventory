@@ -9,7 +9,7 @@
 
 <div class="wrap">
 <nav class="toc">
-  <a href="#unlock">Unlock</a><a href="#reconcile">Reconcile</a><a href="#routine">Daily and weekly</a><a href="#tabs">The tabs</a><a href="#trust">Reading the numbers</a>
+  <a href="#unlock">Unlock</a><a href="#time">Time clock</a><a href="#reconcile">Reconcile</a><a href="#routine">Daily and weekly</a><a href="#tabs">The tabs</a><a href="#trust">Reading the numbers</a>
   <a href="#fixing">Fixing entries</a><a href="#storage">Storage and shipping</a><a href="#counts">Counts</a><a href="#faq">When something looks wrong</a>
 </nav>
 
@@ -20,6 +20,20 @@
     <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>
   </ol>
   <div class="callout"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href="crew.html">Crew guide</a>.</div>
+</section>
+
+<section id="time">
+  <h2>Time clock</h2>
+  <p>Floor mode's clock is the real time clock. Every clock in and every clock out needs the person's own 4-digit PIN and, once the shop location is set, the phone has to be at the shop. Open the <b>Time</b> tab.</p>
+  <ol class="steps">
+    <li><p><b>Set the shop location once.</b> Stand inside the shop and tap <b>Set shop location to where I'm standing</b>. Check the coordinates in the box and confirm.</p><p>Until you do, punches work from anywhere and are flagged "No location check", and a red banner shows on this tab. The default radius is 150 m; change it with the SHOP_RADIUS_M script property.</p></li>
+    <li><p><b>Give everyone a PIN.</b> Under <b>Clock PINs</b> tap <b>Set PIN</b> beside a name. Someone with no PIN sees "Ask a manager to set your PIN." <b>Reset PIN</b> also lifts a lockout (five wrong PINs lock a name for 15 minutes).</p><p>PINs are stored as a salted hash. Nobody, including you, can read one back.</p></li>
+    <li><p><b>Forgot-to-punch requests.</b> Under <b>Time requests</b>, read the reason and tap <b>Approve</b> or <b>Deny</b>. Approving writes the punch to the time log and keeps the original values and who approved it.</p></li>
+    <li><p><b>Edit a shift.</b> Tap <b>Edit</b> on any row, change In or Out, and give a reason. The reason is required and every edit is kept in the row's history. Only managers can edit time.</p></li>
+  </ol>
+  <p>Flags to look at: clocked in 2 hours or more with nothing logged; a shift open over 10 hours; a shift the 14-hour rule closed on its own (any edit clears the review flag); a punch with no location check; an edited row.</p>
+  <div class="callout"><b>Honest limits.</b> GPS on a phone can be faked. This stops casual cheating, such as punching in from home, not a determined person.</div>
+  <p>A summary email goes out at 6pm New York time: who worked, in and out, hours, meshed, patched and boxed per person, boxed per clocked hour, open shifts, flags and pending requests. Turn it on once from the sheet: <b>Aquamentor → Settings → Install daily 6pm time summary</b>. It goes to the sheet owner; add more addresses in the SUMMARY_TO script property. For the weekly payroll check, the <code>timeExport</code> action returns hours per person per day.</p>
 </section>
 
 <section id="reconcile">

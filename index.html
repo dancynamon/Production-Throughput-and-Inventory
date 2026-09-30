@@ -11,6 +11,16 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Aquamentor Production</title>
+<script>
+/* Crew first: without a manager unlock the root opens Floor mode. ?full=1 is the way in to the full app. */
+(function () {
+  try {
+    var full = /[?&]full=1\b/.test(location.search);
+    var mgr = localStorage.getItem('aq_role') === 'mgr' && localStorage.getItem('aq_mgr_token');
+    if (!full && !mgr) location.replace('floor.html');
+  } catch (e) { /* storage blocked: stay on the full app */ }
+})();
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -18,6 +28,7 @@
 <header class="topbar">
   <div class="topbar__logo">AQ</div>
   <div class="topbar__title">Aquamentor Production</div>
+  <a class="topbar__floor" href="floor.html">Floor mode</a>
   <button id="mgrBtn" class="topbar__refresh" aria-label="Manager access" title="Manager access">🔒</button>
   <button id="refreshBtn" class="topbar__refresh" aria-label="Refresh">⟳</button>
 </header>
@@ -27,6 +38,7 @@
   <button class="tab" data-screen="floor">Floor</button>
   <button class="tab" data-screen="ship">Ship</button>
   <button class="tab" data-screen="reconcile" data-mgr="1">Reconcile</button>
+  <button class="tab" data-screen="time" data-mgr="1">Time</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
   <button class="tab" data-screen="capacity" data-mgr="1">Capacity</button>
@@ -104,6 +116,10 @@
   <section id="screen-reconcile" class="screen">
     <p class="stock-hint">Once a week: count the floor, count the shelf, count storage. Then see how the crew's entries held up against what was actually there. <b>Short</b> means the count found less than the app said, <b>extra</b> means more.</p>
     <div id="recBody"><div class="muted">Loading…</div></div>
+  </section>
+
+  <section id="screen-time" class="screen">
+    <div id="timeBody"><div class="muted">Loading…</div></div>
   </section>
 
   <section id="screen-guide" class="screen">

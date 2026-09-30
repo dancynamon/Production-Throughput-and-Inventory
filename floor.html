@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="theme-color" content="#0c1f3f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Floor">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Aquamentor Floor</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="floor.css">
+</head>
+<body class="fl">
+
+<header class="topbar">
+  <div class="topbar__logo">AQ</div>
+  <div class="topbar__title" id="flWho">Floor</div>
+  <button id="flNotYou" class="fl-link" type="button" hidden>not you?</button>
+</header>
+
+<main class="fl-main">
+  <!-- FIRST VISIT: tap your name -->
+  <section id="flPick" hidden>
+    <h1 class="fl-h">Tap your name</h1>
+    <div id="flNames" class="fl-names"></div>
+  </section>
+
+  <!-- ONE SCREEN -->
+  <section id="flApp" hidden>
+    <div class="fl-strip" id="flStrip" aria-live="polite">
+      <div class="fl-cell" id="cellDay"><div class="fl-cell__k">Crew boxed today</div><div class="fl-cell__v" id="dayV">-</div><div class="fl-cell__s" id="dayS"></div></div>
+      <div class="fl-cell" id="cellWeek"><div class="fl-cell__k">Crew boxed this week</div><div class="fl-cell__v" id="weekV">-</div><div class="fl-cell__s" id="weekS"></div></div>
+      <div class="fl-cell fl-cell--me" id="cellMe"><div class="fl-cell__k">My day</div><div class="fl-cell__me" id="meV">-</div></div>
+    </div>
+
+    <button id="flClock" class="fl-clock" type="button" disabled>
+      <span class="fl-clock__t" id="clockT">Clock in</span>
+      <span class="fl-clock__s" id="clockS"></span>
+    </button>
+
+    <button id="flForgot" class="fl-forgot" type="button">I forgot to punch</button>
+
+    <div class="fl-log">
+      <div class="fl-seg" id="flSize">
+        <button type="button" data-size="50" class="on">50"</button>
+        <button type="button" data-size="40">40"</button>
+      </div>
+      <button type="button" id="flStd" class="fl-std" aria-pressed="false">Standard (not Exo)</button>
+
+      <div class="fl-seg fl-seg--stage" id="flStage"></div>
+
+      <div class="fl-qty">
+        <button type="button" class="fl-q" data-add="-1">-1</button>
+        <input id="flQty" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="Quantity">
+        <button type="button" class="fl-q" data-add="1">+1</button>
+      </div>
+      <div class="fl-qty2">
+        <button type="button" class="fl-q" data-add="5">+5</button>
+        <button type="button" class="fl-q" data-add="12">+12 box</button>
+      </div>
+
+      <button id="flSubmit" class="fl-submit" type="button" disabled>Submit</button>
+    </div>
+    <p class="fl-note" id="flDup" hidden></p>
+    <p class="fl-note" id="flQueue" hidden></p>
+  </section>
+</main>
+
+<a id="flFull" class="fl-full" href="index.html?full=1">Full app (managers)</a>
+
+<div id="flToast" class="fl-toast" hidden><span id="flToastT"></span><button type="button" id="flUndo" hidden>Undo</button></div>
+
+<div id="flPin" class="fl-modal" hidden>
+  <div class="fl-modal__box">
+    <h2 id="flPinTitle">Enter your PIN</h2>
+    <div id="flPinDots" class="fl-dots" aria-label="PIN digits entered"></div>
+    <div id="flPinMsg" class="fl-pinmsg" aria-live="polite"></div>
+    <div class="fl-pad" id="flPad"></div>
+    <button type="button" id="flPinCancel" class="fl-link fl-link--big">Cancel</button>
+  </div>
+</div>
+
+<div id="flFor" class="fl-modal" hidden>
+  <div class="fl-modal__box">
+    <h2>I forgot to punch</h2>
+    <p>A manager reviews this. Nothing changes until they approve.</p>
+    <div class="fl-seg" id="flForDir"><button type="button" data-v="in" class="on">Clock in</button><button type="button" data-v="out">Clock out</button></div>
+    <div class="fl-seg" id="flForDay"><button type="button" data-v="0" class="on">Today</button><button type="button" data-v="1">Yesterday</button></div>
+    <input id="flForTime" type="time" aria-label="Time">
+    <input id="flForReason" type="text" placeholder="Why?" aria-label="Reason">
+    <input id="flForPin" type="password" inputmode="numeric" maxlength="4" placeholder="Your PIN" aria-label="PIN">
+    <div id="flForMsg" class="fl-pinmsg"></div>
+    <button type="button" id="flForGo" class="fl-submit">Send to manager</button>
+    <button type="button" id="flForCancel" class="fl-link fl-link--big">Cancel</button>
+  </div>
+</div>
+
+<div id="flAsk" class="fl-modal" hidden>
+  <div class="fl-modal__box">
+    <h2>How many boxed today?</h2>
+    <p>Nobody has logged Boxed yet today.</p>
+    <input id="flAskQty" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
+    <button type="button" id="flAskGo" class="fl-submit">Log it</button>
+    <button type="button" id="flAskSkip" class="fl-link fl-link--big">Skip</button>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="floor-core.js"></script>
+<script src="floor.js"></script>
+</body>
+</html>

@@ -738,3 +738,18 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 body.view-count .rec-back{ display:inline-block }
 body.view-count #screen-wip > .stock-hint, body.view-count #walkToggle, body.view-count #wipSingle, body.view-count #wipNag,
 body.view-count #screen-inventory > .stock-hint, body.view-count #invSummary, body.view-count .mgr-hint{ display:none !important }
+
+/* Link to Floor mode (floor.html), top of every screen */
+.topbar__floor{color:var(--navy); background:var(--gold); font-weight:700; font-size:.85rem;
+  padding:7px 11px; border-radius:16px; text-decoration:none; white-space:nowrap}
+
+/* Manager Time screen */
+.time-row{padding:8px 0;border-bottom:1px solid var(--border);font-size:.95rem}
+.time-row:last-child{border-bottom:none}
+.time-flags{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}
+.time-flags span{background:#fbe7e7;color:var(--low);border-radius:10px;padding:2px 8px;font-size:.8rem;font-weight:600}
+#timeBody .ov-card>*:not(.ov-card__head){margin-left:12px;margin-right:12px}
+#timeBody .ov-card>.muted{text-align:left;margin-top:8px}
+#timeBody .time-row .muted{text-align:left}
+#timeBody .ov-card>.btn-primary{width:calc(100% - 24px);margin-bottom:12px}
+#timeBody .ov-card>*:last-child{margin-bottom:10px}

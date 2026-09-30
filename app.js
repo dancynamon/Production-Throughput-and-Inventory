@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '2.25.2';
+  var APP_VERSION = '3.01.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -801,6 +801,7 @@
     if (name === 'wip') { buildWipRows(); if (countView() && !WALK.on) el('walkToggle').click(); }
     if (name === 'day') loadToday();
     if (name === 'reconcile') loadReconcile();
+    if (name === 'time') loadTime();
     window.scrollTo(0, 0);
   }
   function countView() { return isMgr() && localStorage.getItem('aq_view') === 'count'; }
@@ -2244,6 +2245,80 @@
     if (!pid) return;
     BUY.plan[pid] = e.target.value;
     renderBuy();
+  });
+
+  /* ---- Time: the real time clock, manager side ------------------------------ */
+  var TIME = { data: null };
+  function loadTime() {
+    var box = el('timeBody');
+    api({ action: 'timeView', days: 14 }, 30000).then(function (d) {
+      if (!d.ok) throw new Error(d.error || 'Could not load');
+      TIME.data = d; renderTime();
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      box.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + (stale ? '<br>The sheet\'s code is behind this app. It updates itself within 30 minutes.' : '') + '</div>';
+    });
+  }
+  function tClock(iso) { if (!iso) return ''; var d = new Date(iso); return d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }); }
+  var FLAG_TEXT = { noProduction: 'No production logged', openLong: 'Open over 10 h', autoClosed: 'Auto-closed, review', noGeofence: 'No location check', edited: 'Edited' };
+  function renderTime() {
+    var d = TIME.data, box = el('timeBody'); if (!d) return;
+    var h = '';
+    if (!d.shop.set) h += '<div class="pin-banner"><strong>Shop location is not set.</strong> Punches are being accepted from anywhere and flagged. Stand in the shop and tap the button below.</div>';
+    h += '<div class="ov-card"><div class="ov-card__head">Shop location</div><p class="stock-hint">' + (d.shop.set
+      ? 'Set to ' + d.shop.lat.toFixed(5) + ', ' + d.shop.lng.toFixed(5) + '. Punches must be within ' + d.shop.radiusM + ' m. GPS can be faked, so this stops casual cheating, not a determined person.'
+      : 'Not set.') + '</p><button type="button" class="btn-primary" data-tact="shop">Set shop location to where I\'m standing</button></div>';
+    h += '<div class="ov-card"><div class="ov-card__head">Time requests <span class="ov-card__meta">' + d.pending.length + ' pending</span></div>';
+    h += d.pending.length ? d.pending.map(function (r) {
+      return '<div class="time-row"><b>' + escapeHtml(r.employee) + '</b> forgot to clock ' + escapeHtml(r.dir) + ' at ' + escapeHtml(tClock(r.at))
+        + '<div class="muted">' + escapeHtml(r.reason) + '</div><button type="button" class="inv-mini" data-tact="approve" data-id="' + escapeHtml(r.id) + '">Approve</button> '
+        + '<button type="button" class="inv-mini" data-tact="deny" data-id="' + escapeHtml(r.id) + '">Deny</button></div>';
+    }).join('') : '<div class="muted">None.</div>';
+    h += '</div><div class="ov-card"><div class="ov-card__head">Flags <span class="ov-card__meta">' + d.flags.length + '</span></div>';
+    h += d.flags.length ? d.flags.map(function (f) {
+      return '<div class="time-row"><b>' + escapeHtml(f.employee) + '</b> ' + escapeHtml(shortDate(f.workDate)) + ': ' + escapeHtml(f.detail) + '</div>';
+    }).join('') : '<div class="muted">None.</div>';
+    h += '</div><div class="ov-card"><div class="ov-card__head">Last 14 days</div>';
+    h += d.shifts.map(function (s) {
+      return '<div class="time-row"><b>' + escapeHtml(s.employee) + '</b> ' + escapeHtml(tClock(s.in)) + ' to ' + (s.open ? '<b>still in</b>' : escapeHtml(tClock(s.out)))
+        + ' &middot; ' + escapeHtml(s.hours) + ' h' + (s.flags.length ? '<div class="time-flags">' + s.flags.map(function (f) { return '<span>' + escapeHtml(FLAG_TEXT[f] || f) + '</span>'; }).join('') + '</div>' : '')
+        + ' <button type="button" class="inv-mini" data-tact="edit" data-row="' + s.row + '" data-in="' + escapeHtml(s.in || '') + '" data-out="' + escapeHtml(s.out || '') + '">Edit</button></div>';
+    }).join('') || '<div class="muted">No shifts yet.</div>';
+    h += '</div><div class="ov-card"><div class="ov-card__head">Clock PINs</div>';
+    h += d.employees.map(function (e) {
+      return '<div class="time-row"><b>' + escapeHtml(e.name) + '</b> ' + (e.hasPin ? 'PIN set' : '<span class="time-flags"><span>no PIN, cannot punch</span></span>')
+        + ' <button type="button" class="inv-mini" data-tact="pin" data-name="' + escapeHtml(e.name) + '">' + (e.hasPin ? 'Reset PIN' : 'Set PIN') + '</button></div>';
+    }).join('') + '</div>';
+    box.innerHTML = h;
+  }
+  function tLocal(ms) { var d = new Date(ms), p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+  function tParse(str) { var t = new Date(String(str).trim().replace(' ', 'T')).getTime(); return isNaN(t) ? null : t; }
+  el('timeBody').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-tact]'); if (!b) return;
+    var act = b.getAttribute('data-tact'), done = function (r) { toast(r.ok ? (r.message || 'Done') : ('⚠ ' + (r.error || 'Failed'))); loadTime(); };
+    if (act === 'approve' || act === 'deny') {
+      api({ action: 'timeDecide', id: b.getAttribute('data-id'), decision: act, note: '' }).then(done);
+    } else if (act === 'pin') {
+      var name = b.getAttribute('data-name'), pin = prompt('New 4-digit clock PIN for ' + name + ' (blank removes it):');
+      if (pin === null) return;
+      api({ action: 'setClockPin', employee: name, pin: pin }).then(done);
+    } else if (act === 'edit') {
+      var inMs = new Date(b.getAttribute('data-in')).getTime(), outIso = b.getAttribute('data-out');
+      var nin = prompt('In (YYYY-MM-DD HH:MM, this phone\'s time):', tLocal(inMs)); if (nin === null) return;
+      var nout = prompt('Out (blank = still clocked in):', outIso ? tLocal(new Date(outIso).getTime()) : ''); if (nout === null) return;
+      var reason = prompt('Reason for this edit (required, kept in the log):'); if (!reason || !reason.trim()) { toast('A reason is required.'); return; }
+      var ni = tParse(nin), no = nout.trim() ? tParse(nout) : '';
+      if (ni === null || no === null) { toast('Could not read that time.'); return; }
+      api({ action: 'timeEdit', row: b.getAttribute('data-row'), inMs: ni, outMs: no, reason: reason.trim() }).then(done);
+    } else if (act === 'shop') {
+      if (!navigator.geolocation) { toast('This phone cannot give a location.'); return; }
+      toast('Finding you...');
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        var lat = pos.coords.latitude, lng = pos.coords.longitude;
+        if (!confirm('Set the shop to ' + lat.toFixed(5) + ', ' + lng.toFixed(5) + ' (accurate to ' + Math.round(pos.coords.accuracy) + ' m)?\n\nPunches will only work within the shop radius of this spot.')) return;
+        api({ action: 'setShopLocation', lat: lat, lng: lng }).then(done);
+      }, function () { toast('Could not get your location. Allow location for this site.'); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+    }
   });
 
   /* ---- Utils ------------------------------------------------------------- */

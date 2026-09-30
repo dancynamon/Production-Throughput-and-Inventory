@@ -3,21 +3,37 @@
 <div class="band"><div class="wrap">
   <div class="eyebrow">Aquamentor Production</div>
   <h1>Your day in the app</h1>
-  <p>Three things, all on your phone: log what you finished, record what shipped, and see your own pace. Two minutes a day. Nothing to install.</p>
-  <a class="app-link" href="https://prod-through-inv-3.dan-daf.workers.dev" target="_blank" rel="noopener">Open the app</a>
+  <p>Start with <b>Floor mode</b>: one screen, your name, a clock button and three buttons for what you finished. Everything else in the app is below if you need it.</p>
+  <a class="app-link" href="https://prod-through-inv-3.dan-daf.workers.dev/floor" target="_blank" rel="noopener">Open Floor mode</a>
 </div></div>
 
 <div class="wrap">
 <nav class="toc">
-  <a href="#setup">Get it on your phone</a><a href="#day">Log your day</a><a href="#fix">Fix a mistake</a>
+  <a href="#floor">Floor mode</a><a href="#setup">Get it on your phone</a><a href="#day">Log your day</a><a href="#fix">Fix a mistake</a>
   <a href="#ship">Ship</a><a href="#pace">Your pace</a><a href="#count">Floor count</a><a href="#rules">Ground rules</a>
 </nav>
+
+<section id="floor">
+  <h2>Floor mode (start here)</h2>
+  <p>This is the page to keep on your home screen. It only tracks how fast we are going. It writes to the same log as Log My Day, so nothing else changes for the office.</p>
+  <ol class="steps">
+    <li><p>Open <b>prod-through-inv-3.dan-daf.workers.dev/floor</b> and tap your name.</p><p>Once. It remembers you. Wrong name? Tap <b>not you?</b> at the top.</p></li>
+    <li><p>Tap the big <b>Clock in</b> button when you start and <b>Clock out</b> when you leave. Both ask for <b>your 4-digit PIN</b> on the number pad.</p><p>Your PIN is yours alone. A manager sets it. No PIN yet? The app says "Ask a manager to set your PIN." Five wrong tries lock you out for 15 minutes.</p></li>
+    <li><p>The clock only works <b>at the shop</b>, so the phone asks for your location. Say yes, and turn location on.</p><p>You will see "Clocked in 7:02am at shop" with a check mark. If it says to turn on location, do that and try again.</p></li>
+    <li><p>Forgot to punch? Tap <b>I forgot to punch</b>, pick in or out, the time and a reason, and enter your PIN. It goes to a manager. Nothing changes until they approve it, and only managers can change times.</p></li>
+    <li><p>Pick <b>50"</b> or <b>40"</b>, then the stage: <b>Meshed</b>, <b>Patched</b> or <b>Boxed</b>.</p><p>The small <b>Standard</b> button is only for tubes without mesh. Leave it off for Exo.</p></li>
+    <li><p>Tap <b>+12</b> for each box, <b>+5</b> or <b>+1</b> for the rest, <b>-1</b> if you went too far. You can also type the number.</p></li>
+    <li><p>Tap <b>Submit</b>. The bar at the bottom says what was logged.</p><p>Tapped the wrong thing? Hit <b>Undo</b> on that bar within two minutes. That undoes production counts only, not clock punches.</p></li>
+  </ol>
+  <p>The top strip is the scoreboard: boxed today, boxed this week, and your own numbers. Green is on pace, yellow is close, red is behind. Pace follows the hours people are clocked in.</p>
+  <div class="callout"><b>No signal?</b> Submit anyway. It waits on the phone and sends itself.</div>
+</section>
 
 <section id="setup">
   <h2>Get it on your phone</h2>
   <p>The app is a web page. Put it on your home screen once and it opens like any other app, and it keeps working when the shop Wi-Fi drops.</p>
   <ol class="steps">
-    <li><p>Open <b>prod-through-inv-3.dan-daf.workers.dev</b> in your phone's browser.</p><p>Safari on iPhone, Chrome on Android.</p></li>
+    <li><p>Open <b>prod-through-inv-3.dan-daf.workers.dev/floor</b> in your phone's browser.</p><p>Safari on iPhone, Chrome on Android.</p></li>
     <li><p>iPhone: tap the <span class="kbd">Share</span> button, then <span class="kbd">Add to Home Screen</span>.</p><p>Android: tap the <span class="kbd">⋮</span> menu, then <span class="kbd">Add to Home screen</span>.</p></li>
     <li><p>Open it from the home screen from now on.</p><p>It updates itself. If it ever looks stale, close it and reopen it.</p></li>
   </ol>
