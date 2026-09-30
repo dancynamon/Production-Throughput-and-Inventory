@@ -264,6 +264,9 @@ assert on them rather than trusting the parser.
   only a login card (manager `auth`, name + PIN) until unlocked; top bar is Floor / Summary / Time.
   The other screens' HTML and JS are still in place, just off the bar. Guides in `help/src/`
   still describe the old tabs
+- **3.01.2:** Reconcile + Inventory back on the manager bar (John's loop; count-only view shows
+  just those two and lands on Reconcile). Login epochs (`aq_login_epoch` in index.html,
+  `aq_floor_epoch` in floor.js) log every phone out once when bumped
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

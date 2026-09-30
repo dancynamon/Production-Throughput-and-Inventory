@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.01.1';
+  var APP_VERSION = '3.01.2';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -725,6 +725,12 @@
     // reconcile sees three tabs. Everything else stays reachable from Reconcile.
     var count = mgr && countView();
     document.body.classList.toggle('view-count', count);
+    // Count-only view (VIEW:<Name> = count, meant for John): Reconcile and
+    // Inventory only; everything else stays on the bar for other managers.
+    document.querySelectorAll('.tab').forEach(function (t) {
+      var s = t.getAttribute('data-screen');
+      if (count) t.style.display = (s === 'reconcile' || s === 'inventory') ? '' : 'none';
+    });
     // 3.01.1: log in on load. Nobody sees a screen until they have; crew are
     // sent to Floor mode, which has its own login.
     document.body.classList.toggle('locked', !mgr);
@@ -776,7 +782,7 @@
         lockOutShown = false;
         el('loginPin').value = '';
         applyRole();
-        selectScreen('floor');
+        selectScreen(countView() ? 'reconcile' : 'floor');
         toast('Logged in' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
       } else { el('loginPin').value = ''; toast('Wrong PIN'); }
     }).catch(function (err) { el('loginBtn').disabled = false; toast('⚠ ' + err.message); });
@@ -2342,7 +2348,7 @@
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
   applyRole();
-  if (isMgr()) selectScreen('floor');
+  if (isMgr()) selectScreen(countView() ? 'reconcile' : 'floor');
   // A plain link to the backend, for when the toast says it cannot be reached:
   // if this opens and shows text, the network is fine and the app is at fault.
   if (API && el('connTest')) { el('connTest').href = API + '?action=config'; el('connTest').target = '_blank'; el('connTest').rel = 'noopener'; }

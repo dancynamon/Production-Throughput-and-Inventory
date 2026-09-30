@@ -15,6 +15,12 @@
 /* Crew first: without a manager unlock the root opens Floor mode. ?full=1 is the way in to the full app. */
 (function () {
   try {
+    // Login epoch: bumping it logs every phone out once, so nobody rides an
+    // unlock from before log-in-on-load existed.
+    if (localStorage.getItem('aq_login_epoch') !== '3.01.2') {
+      ['aq_role', 'aq_mgr_token', 'aq_view'].forEach(function (k) { localStorage.removeItem(k); });
+      localStorage.setItem('aq_login_epoch', '3.01.2');
+    }
     var full = /[?&]full=1\b/.test(location.search);
     var mgr = localStorage.getItem('aq_role') === 'mgr' && localStorage.getItem('aq_mgr_token');
     if (!full && !mgr) location.replace('floor.html');
@@ -39,6 +45,10 @@
   <button class="tab tab--active" data-screen="floor" data-mgr="1">Floor</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
   <button class="tab" data-screen="time" data-mgr="1">Time</button>
+  <!-- 3.01.2: John's inventory loop. Reconcile links on to the WIP walk and
+       the finished-goods panel; Inventory is where shelf counts are entered. -->
+  <button class="tab" data-screen="reconcile" data-mgr="1">Reconcile</button>
+  <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
 </nav>
 
 <main>

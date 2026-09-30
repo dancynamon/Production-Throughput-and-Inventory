@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.1';
+  var FLOOR_VERSION = '3.01.2';
   var STAGES = ['Meshed', 'Patched', 'Boxed'];
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
@@ -367,8 +367,9 @@
 
   function boot() {
     wire();
-    S.name = ls(K.name) || '';
     ls('aq_floor_name', null);
+    if (ls('aq_floor_epoch') !== '3.01.2') { ls(K.name, null); ls('aq_floor_epoch', '3.01.2'); }  // everyone logs in once more
+    S.name = ls(K.name) || '';
     if (!API) { el('flPick').hidden = false; el('flNames').textContent = 'API_URL is not set (edit config.js).'; return; }
     api({ action: 'config' }).then(function (c) {
       if (!c || !c.ok) throw new Error((c && c.error) || 'Could not load names');

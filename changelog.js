@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.2', date: '2026-09-30', title: 'Inventory back for managers, everyone logs in', items: [
+    { who: 'mgr',  text: 'Reconcile and Inventory are back on the manager bar: count the floor, the shelf and storage, and see how the entries held up. John logs in with his manager PIN; if his view is set to count-only he sees just those two tabs.' },
+    { who: 'crew', text: 'Every phone is logged out once with this update, so everyone logs in with their name and PIN again.' }
+  ]},
   { version: '3.01.1', date: '2026-09-30', title: 'Log in once, fewer tabs', items: [
     { who: 'crew', text: 'Floor mode now starts with a log in: tap your name, then your 4-digit PIN. The phone remembers you until you tap "log out" at the top. Clocking in and out still asks for your PIN.' },
     { who: 'mgr',  text: 'The full app opens on a log in screen (name and PIN) and stays logged in until you tap Log out. Crew are pointed to Floor mode; they never see the full app.' },
