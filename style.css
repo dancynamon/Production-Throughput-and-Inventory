@@ -50,7 +50,7 @@ main{max-width:640px; margin:0 auto; padding:16px}
 /* Form */
 .field{display:block; margin-bottom:18px}
 .field>span{display:block; font-weight:600; font-size:.92rem; margin-bottom:7px; color:var(--navy)}
-select,input[type="text"],input[type="number"]{
+select,input[type="text"],input[type="number"],input[type="password"]{
   width:100%; font-size:1.05rem; padding:14px; color:var(--ink);
   background:var(--surface); border:1.5px solid var(--border); border-radius:var(--radius);
   -webkit-appearance:none; appearance:none;
@@ -753,3 +753,11 @@ body.view-count #screen-inventory > .stock-hint, body.view-count #invSummary, bo
 #timeBody .time-row .muted{text-align:left}
 #timeBody .ov-card>.btn-primary{width:calc(100% - 24px);margin-bottom:12px}
 #timeBody .ov-card>*:last-child{margin-bottom:10px}
+
+/* 3.01.1: log in on load. Locked = only the login card. */
+body.locked .tabs, body.locked .screen, body.locked #pinBanner{ display:none !important }
+.locked-card{max-width:420px;margin:24px auto;padding:0 16px}
+.locked-card__h{font-size:1.25rem;margin:0 0 12px}
+.locked-card #loginBtn{width:100%;margin-top:8px}
+.locked-card__crew{margin-top:18px;text-align:center}
+#floorWhoWrap[hidden]{display:none}

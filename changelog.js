@@ -2,6 +2,11 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.1', date: '2026-09-30', title: 'Log in once, fewer tabs', items: [
+    { who: 'crew', text: 'Floor mode now starts with a log in: tap your name, then your 4-digit PIN. The phone remembers you until you tap "log out" at the top. Clocking in and out still asks for your PIN.' },
+    { who: 'mgr',  text: 'The full app opens on a log in screen (name and PIN) and stays logged in until you tap Log out. Crew are pointed to Floor mode; they never see the full app.' },
+    { who: 'mgr',  text: 'The tab bar is down to Floor, Summary and Time. Log My Day, Ship, Reconcile, Overview, Capacity, Receive, Inventory, WIP, Buy and What\'s new are off the bar; their code is still there if one needs to come back.' }
+  ]},
   { version: '3.01.0', date: '2026-09-30', title: 'Floor mode and the real time clock', items: [
     { who: 'crew', text: 'Floor mode is now where the app opens: one screen, tap your name once, clock in and out, and log Meshed, Patched or Boxed with +1, +5, +12 (a box) and Submit. It writes to the same log as Log My Day, so every report still works. Undo lasts two minutes.' },
     { who: 'crew', text: 'Clocking in and out asks for your own 4-digit PIN on a number pad and only works at the shop (the phone asks for your location). Forgot to punch? Tap "I forgot to punch": a manager reviews it.' },

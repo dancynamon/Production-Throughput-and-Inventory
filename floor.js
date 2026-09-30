@@ -6,10 +6,11 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.0';
+  var FLOOR_VERSION = '3.01.1';
   var STAGES = ['Meshed', 'Patched', 'Boxed'];
   var UNDO_MS = 120000;
-  var K = { name: 'aq_floor_name', queue: 'aq_floor_queue' };
+  // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
+  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue' };
 
   var el = function (id) { return document.getElementById(id); };
   var S = { cfg: null, name: '', size: '50', std: false, stage: 'Boxed', busy: false, pace: null, undo: null };
@@ -113,7 +114,7 @@
     el('clockS').textContent = (m.clockedIn ? 'in since ' + clockTime(m.since) + '  ·  ' : '') + fmt(m.hoursToday) + ' h today';
   }
   /* Every punch: PIN pad -> locating -> result. The server checks the PIN and the fence. */
-  var PIN = { digits: '', dir: '', busy: false };
+  var PIN = { digits: '', dir: '', busy: false, who: '' };
   function renderDots() {
     var box = el('flPinDots'); box.innerHTML = '';
     for (var i = 0; i < 4; i++) { var d = document.createElement('i'); if (i < PIN.digits.length) d.className = 'on'; box.appendChild(d); }
@@ -125,7 +126,8 @@
   }
   function openPin(dir) {
     PIN.dir = dir; PIN.digits = ''; PIN.busy = false; renderDots(); pinMsg('');
-    el('flPinTitle').textContent = dir === 'in' ? 'Clock in: enter your PIN' : 'Clock out: enter your PIN';
+    el('flPinTitle').textContent = dir === 'login' ? PIN.who + ': enter your PIN'
+      : dir === 'in' ? 'Clock in: enter your PIN' : 'Clock out: enter your PIN';
     el('flPin').hidden = false;
   }
   function buildPad() {
@@ -142,7 +144,7 @@
       else if (k === '\u232b') PIN.digits = PIN.digits.slice(0, -1);
       else if (PIN.digits.length < 4) PIN.digits += k;
       renderDots(); pinMsg('');
-      if (PIN.digits.length === 4) doPunch();
+      if (PIN.digits.length === 4) { if (PIN.dir === 'login') doLogin(); else doPunch(); }
     });
   }
   function locate() {
@@ -177,6 +179,28 @@
         var boxed = S.pace && S.pace.ok ? S.pace.crew.today.Boxed : 1;
         if (dir === 'out' && boxed <= 0) { el('flAskQty').value = ''; el('flAsk').hidden = false; }
       });
+    }).catch(function (e) { PIN.busy = false; PIN.digits = ''; renderDots(); pinMsg(e.message, 'bad'); });
+  }
+  /* Log in once per phone: name + clock PIN, checked by the server. */
+  function doLogin() {
+    PIN.busy = true; pinMsg('Checking...', '', true);
+    var who = PIN.who;
+    api({ action: 'login', name: who, pin: PIN.digits }, 20000).then(function (r) {
+      PIN.busy = false;
+      if (r && !r.ok && /Unknown action/i.test(r.error || '')) {
+        // Backend not updated yet: let them in so production still gets logged.
+        r = { ok: true, name: who, unchecked: true };
+      }
+      if (!r.ok) {
+        PIN.digits = ''; renderDots();
+        pinMsg(r.error || 'Could not log in', 'bad');
+        if (r.locked) el('flPad').style.visibility = 'hidden';
+        return;
+      }
+      el('flPin').hidden = true;
+      S.name = r.name || who; ls(K.name, S.name);
+      start();
+      if (r.unchecked) toast('PIN not checked: the sheet is still updating.', { bad: true });
     }).catch(function (e) { PIN.busy = false; PIN.digits = ''; renderDots(); pinMsg(e.message, 'bad'); });
   }
   function onClock() {
@@ -282,12 +306,13 @@
     if (!names.length) box.textContent = 'Loading names...';
     names.forEach(function (n) {
       var b = document.createElement('button'); b.type = 'button'; b.textContent = n;
-      b.addEventListener('click', function () { S.name = n; ls(K.name, n); start(); });
+      b.addEventListener('click', function () { PIN.who = n; el('flPad').style.visibility = ''; openPin('login'); });
       box.appendChild(b);
     });
   }
   function start() {
     el('flPick').hidden = true; el('flApp').hidden = false; el('flNotYou').hidden = false;
+    el('flNotYou').textContent = 'log out';
     el('flWho').textContent = S.name;
     renderStages(); setQty(0);
     if (!known(productId())) toast('Product ' + productId() + ' is not set up in the sheet.', { bad: true });
@@ -343,6 +368,7 @@
   function boot() {
     wire();
     S.name = ls(K.name) || '';
+    ls('aq_floor_name', null);
     if (!API) { el('flPick').hidden = false; el('flNames').textContent = 'API_URL is not set (edit config.js).'; return; }
     api({ action: 'config' }).then(function (c) {
       if (!c || !c.ok) throw new Error((c && c.error) || 'Could not load names');

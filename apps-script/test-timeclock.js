@@ -232,5 +232,14 @@ sandbox.installDailyTimeSummary(); sandbox.installDailyTimeSummary();
 check('installDailyTimeSummary is idempotent: one trigger, 6pm New York', triggers.map((t) => [t.h, t.hour, t.tz, t.days]), [['sendDailyTimeSummary', 18, 'America/New_York', 1]]);
 check('it is in the sheet menu', /installDailyTimeSummary/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8').split('function onOpen')[1].split('addToUi')[0]), true);
 
+/* 3.01.1: log in on load. Clock PIN, same lockout, canonical name back. */
+sandbox.managerSetClockPin({ employee: 'Alex', pin: '4321' });
+check('login: right PIN, canonical name', JSON.stringify(sandbox.crewLogin({ name: 'alex', pin: '4321' })), JSON.stringify({ ok: true, name: 'Alex' }));
+check('login: wrong PIN refused', sandbox.crewLogin({ name: 'Alex', pin: '0000' }).ok, false);
+check('login: unknown name refused', sandbox.crewLogin({ name: 'Nobody', pin: '4321' }).ok, false);
+check('login: is an open action (no token)', body(sandbox.doGet({ parameter: { action: 'login', name: 'Alex', pin: '4321' } })).ok, true);
+for (let i = 0; i < 5; i++) sandbox.crewLogin({ name: 'Alex', pin: '9999' });
+check('login: five wrong locks the name', sandbox.crewLogin({ name: 'Alex', pin: '4321' }).locked, true);
+
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

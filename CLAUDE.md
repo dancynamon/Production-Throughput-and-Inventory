@@ -171,7 +171,7 @@ node apps-script/test-finished.js   # finished goods: storage, ship, count, impo
 node apps-script/test-menu.js       # sheet menu: short top level, handlers exist, schedule toggles
 node apps-script/test-reconcile.js  # walk keeps the app's estimate; floor/shelf/storage scored; to-do
 node apps-script/test-floor.js      # floor mode: clock in/out, auto-close, floorPace dedupe, open access
-node apps-script/test-timeclock.js  # PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
+node apps-script/test-timeclock.js  # login, PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -257,6 +257,13 @@ assert on them rather than trusting the parser.
   (from/to -> hours per person per day). `sendDailyTimeSummary` at 6pm New York via menu
   Settings -> Install daily 6pm time summary; extra recipients in Script Property `SUMMARY_TO`.
   Par = clocked hours x weekly target / `FLOOR_WEEKLY_CREW_HOURS` (default 165), no wall-clock window.
+- **3.01.1: log in on load, three tabs.** Floor mode asks name + clock PIN once (open action
+  `login` -> `crewLogin`, same `verifyClockPin` lockout) and remembers the person under
+  `aq_floor_login` until "log out"; an old backend answering "Unknown action" lets them in
+  unchecked with a warning so production still logs. Punches still ask the PIN. The full app shows
+  only a login card (manager `auth`, name + PIN) until unlocked; top bar is Floor / Summary / Time.
+  The other screens' HTML and JS are still in place, just off the bar. Guides in `help/src/`
+  still describe the old tabs
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

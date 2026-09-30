@@ -34,22 +34,24 @@
 </header>
 
 <nav class="tabs">
-  <button class="tab tab--active" data-screen="day">Log My Day</button>
-  <button class="tab" data-screen="floor">Floor</button>
-  <button class="tab" data-screen="ship">Ship</button>
-  <button class="tab" data-screen="reconcile" data-mgr="1">Reconcile</button>
-  <button class="tab" data-screen="time" data-mgr="1">Time</button>
+  <!-- 3.01.1: progress and the time clock only. The other screens' code stays
+       below (unreachable from the bar) so bringing one back is a one-line edit. -->
+  <button class="tab tab--active" data-screen="floor" data-mgr="1">Floor</button>
   <button class="tab" data-screen="summary" data-mgr="1">Summary</button>
-  <button class="tab" data-screen="overview" data-mgr="1">Overview</button>
-  <button class="tab" data-screen="capacity" data-mgr="1">Capacity</button>
-  <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
-  <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
-  <button class="tab" data-screen="wip">WIP</button>
-  <button class="tab" data-screen="buy" data-mgr="1">Buy</button>
-  <button class="tab tab--news" data-screen="news" data-mgr="1">What's new<span class="tab__dot" id="newsDot" hidden></span></button>
+  <button class="tab" data-screen="time" data-mgr="1">Time</button>
 </nav>
 
 <main>
+  <!-- Crew never sees the full app: without a manager unlock this is all there is. -->
+  <section id="lockedCard" class="locked-card" hidden>
+    <h2 class="locked-card__h">Managers: log in</h2>
+    <form id="loginForm" autocomplete="off">
+      <label class="field"><span>Name</span><input id="loginName" type="text" autocomplete="username" placeholder="blank = shared manager PIN"></label>
+      <label class="field"><span>PIN</span><input id="loginPin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
+      <button type="submit" id="loginBtn" class="btn-primary">Log in</button>
+    </form>
+    <p class="locked-card__crew">Crew: <a href="floor.html">go to Floor mode</a>.</p>
+  </section>
   <!-- In flow, not fixed: a fixed banner would sit on top of the Inventory
        tab's Record Count bar, which is the one control a manager most needs. -->
   <div id="pinBanner" class="pin-banner" hidden>
@@ -58,7 +60,7 @@
   </div>
 
   <!-- ============ LOG MY DAY ============ -->
-  <section id="screen-day" class="screen screen--active">
+  <section id="screen-day" class="screen">
     <form id="dayForm" autocomplete="off">
       <div class="row2">
         <label class="field"><span>Work date</span><input id="workDate" type="date" required></label>
@@ -131,7 +133,7 @@
     <div id="newsBody"><div class="muted">Loading…</div></div>
   </section>
 
-  <section id="screen-floor" class="screen">
+  <section id="screen-floor" class="screen screen--active">
     <div class="field" id="floorWhoWrap"><label for="floorWho">Whose pace</label>
       <select id="floorWho"><option value="" disabled selected>Select your name</option></select></div>
     <div class="inv-chips" id="floorWin">

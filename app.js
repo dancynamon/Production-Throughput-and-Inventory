@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.01.0';
+  var APP_VERSION = '3.01.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -725,11 +725,13 @@
     // reconcile sees three tabs. Everything else stays reachable from Reconcile.
     var count = mgr && countView();
     document.body.classList.toggle('view-count', count);
-    if (count) document.querySelectorAll('.tab').forEach(function (t) {
-      var s = t.getAttribute('data-screen');
-      t.style.display = (s === 'day' || s === 'ship' || s === 'reconcile') ? '' : 'none';
-    });
-    el('mgrBtn').textContent = mgr ? '🔓' : '🔒';
+    // 3.01.1: log in on load. Nobody sees a screen until they have; crew are
+    // sent to Floor mode, which has its own login.
+    document.body.classList.toggle('locked', !mgr);
+    el('lockedCard').hidden = mgr;
+    if (!mgr) setTimeout(function () { try { el('loginPin').value = ''; el(el('loginName').value ? 'loginPin' : 'loginName').focus(); } catch (e) {} }, 0);
+    el('mgrBtn').textContent = mgr ? 'Log out' : '🔒';
+    el('mgrBtn').hidden = !mgr;
     var mgrName = localStorage.getItem('aq_mgr_name');
     el('mgrBtn').title = mgr ? 'Manager mode' + (mgrName ? ' — ' + mgrName : '') + ' (tap to lock)' : 'Manager access';
     el('mgrHint').hidden = mgr;
@@ -746,10 +748,7 @@
     // load to the next person who picks the tab.
     FLOOR.tables = null; FLOOR.who = null;
     if (el('floorWhoWrap')) el('floorWhoWrap').hidden = mgr;
-    if (!mgr) {  // if an employee somehow lands on a manager screen, bounce to Log My Day
-      var active = document.querySelector('.screen--active');
-      if (active && active.id !== 'screen-day') selectScreen('day');
-    }
+
   }
   var lockOutShown = false;
   function lockOut(msg) {
@@ -759,27 +758,28 @@
     if (was && !lockOutShown) { lockOutShown = true; toast(msg); }
   }
   el('mgrBtn').addEventListener('click', function () {
-    if (localStorage.getItem('aq_role') === 'mgr') {
-      lockOut(''); toast('Locked — employee view'); return;
-    }
-    // Name first, so a personal PIN can be checked against the right
-    // person. Blank name means the shared manager PIN, exactly as before.
-    var name = window.prompt('Your name (blank for the shared manager PIN):', localStorage.getItem('aq_mgr_name') || el('employee').value || '');
-    if (name == null) return;
-    var pin = window.prompt('PIN:');
-    if (pin == null) return;
-    api({ action: 'auth', name: name.trim(), pin: pin }).then(function (d) {
+    if (localStorage.getItem('aq_role') === 'mgr') { lockOut(''); toast('Logged out'); }
+  });
+  el('loginName').value = localStorage.getItem('aq_mgr_name') || '';
+  el('loginForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var name = el('loginName').value.trim(), pin = el('loginPin').value;
+    if (!pin) { el('loginPin').focus(); return; }
+    el('loginBtn').disabled = true;
+    api({ action: 'auth', name: name, pin: pin }).then(function (d) {
+      el('loginBtn').disabled = false;
       if (d && d.ok) {
         localStorage.setItem('aq_role', 'mgr');
         if (d.name) localStorage.setItem('aq_mgr_name', d.name); else localStorage.removeItem('aq_mgr_name');
         if (d.token) localStorage.setItem('aq_mgr_token', d.token); else localStorage.removeItem('aq_mgr_token');
         if (d.view === 'count') localStorage.setItem('aq_view', 'count'); else localStorage.removeItem('aq_view');
         lockOutShown = false;
+        el('loginPin').value = '';
         applyRole();
-        if (countView()) selectScreen('reconcile');
-        toast('Unlocked' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
-      } else toast('Wrong PIN');
-    }).catch(function (err) { toast('⚠ ' + err.message); });
+        selectScreen('floor');
+        toast('Logged in' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
+      } else { el('loginPin').value = ''; toast('Wrong PIN'); }
+    }).catch(function (err) { el('loginBtn').disabled = false; toast('⚠ ' + err.message); });
   });
 
   /* ---- Tabs -------------------------------------------------------------- */
@@ -2342,7 +2342,7 @@
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
   applyRole();
-  if (countView()) selectScreen('reconcile');
+  if (isMgr()) selectScreen('floor');
   // A plain link to the backend, for when the toast says it cannot be reached:
   // if this opens and shows text, the network is fine and the app is at fault.
   if (API && el('connTest')) { el('connTest').href = API + '?action=config'; el('connTest').target = '_blank'; el('connTest').rel = 'noopener'; }

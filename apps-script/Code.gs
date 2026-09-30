@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-30 05:00 UTC      version 3.01.0
+ *  BUILD:  2026-09-30 18:30 UTC      version 3.01.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -166,7 +166,7 @@ function checkPin(name, pin) {
 // myPace hands a person their OWN rows and nothing else — the crew's Floor
 // tab. The whole floor (floorData) is a manager view. wipWalk is the floor
 // count — a measurement the crew takes, so it is theirs to record.
-var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk', 'ship', 'clock', 'floorPace', 'timeRequest'];
+var OPEN_ACTIONS = ['config', 'today', 'submitDay', 'reverse', 'auth', 'myPace', 'wipWalk', 'ship', 'clock', 'floorPace', 'timeRequest', 'login'];
 
 function tokenSecret() {
   var props = PropertiesService.getScriptProperties();
@@ -234,12 +234,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.0';
+var BACKEND_VERSION = '3.01.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-30 05:00 UTC';
+var BUILD_STAMP = '2026-09-30 18:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1022,6 +1022,7 @@ function doGet(e) {
     else if (action === 'guide')     result = getGuide(p);
     else if (action === 'ship')      result = shipOut(p);
     else if (action === 'clock')     result = clockShift(p);
+    else if (action === 'login')     result = crewLogin(p);
     else if (action === 'floorPace') result = getFloorPace(p);
     else if (action === 'timeRequest')  result = submitTimeRequest(p);
     else if (action === 'timeView')     result = getTimeView(p);
@@ -2168,7 +2169,7 @@ function employeeSheetRow(name) {
   var H = values[0], cName = H.indexOf('Name'), cPin = H.indexOf('PinHash');
   for (var i = 1; i < values.length; i++) {
     if (String(values[i][cName] || '').trim().toLowerCase() === String(name).toLowerCase()) {
-      return { sh: sh, row: i + 1, cPin: cPin, hash: cPin === -1 ? '' : String(values[i][cPin] || '') };
+      return { sh: sh, row: i + 1, name: String(values[i][cName]).trim(), cPin: cPin, hash: cPin === -1 ? '' : String(values[i][cPin] || '') };
     }
   }
   return null;
@@ -2196,6 +2197,18 @@ function verifyClockPin(name, pin) {
     }
   }
   return { ok: false, error: 'Wrong PIN.' + (cache ? ' ' + (PIN_LOCK_TRIES - fails) + ' tries left.' : '') };
+}
+/* Log in on load (3.01.1): Floor mode asks name + clock PIN once and then
+ * remembers the person on that phone until "not you?". Same PIN, same
+ * lockout as a punch; returns nothing but the canonical name. */
+function crewLogin(p) {
+  var name = String((p && p.name) || '').trim();
+  if (!name) return { ok: false, error: 'Pick your name.' };
+  var er = employeeSheetRow(name);
+  if (!er) return { ok: false, error: name + ' is not on the crew list.' };
+  var v = verifyClockPin(name, p.pin);
+  if (!v.ok) return v;
+  return { ok: true, name: er.name || name };
 }
 function setClockPinFor(name, pin) {
   var er = employeeSheetRow(name);
