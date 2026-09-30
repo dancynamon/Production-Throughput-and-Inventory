@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-09-30 18:30 UTC      version 3.01.1
+ *  BUILD:  2026-10-01 14:00 UTC      version 3.01.2
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -211,6 +211,24 @@ function setPersonPin() {
   SpreadsheetApp.getActive().toast('PIN set for ' + name, 'Aquamentor', 6);
 }
 
+/* Menu: Settings -> Set a crew clock PIN (3.01.2). The 4-digit PIN Floor mode
+ * asks for at log in and on every punch (Employees.PinHash), NOT the manager
+ * PIN above. Same store as the Time tab's Set PIN, for when the app can't. */
+function setCrewClockPin() {
+  var ui = SpreadsheetApp.getUi();
+  var names = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+    .map(function (r) { return String(r.Name || '').trim(); }).filter(Boolean);
+  var r1 = ui.prompt('Set a crew clock PIN', 'Name, exactly as on the Employees tab:\n' + names.join(', '), ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  var name = String(r1.getResponseText() || '').trim();
+  if (names.indexOf(name) === -1) { ui.alert('Not set', name + ' is not an active name on the Employees tab.', ui.ButtonSet.OK); return; }
+  var r2 = ui.prompt('Clock PIN for ' + name, 'Exactly 4 digits. Leave blank to clear it.', ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  var res = setClockPinFor(name, r2.getResponseText());
+  if (!res.ok) { ui.alert('Not set', res.error, ui.ButtonSet.OK); return; }
+  SpreadsheetApp.getActive().toast((res.cleared ? 'Clock PIN cleared for ' : 'Clock PIN set for ') + name, 'Aquamentor', 6);
+}
+
 /* Menu: Aquamentor -> Set manager PIN. Digits only, four or more, stored in
  * Script Properties. The old PIN is not asked for: whoever can open this menu
  * already owns the sheet, which is more access than the PIN protects. */
@@ -234,12 +252,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.1';
+var BACKEND_VERSION = '3.01.2';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-09-30 18:30 UTC';
+var BUILD_STAMP = '2026-10-01 14:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -3572,7 +3590,8 @@ function onOpen() {
     .addSeparator()
     .addSubMenu(ui.createMenu('Settings')
       .addItem('Set manager PIN…', 'setManagerPin')
-      .addItem('Set a person\'s PIN…', 'setPersonPin')
+      .addItem('Set a manager\'s PIN (full app)…', 'setPersonPin')
+      .addItem('Set a crew clock PIN (Floor mode)…', 'setCrewClockPin')
       .addItem('Set a person\'s view (count-only or full)…', 'setPersonView')
       .addItem('Set manager-guide readers…', 'setGuideReaders')
       .addItem('Set digest recipients…', 'setDigestRecipients')

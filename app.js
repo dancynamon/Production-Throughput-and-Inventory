@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.01.2';
+  var APP_VERSION = '3.01.3';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -729,7 +729,7 @@
     // Inventory only; everything else stays on the bar for other managers.
     document.querySelectorAll('.tab').forEach(function (t) {
       var s = t.getAttribute('data-screen');
-      if (count) t.style.display = (s === 'reconcile' || s === 'inventory') ? '' : 'none';
+      if (count) t.style.display = (s === 'reconcile' || s === 'inventory' || s === 'time') ? '' : 'none';
     });
     // 3.01.1: log in on load. Nobody sees a screen until they have; crew are
     // sent to Floor mode, which has its own login.

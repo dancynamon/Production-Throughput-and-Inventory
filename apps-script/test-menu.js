@@ -37,7 +37,7 @@ check('top level: five actions and three submenus', [topItems.filter((i) => i.fn
 const all = []; (function walk(m) { m.items.forEach((i) => { if (i.fn) all.push(i); if (i.sub) walk(i.sub); }); })(top);
 check('every menu item names a function that exists', all.filter((i) => typeof sandbox[i.fn] !== 'function').map((i) => i.label), []);
 const labels = all.map((i) => i.label);
-['setManagerPin', 'setPersonPin', 'setGuideReaders', 'importSalesFromTab', 'syncShopifyMenu', 'updateFromGitHubMenu', 'upgradeSchema', 'resetAllTabs', 'setDeploymentId', 'whatAmIRunning'].forEach((fn) => check('still reachable: ' + fn, all.some((i) => i.fn === fn), true));
+['setManagerPin', 'setPersonPin', 'setCrewClockPin', 'setCrewClockPin', 'setGuideReaders', 'importSalesFromTab', 'syncShopifyMenu', 'updateFromGitHubMenu', 'upgradeSchema', 'resetAllTabs', 'setDeploymentId', 'whatAmIRunning'].forEach((fn) => check('still reachable: ' + fn, all.some((i) => i.fn === fn), true));
 check('no duplicate labels', labels.length, new Set(labels).size);
 check('the six on/off items became three toggles', all.filter((i) => /^Turn (on|off)/.test(i.label)).length, 0);
 

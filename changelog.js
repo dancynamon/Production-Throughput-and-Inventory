@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.3', date: '2026-10-01', title: 'Setting crew PINs', items: [
+    { who: 'mgr',  text: 'Crew clock PINs are set in the app: Time tab, Clock PINs, Set PIN beside each name. The count-only view (John) now has the Time tab too. Nobody needs the sheet for this.' },
+    { who: 'mgr',  text: 'In the sheet menu, Settings now says which PIN is which: "Set a manager\'s PIN (full app)" and "Set a crew clock PIN (Floor mode)".' }
+  ]},
   { version: '3.01.2', date: '2026-09-30', title: 'Inventory back for managers, everyone logs in', items: [
     { who: 'mgr',  text: 'Reconcile and Inventory are back on the manager bar: count the floor, the shelf and storage, and see how the entries held up. John logs in with his manager PIN; if his view is set to count-only he sees just those two tabs.' },
     { who: 'crew', text: 'Every phone is logged out once with this update, so everyone logs in with their name and PIN again.' }

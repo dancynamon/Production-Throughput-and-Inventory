@@ -267,6 +267,13 @@ assert on them rather than trusting the parser.
 - **3.01.2:** Reconcile + Inventory back on the manager bar (John's loop; count-only view shows
   just those two and lands on Reconcile). Login epochs (`aq_login_epoch` in index.html,
   `aq_floor_epoch` in floor.js) log every phone out once when bumped
+- **3.01.3 / backend 3.01.2:** two different PINs, easy to mix up. Manager PIN (`PIN:<Name>`,
+  full-app login) = menu *Settings → Set a manager's PIN (full app)*. Crew clock PIN
+  (`Employees.PinHash`, Floor login + punches) = app *Time tab → Clock PINs* (needs backend
+  3.01.x) or menu *Settings → Set a crew clock PIN (Floor mode)* (`setCrewClockPin`). Count-only
+  view shows Reconcile, Inventory, Time. Anyone other than the sheet owner running a sheet menu
+  item gets Google's consent screen for GCP project `aquamentor-deploy`; its app name comes from
+  that project's OAuth branding, which read "n8n" on 2026-10-01
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
