@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.7';
+  var FLOOR_VERSION = '3.01.8';
   // Every tube job, in floor order (3.01.5). Cut and Glued log against the
   // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
   var JOBS = [
@@ -118,6 +118,9 @@
   }
   function renderStages() {
     var pi = prodInfo();
+    // "+12 box" is a case of tubes; chairs and shapes don't come twelve to a box (3.01.8).
+    el('fl12').hidden = !!pi;
+    el('fl12').parentNode.classList.toggle('fl-qty2--one', !!pi);
     if (pi) {
       var st = (S.cfg.lines && S.cfg.lines[pi.line]) || [];
       if (st.indexOf(S.stage) === -1) S.stage = st[st.length - 1] || '';

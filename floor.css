@@ -79,3 +79,7 @@
 .fl-joblabel{display:block;font-weight:700;margin:4px 0 6px}
 .fl-job{width:100%;font-size:1.35rem;font-weight:700;padding:14px 12px;border-radius:14px;border:2px solid var(--navy,#0c1f3f);background:#fff;color:inherit;margin-bottom:14px}
 #flSizeRow[hidden], #flStd[hidden]{display:none}
+
+/* 3.01.8: no +12 box for chairs and shapes; +5 takes the full row */
+#fl12[hidden]{display:none}
+.fl-qty2--one{grid-template-columns:1fr}
