@@ -59,8 +59,9 @@ const STAGELOG = [
   { ProductID: 'BLANK50', Stage: 'Cut',    Qty: 999, Hours: '', WorkDate: d(30), Timestamp: new Date() }
 ];
 
+  // M004, not M001: M001 (Glue Pods) is retired by default since 3.01.5.
 const MATERIALS = [
-  { MaterialID: 'M001', MaterialName: 'Glue',  Unit: 'lbs', OnHand: 5,  ReorderPoint: 1, Category: 'Glue',
+  { MaterialID: 'M004', MaterialName: 'Glue',  Unit: 'lbs', OnHand: 5,  ReorderPoint: 1, Category: 'Glue',
     LastCounted: 5, LastCountedAt: new Date(), LastVariance: 0 },
   { MaterialID: 'M002', MaterialName: 'Mesh',  Unit: 'box', OnHand: '', ReorderPoint: 2, Category: 'Glue',
     LastCounted: '', LastCountedAt: '', LastVariance: '' },

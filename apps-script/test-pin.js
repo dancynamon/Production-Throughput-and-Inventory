@@ -24,7 +24,8 @@ const sandbox = {
   PropertiesService: { getScriptProperties: () => ({
     getProperty: (k) => (k in store ? store[k] : null),
     setProperty: (k, v) => { store[k] = v; },
-    deleteProperty: (k) => { delete store[k]; }
+    deleteProperty: (k) => { delete store[k]; },
+    getProperties: () => Object.assign({}, store)
   }) },
   SpreadsheetApp: {
     getActiveSpreadsheet: () => ({ getName: () => 'S', getId: () => 'ID', getSheetByName: () => null }),
@@ -132,6 +133,43 @@ store.GUIDE_READERS = 'Joe';
 check('the readers list is editable from the sheet', [call({ action: 'guide', token: joeTok, mgrName: 'Joe' }).ok, call({ action: 'guide', token: alexTok, mgrName: 'Alex' }).ok], [true, false]);
 check('the guide is baked in, not empty', sandbox.MANAGER_GUIDE_HTML.length > 5000 && /Running the floor/.test(sandbox.MANAGER_GUIDE_HTML), true);
 delete store.GUIDE_READERS;
+
+/* --- 3.01.5: PIN only, the server works out whose it is ---------------------- */
+store = {}; store.MANAGER_PIN = '731905';
+store['PIN:Dan'] = sandbox.pinHash('990011'); store['PIN:John'] = sandbox.pinHash('5151');
+check('PIN only: a personal manager PIN logs in as its owner',
+  sansToken(authAs('', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full' });
+check('PIN only: John too', authAs('', '5151').name, 'John');
+check('PIN only: the shared PIN still works, no name', sansToken(authAs('', '731905')), { ok: true, name: '', personal: false });
+check('PIN only: an unknown PIN is refused', authAs('', '1212').ok, false);
+store['PIN:Joe'] = sandbox.pinHash('5151');
+check('PIN only: two owners of one PIN is refused with a reason', [authAs('', '5151').ok, /more than one/.test(authAs('', '5151').error)], [false, true]);
+delete store['PIN:Joe'];
+// A manager's clock PIN (Employees.PinHash) also opens the full app; a crew member's does not.
+const salt = 'abc123';
+const emp = { Alex: sandbox.clockPinHash('Alex', '8080', salt), Maria: sandbox.clockPinHash('Maria', '7070', salt) };
+sandbox.employeeSheetRow = (n) => { const k = Object.keys(emp).find((x) => x.toLowerCase() === String(n).toLowerCase()); return k ? { name: k, hash: emp[k] } : null; };
+check('managers default to Dan, John, Alex', sandbox.managerNames(), ['Dan', 'John', 'Alex']);
+const alexIn = authAs('', '8080');
+check('a manager\'s clock PIN logs them in', [alexIn.ok, alexIn.name, alexIn.personal], [true, 'Alex', true]);
+check('...and that token works', call({ action: 'stock', token: alexIn.token, mgrName: 'Alex' }).locked, undefined);
+check('a crew member\'s clock PIN does not open the full app', authAs('', '7070').ok, false);
+store.MANAGERS = 'Dan,John,Alex,Maria';
+check('adding a name to MANAGERS lets their clock PIN in', authAs('', '7070').name, 'Maria');
+delete store.MANAGERS;
+emp.Alex = sandbox.clockPinHash('Alex', '9191', salt);
+check('changing a manager\'s clock PIN locks their phone', call({ action: 'stock', token: alexIn.token, mgrName: 'Alex' }).locked, true);
+sandbox.employeeSheetRow = () => null;
+
+/* --- 3.01.5: retired materials ---------------------------------------------- */
+sandbox.readObjects = (tab) => (tab === 'RawMaterials' ? [
+  { MaterialID: 'M001', MaterialName: 'Glue Pods', OnHand: 5, Active: '' },
+  { MaterialID: 'M002', MaterialName: 'Nylon Mesh', OnHand: 12, Active: '' },
+  { MaterialID: 'M009', MaterialName: 'Old ink', OnHand: 1, Active: 'no' }] : []);
+check('Glue Pods and Active=NO are off the stock list', sandbox.getStock().materials.map((m) => m.id), ['M002']);
+sandbox.readObjects = (tab) => (tab === 'RawMaterials' ? [{ MaterialID: 'M001', MaterialName: 'Glue Pods', OnHand: 5, Active: 'YES' }] : []);
+check('typing YES brings Glue Pods back', sandbox.getStock().materials.map((m) => m.id), ['M001']);
+sandbox.readObjects = () => [];
 
 check('the source no longer carries a PIN constant',
   /var MANAGER_PIN\s*=/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8')), false);

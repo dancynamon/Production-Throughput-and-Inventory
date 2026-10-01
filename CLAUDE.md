@@ -279,6 +279,15 @@ assert on them rather than trusting the parser.
   can't be reached"; curl looks fine because it skips the SW). Shell URLs and links are now
   extensionless (`./`, `floor`, `./?full=1`, manifest `start_url` `./`) and `sw.js` never serves
   or stores a redirected response. Don't reintroduce `.html` links to shell pages
+- **3.01.5 (app + backend):** Floor mode Job dropdown = every tube job (`JOBS` in floor.js):
+  Cut/Glued -> `BLANK50/40`, Meshed..Boxed -> `XRT{50,40}{EXO,STD}`, Strap made -> `STRAP6`.
+  Shapes and chairs are not on Floor yet. Full-app login is **PIN only**: `checkPin('', pin)`
+  -> `pinOwners` finds the owner among `PIN:<Name>` props and the clock PINs of names on Script
+  Property `MANAGERS` (default Dan,John,Alex); two owners = refused; none = shared PIN.
+  `credentialHash` uses the manager's clock hash when they have no `PIN:<Name>`, so changing it
+  locks their phone. One-time `MIGRATED_MANAGERS_3015` in upgradeSchema drops `VIEW:John/Alex`
+  = count. RawMaterials gets `Active`; `materialRetired()` hides NO, and M001 Glue Pods while
+  blank (YES brings it back); filtered in `getStock` and `config`
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

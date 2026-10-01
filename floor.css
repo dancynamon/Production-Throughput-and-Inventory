@@ -74,3 +74,8 @@
 #flFor .fl-seg{margin-bottom:10px}
 #flFor .fl-seg button{min-height:52px;font-size:1.1rem}
 .fl-full{display:block;text-align:center;color:var(--muted);font-size:.9rem;padding:14px 0 28px}
+
+/* 3.01.5: every job in one dropdown */
+.fl-joblabel{display:block;font-weight:700;margin:4px 0 6px}
+.fl-job{width:100%;font-size:1.35rem;font-weight:700;padding:14px 12px;border-radius:14px;border:2px solid var(--navy,#0c1f3f);background:#fff;color:inherit;margin-bottom:14px}
+#flSizeRow[hidden], #flStd[hidden]{display:none}

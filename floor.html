@@ -45,13 +45,15 @@
     <button id="flForgot" class="fl-forgot" type="button">I forgot to punch</button>
 
     <div class="fl-log">
-      <div class="fl-seg" id="flSize">
+      <label class="fl-joblabel" for="flStage">Job</label>
+      <select id="flStage" class="fl-job" aria-label="Job"></select>
+
+      <div id="flSizeRow"><div class="fl-seg" id="flSize">
         <button type="button" data-size="50" class="on">50"</button>
         <button type="button" data-size="40">40"</button>
-      </div>
+      </div></div>
       <button type="button" id="flStd" class="fl-std" aria-pressed="false">Standard (not Exo)</button>
 
-      <div class="fl-seg fl-seg--stage" id="flStage"></div>
 
       <div class="fl-qty">
         <button type="button" class="fl-q" data-add="-1">-1</button>

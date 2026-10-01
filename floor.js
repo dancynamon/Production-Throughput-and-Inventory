@@ -6,8 +6,16 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.4';
-  var STAGES = ['Meshed', 'Patched', 'Boxed'];
+  var FLOOR_VERSION = '3.01.5';
+  // Every tube job, in floor order (3.01.5). Cut and Glued log against the
+  // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
+  var JOBS = [
+    { stage: 'Cut', kind: 'blank' }, { stage: 'Glued', kind: 'blank' },
+    { stage: 'Meshed', kind: 'tube' }, { stage: 'Patched', kind: 'tube' },
+    { stage: 'Paint 1', kind: 'tube' }, { stage: 'Paint 2', kind: 'tube' },
+    { stage: 'Printed', kind: 'tube' }, { stage: 'Straps Attached', kind: 'tube' },
+    { stage: 'Boxed', kind: 'tube' }, { stage: 'Made', kind: 'strap', label: 'Strap made' }
+  ];
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
   var K = { name: 'aq_floor_login', queue: 'aq_floor_queue' };
@@ -57,24 +65,41 @@
   }
 
   /* ---- product / stage ------------------------------------------------------ */
-  function productId() { return 'XRT' + S.size + (S.std ? 'STD' : 'EXO'); }
-  function productLabel() { return S.size + '"' + (S.std ? ' Std' : ''); }
-  function stagesFor(pid) {
-    var cfg = S.cfg, line = 'Blank';
+  function jobOf(stage) { for (var i = 0; i < JOBS.length; i++) if (JOBS[i].stage === stage) return JOBS[i]; return JOBS[JOBS.length - 2]; }
+  function productFor(stage) {
+    var k = jobOf(stage).kind;
+    if (k === 'blank') return 'BLANK' + S.size;
+    if (k === 'strap') return 'STRAP6';
+    return 'XRT' + S.size + (S.std ? 'STD' : 'EXO');
+  }
+  function productId() { return productFor(S.stage); }
+  function productLabel(stage) {
+    var k = jobOf(stage).kind;
+    if (k === 'strap') return '';
+    if (k === 'blank') return S.size + '" blank';
+    return S.size + '"' + (S.std ? ' Std' : '');
+  }
+  function lineStages(pid) {
+    var cfg = S.cfg, line = null;
     ((cfg && cfg.products) || []).forEach(function (p) { if (p.id === pid) line = p.line || 'Blank'; });
-    var valid = (cfg && cfg.lines && cfg.lines[line]) || null;
-    return valid ? STAGES.filter(function (s) { return valid.indexOf(s) !== -1; }) : STAGES.slice();
+    return (line && cfg.lines && cfg.lines[line]) || null;
+  }
+  function jobOk(j) {
+    var valid = lineStages(productFor(j.stage));
+    return valid ? valid.indexOf(j.stage) !== -1 : !(j.stage === 'Meshed' && S.std);
   }
   function renderStages() {
-    var list = stagesFor(productId());
-    if (list.indexOf(S.stage) === -1) S.stage = list.indexOf('Boxed') !== -1 ? 'Boxed' : list[0];
-    var box = el('flStage'); box.innerHTML = '';
-    list.forEach(function (s) {
-      var b = document.createElement('button');
-      b.type = 'button'; b.textContent = s; b.dataset.stage = s;
-      if (s === S.stage) b.className = 'on';
-      box.appendChild(b);
+    var list = JOBS.filter(jobOk);
+    if (!list.some(function (j) { return j.stage === S.stage; })) S.stage = 'Boxed';
+    var sel = el('flStage'); sel.innerHTML = '';
+    list.forEach(function (j) {
+      var o = document.createElement('option');
+      o.value = j.stage; o.textContent = j.label || j.stage;
+      if (j.stage === S.stage) o.selected = true;
+      sel.appendChild(o);
     });
+    el('flSizeRow').hidden = jobOf(S.stage).kind === 'strap';
+    el('flStd').hidden = jobOf(S.stage).kind !== 'tube';
   }
   function known(pid) { return !S.cfg || (S.cfg.products || []).some(function (p) { return p.id === pid; }); }
 
@@ -250,8 +275,9 @@
   function payloadFor(stage, n) {
     var counts = {}; counts[stage] = n;
     var id = uid();
-    return { action: 'submitDay', workDate: todayIso(), employee: S.name, productId: productId(), counts: JSON.stringify(counts),
-             notes: 'floor ' + id.slice(-6), clientId: 'fl-' + id, _label: n + ' ' + stage + ' ' + productLabel() };
+    var j = jobOf(stage), lbl = productLabel(stage);
+    return { action: 'submitDay', workDate: todayIso(), employee: S.name, productId: productFor(stage), counts: JSON.stringify(counts),
+             notes: 'floor ' + id.slice(-6), clientId: 'fl-' + id, _label: n + ' ' + (j.label || stage) + (lbl ? ' ' + lbl : '') };
   }
   function send(payload) {
     var wire = Object.assign({}, payload); delete wire._label;
@@ -343,9 +369,9 @@
     el('flStd').addEventListener('click', function () {
       S.std = !S.std; el('flStd').setAttribute('aria-pressed', String(S.std)); renderStages();
     });
-    el('flStage').addEventListener('click', function (e) {
-      var b = e.target.closest('button'); if (!b) return;
-      S.stage = b.dataset.stage; renderStages();
+    el('flStage').addEventListener('change', function () {
+      S.stage = el('flStage').value; renderStages();
+      if (!known(productId())) toast('Product ' + productId() + ' is not set up in the sheet.', { bad: true });
     });
     document.querySelector('.fl-log').addEventListener('click', function (e) {
       var b = e.target.closest('[data-add]'); if (!b) return;

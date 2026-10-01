@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.01.4';
+  var APP_VERSION = '3.01.5';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -735,7 +735,7 @@
     // sent to Floor mode, which has its own login.
     document.body.classList.toggle('locked', !mgr);
     el('lockedCard').hidden = mgr;
-    if (!mgr) setTimeout(function () { try { el('loginPin').value = ''; el(el('loginName').value ? 'loginPin' : 'loginName').focus(); } catch (e) {} }, 0);
+    if (!mgr) setTimeout(function () { try { el('loginPin').value = ''; el('loginPin').focus(); } catch (e) {} }, 0);
     el('mgrBtn').textContent = mgr ? 'Log out' : '🔒';
     el('mgrBtn').hidden = !mgr;
     var mgrName = localStorage.getItem('aq_mgr_name');
@@ -766,10 +766,10 @@
   el('mgrBtn').addEventListener('click', function () {
     if (localStorage.getItem('aq_role') === 'mgr') { lockOut(''); toast('Logged out'); }
   });
-  el('loginName').value = localStorage.getItem('aq_mgr_name') || '';
   el('loginForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    var name = el('loginName').value.trim(), pin = el('loginPin').value;
+    // PIN only (3.01.5): the server works out whose it is.
+    var name = '', pin = el('loginPin').value;
     if (!pin) { el('loginPin').focus(); return; }
     el('loginBtn').disabled = true;
     api({ action: 'auth', name: name, pin: pin }).then(function (d) {
@@ -784,7 +784,7 @@
         applyRole();
         selectScreen(countView() ? 'reconcile' : 'floor');
         toast('Logged in' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
-      } else { el('loginPin').value = ''; toast('Wrong PIN'); }
+      } else { el('loginPin').value = ''; toast((d && d.error) || 'Wrong PIN'); }
     }).catch(function (err) { el('loginBtn').disabled = false; toast('⚠ ' + err.message); });
   });
 

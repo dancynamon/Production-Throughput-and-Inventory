@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-01 14:00 UTC      version 3.01.2
+ *  BUILD:  2026-10-01 17:00 UTC      version 3.01.5
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -138,9 +138,52 @@ function pinHash(pin) {
   var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'aq|' + String(pin), Utilities.Charset.UTF_8);
   return bytes.map(function (b) { var h = (b < 0 ? b + 256 : b).toString(16); return h.length === 1 ? '0' + h : h; }).join('');
 }
+/* Managers (3.01.5): Script Property MANAGERS, default Dan,John,Alex. A
+ * manager can log in to the full app with their own clock PIN as well as a
+ * personal manager PIN, and the login card asks for the PIN only: the server
+ * works out whose it is. */
+var MANAGERS_DEFAULT = 'Dan,John,Alex';
+function managerNames() {
+  var v = '';
+  try { v = String(PropertiesService.getScriptProperties().getProperty('MANAGERS') || '').trim(); } catch (e) { v = ''; }
+  return (v || MANAGERS_DEFAULT).split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
+}
+function isManagerName(name) {
+  var n = String(name || '').trim().toLowerCase();
+  return !!n && managerNames().some(function (m) { return m.toLowerCase() === n; });
+}
+function managerClockHash(name) {
+  if (!isManagerName(name)) return null;
+  var er = null;
+  try { er = employeeSheetRow(name); } catch (e) { er = null; }
+  return er && er.hash ? er.hash : null;
+}
+function clockPinMatches(name, pin) {
+  var h = managerClockHash(name), parts = h ? h.split(':') : [];
+  return parts.length === 2 && /^\d{4}$/.test(pin) && clockPinHash(name, pin, parts[0]) === h;
+}
+/* Every name this PIN belongs to: personal manager PINs, then managers' clock PINs. */
+function pinOwners(pin) {
+  var owners = [], seen = {}, props = {};
+  function add(n) { var k = n.toLowerCase(); if (!seen[k]) { seen[k] = 1; owners.push(n); } }
+  try { props = PropertiesService.getScriptProperties().getProperties() || {}; } catch (e) { props = {}; }
+  var h = pinHash(pin);
+  Object.keys(props).forEach(function (k) { if (k.indexOf('PIN:') === 0 && props[k] === h) add(k.slice(4)); });
+  managerNames().forEach(function (n) { if (clockPinMatches(n, pin)) add(n); });
+  return owners;
+}
+
 function checkPin(name, pin) {
   name = String(name || '').trim(); pin = String(pin || '');
   if (!pin) return { ok: false };
+  if (!name) {
+    var owners = pinOwners(pin);
+    if (owners.length === 1) return withToken({ ok: true, name: owners[0], personal: true, view: personView(owners[0]) });
+    if (owners.length > 1) return { ok: false, error: 'That PIN belongs to more than one person. Give one of them a different PIN.' };
+  }
+  if (name && clockPinMatches(name, pin) && !PropertiesService.getScriptProperties().getProperty('PIN:' + name)) {
+    return withToken({ ok: true, name: name, personal: true, view: personView(name) });
+  }
   if (name) {
     var stored = null;
     try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; }
@@ -179,7 +222,7 @@ function tokenSecret() {
 function credentialHash(name) {
   var stored = null;
   if (name) { try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; } }
-  return stored || pinHash(managerPin());
+  return stored || (name && managerClockHash(name)) || pinHash(managerPin());
 }
 function managerToken(name) {
   name = String(name || '').trim();
@@ -252,12 +295,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.2';
+var BACKEND_VERSION = '3.01.5';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-01 14:00 UTC';
+var BUILD_STAMP = '2026-10-01 17:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -889,6 +932,16 @@ function applySchemaUpgrades() {
   addColumns(TAB.materials, COUNT_COLUMNS);
   addColumns(TAB.materials, ['Supplier']);   // who to raise the PO on — Buy groups by it
   addColumns(TAB.materials, ['LeadDays']);   // supplier lead time, so Buy can say order-by
+  addColumns(TAB.materials, ['Active']);     // NO = retired, hidden from the app (3.01.5)
+
+  // 3.01.5, once: John and Alex are full managers, not the count-only view.
+  try {
+    var mprops = PropertiesService.getScriptProperties();
+    if (!mprops.getProperty('MIGRATED_MANAGERS_3015')) {
+      ['John', 'Alex'].forEach(function (n) { if (mprops.getProperty('VIEW:' + n) === 'count') { mprops.deleteProperty('VIEW:' + n); did.push(n + ' set to the full manager view'); } });
+      mprops.setProperty('MIGRATED_MANAGERS_3015', '1');
+    }
+  } catch (eMgr) {}
   addColumns(TAB.stagelog, ['Hours']);
 
   var addedMaterials = addMissingReferencedMaterials();
@@ -1070,7 +1123,7 @@ function getConfig() {
   var employees = readObjects(TAB.employees)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
     .map(function (r) { return r.Name; });
-  var materials = readObjects(TAB.materials)
+  var materials = readObjects(TAB.materials).filter(function (m) { return !materialRetired(m); })
     .map(function (m) { return { id: m.MaterialID, name: m.MaterialName, unit: m.Unit }; });
   var lines = {};
   Object.keys(LINES).forEach(function (k) { lines[k] = stagesForLine(k); });
@@ -1090,8 +1143,15 @@ function getConfig() {
            sheetName: ss.getName(), sheetId: ss.getId() };
 }
 
+/* Retired materials (3.01.5): RawMaterials.Active = NO hides a material from
+ * every manager screen. M001 Glue Pods is in no recipe and counts as retired
+ * while its cell is blank; type YES to bring it back. */
+function materialRetired(m) {
+  var a = String((m && m.Active) || '').trim().toUpperCase();
+  return a === 'NO' || (a === '' && m && m.MaterialID === 'M001');
+}
 function getStock() {
-  var mats = readObjects(TAB.materials).map(function (m) {
+  var mats = readObjects(TAB.materials).filter(function (m) { return !materialRetired(m); }).map(function (m) {
     var counted = !(m.OnHand === '' || m.OnHand === null || m.OnHand === undefined);
     var onHand = Number(m.OnHand) || 0, reorder = Number(m.ReorderPoint) || 0;
     return {

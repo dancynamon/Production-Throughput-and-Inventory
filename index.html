@@ -54,9 +54,8 @@
 <main>
   <!-- Crew never sees the full app: without a manager unlock this is all there is. -->
   <section id="lockedCard" class="locked-card" hidden>
-    <h2 class="locked-card__h">Managers: log in</h2>
+    <h2 class="locked-card__h">Managers: enter your PIN</h2>
     <form id="loginForm" autocomplete="off">
-      <label class="field"><span>Name</span><input id="loginName" type="text" autocomplete="username" placeholder="blank = shared manager PIN"></label>
       <label class="field"><span>PIN</span><input id="loginPin" type="password" inputmode="numeric" autocomplete="current-password" required></label>
       <button type="submit" id="loginBtn" class="btn-primary">Log in</button>
     </form>
