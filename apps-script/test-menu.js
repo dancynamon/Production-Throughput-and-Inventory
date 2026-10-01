@@ -37,7 +37,7 @@ check('top level: five actions and three submenus', [topItems.filter((i) => i.fn
 const all = []; (function walk(m) { m.items.forEach((i) => { if (i.fn) all.push(i); if (i.sub) walk(i.sub); }); })(top);
 check('every menu item names a function that exists', all.filter((i) => typeof sandbox[i.fn] !== 'function').map((i) => i.label), []);
 const labels = all.map((i) => i.label);
-['setManagerPin', 'setPersonPin', 'setCrewClockPin', 'setCrewClockPin', 'setGuideReaders', 'importSalesFromTab', 'syncShopifyMenu', 'updateFromGitHubMenu', 'upgradeSchema', 'resetAllTabs', 'setDeploymentId', 'whatAmIRunning'].forEach((fn) => check('still reachable: ' + fn, all.some((i) => i.fn === fn), true));
+['setManagerPin', 'setPersonPin', 'setCrewClockPin', 'rebuildReorderMenu', 'setGuideReaders', 'importSalesFromTab', 'syncShopifyMenu', 'updateFromGitHubMenu', 'upgradeSchema', 'resetAllTabs', 'setDeploymentId', 'whatAmIRunning'].forEach((fn) => check('still reachable: ' + fn, all.some((i) => i.fn === fn), true));
 check('no duplicate labels', labels.length, new Set(labels).size);
 check('the six on/off items became three toggles', all.filter((i) => /^Turn (on|off)/.test(i.label)).length, 0);
 
@@ -47,7 +47,9 @@ sandbox.toggleDigest();      check('digest toggle: on → off', triggers, []);
 sandbox.toggleShopifySync(); check('shopify toggle: off → on', triggers, ['syncShopifyTrigger']);
 sandbox.toggleAutoUpdate();  check('auto-update toggle: off → on, sync untouched', triggers, ['syncShopifyTrigger', 'autoUpdateFromGitHub']);
 sandbox.toggleAutoUpdate();  check('auto-update toggle: on → off, sync untouched', triggers, ['syncShopifyTrigger']);
-check('every flip says which way it went', toasts.length, 5);
+sandbox.toggleReorder();     check('reorder toggle: off → on, Monday 6am', triggers, ['syncShopifyTrigger', 'writeReorderTab']);
+sandbox.toggleReorder();     check('reorder toggle: on → off', triggers, ['syncShopifyTrigger']);
+check('every flip says which way it went', toasts.length, 7);
 check('toasts say on or off', toasts.every((t) => /\bon\b|\boff\b|every hour|every 30/i.test(t)), true);
 
 console.log(fails ? fails + ' FAILED' : 'All checks passed.');

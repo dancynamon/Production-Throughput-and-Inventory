@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-01 23:30 UTC      version 3.01.8
+ *  BUILD:  2026-10-02 00:30 UTC      version 3.01.9
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -40,6 +40,7 @@ var TAB = {
   shiplog:   'ShipLog',
   timelog:   'TimeLog',
   timereq:   'TimeRequests',
+  reorder:   'Reorder',
   overview:  'Overview'
 };
 
@@ -295,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.8';
+var BACKEND_VERSION = '3.01.9';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-01 23:30 UTC';
+var BUILD_STAMP = '2026-10-02 00:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -933,6 +934,7 @@ function applySchemaUpgrades() {
   addColumns(TAB.materials, ['Supplier']);   // who to raise the PO on — Buy groups by it
   addColumns(TAB.materials, ['LeadDays']);   // supplier lead time, so Buy can say order-by
   addColumns(TAB.materials, ['Active']);     // NO = retired, hidden from the app (3.01.5)
+  addColumns(TAB.materials, ['ReorderQty', 'QBOItem']);  // usual order size, QBO item name for POs (3.01.9)
 
   // 3.01.5, once: John and Alex are full managers, not the count-only view.
   try {
@@ -1105,6 +1107,7 @@ function doGet(e) {
     else if (action === 'finished')  result = getFinished(p);
     else if (action === 'countFinished') result = countFinished(p);
     else if (action === 'reconcile') result = getReconcile();
+    else if (action === 'reorder')   result = computeReorder();
     else if (action === 'salesImport') result = salesImport(p);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
@@ -1158,6 +1161,8 @@ function getStock() {
       id: m.MaterialID, name: m.MaterialName, unit: m.Unit, category: m.Category || '',
       supplier: String(m.Supplier || '').trim(),
       leadDays: blankish(m.LeadDays) ? null : (Number(m.LeadDays) || 0),
+      reorderQty: blankish(m.ReorderQty) ? null : (Number(m.ReorderQty) || null),
+      qboItem: String(m.QBOItem || '').trim(),
       onHand: onHand, counted: counted, reorderPoint: reorder, low: counted && onHand <= reorder,
       // Reconciliation. onHand is the ESTIMATE; lastCounted is the last actual.
       lastCounted:   m.LastCounted === '' || m.LastCounted === undefined ? null : Number(m.LastCounted),
@@ -1700,6 +1705,7 @@ function receiveStock(p) {
       Timestamp: new Date(), Employee: employee, MaterialID: materialId,
       MaterialName: name, QtyAdded: qty, Notes: notes
     });
+    refreshReorderSafe();
     return { ok: true, message: 'Received ' + round2(qty) + ' ' + unit + ' of ' + name,
              material: { id: materialId, name: name, unit: unit, onHand: after } };
   } finally {
@@ -1789,6 +1795,7 @@ function submitCount(p) {
       return Math.abs(Number(b.variancePct) || 0) - Math.abs(Number(a.variancePct) || 0);
     });
 
+    refreshReorderSafe();
     return { ok: true, counted: applied, unknown: unknown,
              message: 'Reconciled ' + applied.length + ' material'
                     + (applied.length === 1 ? '' : 's') + '.' };
@@ -3195,6 +3202,90 @@ function digestRecipients() {
   try { return Session.getEffectiveUser().getEmail(); } catch (e2) { return ''; }
 }
 
+/* ============================================================================
+ *  Reorder list (3.01.9)
+ *  ---------------------------------------------------------------------------
+ *  What to buy, worked out from the same numbers as the Buy screen. A material
+ *  is due when it is COUNTED (a never-counted shelf can't be judged) and any of:
+ *    - on hand at or under its ReorderPoint
+ *    - the work already on the floor needs more than the shelf holds
+ *    - its order-by date (days of stock minus supplier lead time) is within
+ *      REORDER_ORDERBY_DAYS working days
+ *  Suggested quantity = RawMaterials.ReorderQty (the usual order, hand-typed);
+ *  blank falls back to 4 weeks (20 working days) of observed use plus what the
+ *  floor is owed, or back up to twice the reorder point, whichever is larger.
+ *  The Reorder tab is rebuilt after every shelf count and delivery, by the
+ *  Monday schedule, and from the menu; the Cowork reorder skill reads it.
+ *  Managers see the same list as a banner in the app.
+ * ========================================================================== */
+var REORDER_HEADERS = ['Generated', 'MaterialID', 'MaterialName', 'Unit', 'OnHand', 'ReorderPoint', 'Committed',
+  'DailyUse', 'OrderBy', 'Supplier', 'LeadDays', 'QBOItem', 'ReorderQty', 'SuggestedQty', 'Reason'];
+var REORDER_ORDERBY_DAYS = 5, REORDER_COVER_DAYS = 20;
+function reorderSuggestedQty(m) {
+  if (m.reorderQty) return m.reorderQty;
+  var want = Math.max((m.dailyBurn || 0) * REORDER_COVER_DAYS + (m.committed || 0), 2 * (m.reorderPoint || 0));
+  var q = Math.ceil(want - m.onHand);
+  return q > 0 ? q : null;
+}
+function computeReorder(purch) {
+  purch = purch || computePurchasing();
+  var extra = {};
+  getStock().materials.forEach(function (m) { extra[m.id] = m; });
+  var items = [], unknown = 0;
+  (purch.materials || []).forEach(function (m) {
+    if (!m.counted) { unknown++; return; }
+    var why = [];
+    if (m.reorderPoint > 0 && m.onHand <= m.reorderPoint) why.push('at or under reorder point (' + round2(m.onHand) + ' of ' + m.reorderPoint + ')');
+    if (m.after < 0) why.push('floor work needs ' + round2(-m.after) + ' more than the shelf holds');
+    if (m.orderByDays !== null && m.orderByDays !== undefined && m.orderByDays <= REORDER_ORDERBY_DAYS) why.push('order by ' + m.orderBy);
+    if (!why.length) return;
+    var x = extra[m.id] || {};
+    var row = { id: m.id, name: m.name, unit: m.unit || '', onHand: round2(m.onHand), reorderPoint: m.reorderPoint,
+                committed: round2(m.committed || 0), dailyUse: m.dailyBurn || 0, orderBy: m.orderBy || '',
+                supplier: m.supplier || '', leadDays: m.leadDays, qboItem: x.qboItem || '', reorderQty: x.reorderQty || null,
+                reason: why.join('; ') };
+    row.suggestedQty = reorderSuggestedQty({ reorderQty: row.reorderQty, dailyBurn: row.dailyUse, committed: row.committed,
+                                             reorderPoint: m.reorderPoint, onHand: m.onHand });
+    items.push(row);
+  });
+  // By supplier (one PO each), blank supplier last, then by name.
+  items.sort(function (a, b) {
+    if (!a.supplier !== !b.supplier) return a.supplier ? -1 : 1;
+    return String(a.supplier).localeCompare(String(b.supplier)) || String(a.name).localeCompare(String(b.name));
+  });
+  return { ok: true, generatedAt: new Date().toISOString(), items: items, neverCounted: unknown };
+}
+function writeReorderTab() {
+  var r = computeReorder();
+  var now = new Date();
+  var rows = r.items.map(function (i) {
+    return [now, i.id, i.name, i.unit, i.onHand, i.reorderPoint, i.committed, i.dailyUse, i.orderBy, i.supplier,
+            i.leadDays === null || i.leadDays === undefined ? '' : i.leadDays, i.qboItem, i.reorderQty || '',
+            i.suggestedQty === null ? '' : i.suggestedQty, i.reason];
+  });
+  if (!rows.length) rows = [[now, '', 'Nothing to reorder', '', '', '', '', '', '', '', '', '', '', '', r.neverCounted + ' material(s) never counted, not judged']];
+  writeTab(SpreadsheetApp.getActiveSpreadsheet(), TAB.reorder, REORDER_HEADERS, rows);
+  return r;
+}
+/* Never lets a reorder rebuild break the count or delivery that triggered it. */
+function refreshReorderSafe() { try { writeReorderTab(); } catch (e) { /* the list is a convenience */ } }
+function rebuildReorderMenu() {
+  var r = writeReorderTab();
+  SpreadsheetApp.getActive().toast(r.items.length + ' material(s) to reorder. See the Reorder tab.', 'Aquamentor', 8);
+}
+function reorderTriggerOn() {
+  reorderTriggerOff();
+  ScriptApp.newTrigger('writeReorderTab').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(6).create();
+  SpreadsheetApp.getActive().toast('Monday 6am reorder list is on.', 'Aquamentor', 6);
+}
+function reorderTriggerOff() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'writeReorderTab') ScriptApp.deleteTrigger(t); });
+}
+function toggleReorder() {
+  if (triggerIsOn('writeReorderTab')) { reorderTriggerOff(); SpreadsheetApp.getActive().toast('Monday reorder list is off.', 'Aquamentor', 6); }
+  else reorderTriggerOn();
+}
+
 function sendWeeklyDigest() {
   var to = digestRecipients();
   if (!to) throw new Error('No recipient: set DIGEST_TO from the Aquamentor menu.');
@@ -3716,11 +3807,13 @@ function onOpen() {
       .addItem('Set deployment ID…', 'setDeploymentId'))
     .addSubMenu(ui.createMenu('Schedules (tap to switch on or off)')
       .addItem('Monday 7am digest', 'toggleDigest')
+      .addItem('Monday 6am reorder list', 'toggleReorder')
       .addItem('Hourly Shopify sync', 'toggleShopifySync')
       .addItem('Auto-update from GitHub every 30 min', 'toggleAutoUpdate'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Set up / repair missing tabs', 'setup')
       .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
+      .addItem('Rebuild the Reorder tab now', 'rebuildReorderMenu')
       .addItem('Add missing columns (safe upgrade)', 'upgradeSchema')
       .addItem('Migrate to Blank → Exo/Standard', 'migrateToVariantLines')
       .addItem('⚠ Erase and rebuild ALL tabs', 'resetAllTabs'))

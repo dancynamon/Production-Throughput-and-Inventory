@@ -171,6 +171,7 @@ node apps-script/test-finished.js   # finished goods: storage, ship, count, impo
 node apps-script/test-menu.js       # sheet menu: short top level, handlers exist, schedule toggles
 node apps-script/test-reconcile.js  # walk keeps the app's estimate; floor/shelf/storage scored; to-do
 node apps-script/test-floor.js      # floor mode: clock in/out, 6pm + 14 h auto-close, floorPace dedupe, open access
+node apps-script/test-reorder.js    # reorder: due rules, never-counted skipped, qty rules, supplier grouping
 node apps-script/test-timeclock.js  # login, PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
 ```
 
@@ -299,6 +300,14 @@ assert on them rather than trusting the parser.
   `getFloorPace` (Floor polls it every minute), `getTimeView`, `sendDailyTimeSummary`, and in
   `clockShift`. Source `auto6pm`, flag `autoOut`. test-floor/test-timeclock set it `off` for
   their legacy 14 h blocks; the 6pm block is at the end of test-floor.js
+- **3.01.9 (app + backend): reorder.** `computeReorder()` (manager action `reorder`) from
+  `computePurchasing`: counted materials at/under ReorderPoint, `after < 0`, or orderByDays <= 5;
+  SuggestedQty = RawMaterials `ReorderQty` else max(20 working days of burn + committed, 2x RP) -
+  on hand. `writeReorderTab()` writes the `Reorder` tab; rebuilt after `submitCount` and
+  `receiveStock` (`refreshReorderSafe`), by the Monday 6am toggle (Schedules) and Maintenance →
+  Rebuild the Reorder tab now. New RawMaterials columns `ReorderQty`, `QBOItem`. Managers get a
+  "Time to reorder" banner (`loadReorderAlert`). The Cowork side is `skills/production-reorder/SKILL.md`
+  (draft QBO POs per supplier, branded PDF, Gmail drafts, stops at send); install it via skill-creator
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

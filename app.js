@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.01.8';
+  var APP_VERSION = '3.01.9';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -172,6 +172,27 @@
    * manager can act on it, so it shows only in manager mode — and it has to
    * be re-evaluated on unlock, not just on load, or the person who just typed
    * the default PIN is the one person who never sees the warning about it. */
+  /* Reorder alert (3.01.9): what is at or under its reorder point, or about to
+   * be, so Alex and John see it even if Dan's Monday run is missed. */
+  function loadReorderAlert() {
+    var b = el('reorderBanner'); if (!b) return;
+    if (localStorage.getItem('aq_role') !== 'mgr') { b.hidden = true; return; }
+    api({ action: 'reorder' }, 45000).then(function (d) {
+      if (!d || !d.ok || !d.items || !d.items.length) { b.hidden = true; return; }
+      var list = d.items.slice(0, 8).map(function (i) {
+        return '<li><b>' + escapeHtml(i.name) + '</b> ' + escapeHtml(String(i.onHand)) + ' ' + escapeHtml(i.unit || '')
+          + ' on hand' + (i.suggestedQty ? ' · order ' + escapeHtml(String(i.suggestedQty)) : '')
+          + (i.supplier ? ' from ' + escapeHtml(i.supplier) : '') + '<br><small>' + escapeHtml(i.reason) + '</small></li>';
+      }).join('');
+      b.innerHTML = '<div class="reorder-banner__h"><strong>Time to reorder: ' + d.items.length + ' material' + (d.items.length === 1 ? '' : 's') + '</strong>'
+        + '<button type="button" class="inv-mini" id="reorderHide">Hide</button></div><ul>' + list + '</ul>'
+        + (d.items.length > 8 ? '<p class="muted small">…and ' + (d.items.length - 8) + ' more on the sheet\'s Reorder tab.</p>' : '')
+        + '<p class="muted small">Tell Dan if a PO hasn\'t gone out.</p>';
+      b.hidden = false;
+      el('reorderHide').addEventListener('click', function () { b.hidden = true; });
+    }).catch(function () { b.hidden = true; });
+  }
+
   function showPinNag() {
     el('pinBanner').hidden = !(buildFacts.pinIsDefault && localStorage.getItem('aq_role') === 'mgr');
   }
@@ -758,6 +779,7 @@
   }
   var lockOutShown = false;
   function lockOut(msg) {
+    if (el('reorderBanner')) el('reorderBanner').hidden = true;
     var was = localStorage.getItem('aq_role') === 'mgr';
     localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token'); localStorage.removeItem('aq_view');
     applyRole();
@@ -783,6 +805,7 @@
         el('loginPin').value = '';
         applyRole();
         selectScreen(countView() ? 'reconcile' : 'floor');
+        loadReorderAlert();
         toast('Logged in' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
       } else { el('loginPin').value = ''; toast((d && d.error) || 'Wrong PIN'); }
     }).catch(function (err) { el('loginBtn').disabled = false; toast('⚠ ' + err.message); });
@@ -2348,7 +2371,7 @@
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
   applyRole();
-  if (isMgr()) selectScreen(countView() ? 'reconcile' : 'floor');
+  if (isMgr()) { selectScreen(countView() ? 'reconcile' : 'floor'); loadReorderAlert(); }
   // A plain link to the backend, for when the toast says it cannot be reached:
   // if this opens and shows text, the network is fine and the app is at fault.
   if (API && el('connTest')) { el('connTest').href = API + '?action=config'; el('connTest').target = '_blank'; el('connTest').rel = 'noopener'; }

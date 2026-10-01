@@ -761,3 +761,11 @@ body.locked .tabs, body.locked .screen, body.locked #pinBanner{ display:none !im
 .locked-card #loginBtn{width:100%;margin-top:8px}
 .locked-card__crew{margin-top:18px;text-align:center}
 #floorWhoWrap[hidden]{display:none}
+
+/* 3.01.9: reorder alert for managers */
+.reorder-banner{margin:12px 12px 0;padding:10px 12px;border-radius:10px;background:#fdf1e3;border:1px solid #e3b27a;color:#4a2f10}
+.reorder-banner ul{margin:6px 0 4px;padding-left:18px}
+.reorder-banner li{margin:4px 0}
+.reorder-banner__h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+body.locked .reorder-banner{display:none !important}
+.reorder-banner p{text-align:left;margin:4px 0}
