@@ -83,117 +83,103 @@ footer a{color:var(--sand)}
 <div class="band"><div class="wrap">
   <div class="eyebrow">Aquamentor Production</div>
   <h1>Your day in the app</h1>
-  <p>Start with <b>Floor mode</b>: one screen, your name, a clock button and three buttons for what you finished. Everything else in the app is below if you need it.</p>
+  <p>One screen: <b>Floor mode</b>. Log in once, clock in, log what you finish, clock out. That is the whole app for the crew.</p>
   <a class="app-link" href="https://prod-through-inv-3.dan-daf.workers.dev/floor" target="_blank" rel="noopener">Open Floor mode</a>
 </div></div>
 
 <div class="wrap">
 <nav class="toc">
-  <a href="#floor">Floor mode</a><a href="#setup">Get it on your phone</a><a href="#day">Log your day</a><a href="#fix">Fix a mistake</a>
-  <a href="#ship">Ship</a><a href="#pace">Your pace</a><a href="#count">Floor count</a><a href="#rules">Ground rules</a>
+  <a href="#setup">Get it on your phone</a><a href="#login">Log in</a><a href="#clock">Clock in and out</a><a href="#log">Log your work</a>
+  <a href="#fix">Fix a mistake</a><a href="#pace">The scoreboard</a><a href="#rules">Ground rules</a>
 </nav>
-
-<section id="floor">
-  <h2>Floor mode (start here)</h2>
-  <p>This is the page to keep on your home screen. It only tracks how fast we are going. It writes to the same log as Log My Day, so nothing else changes for the office.</p>
-  <ol class="steps">
-    <li><p>Open <b>prod-through-inv-3.dan-daf.workers.dev/floor</b> and tap your name.</p><p>Once. It remembers you. Wrong name? Tap <b>not you?</b> at the top.</p></li>
-    <li><p>Tap the big <b>Clock in</b> button when you start and <b>Clock out</b> when you leave. Both ask for <b>your 4-digit PIN</b> on the number pad.</p><p>Your PIN is yours alone. A manager sets it. No PIN yet? The app says "Ask a manager to set your PIN." Five wrong tries lock you out for 15 minutes.</p></li>
-    <li><p>The clock only works <b>at the shop</b>, so the phone asks for your location. Say yes, and turn location on.</p><p>You will see "Clocked in 7:02am at shop" with a check mark. If it says to turn on location, do that and try again.</p></li>
-    <li><p>Forgot to punch? Tap <b>I forgot to punch</b>, pick in or out, the time and a reason, and enter your PIN. It goes to a manager. Nothing changes until they approve it, and only managers can change times.</p></li>
-    <li><p>Pick <b>50"</b> or <b>40"</b>, then the stage: <b>Meshed</b>, <b>Patched</b> or <b>Boxed</b>.</p><p>The small <b>Standard</b> button is only for tubes without mesh. Leave it off for Exo.</p></li>
-    <li><p>Tap <b>+12</b> for each box, <b>+5</b> or <b>+1</b> for the rest, <b>-1</b> if you went too far. You can also type the number.</p></li>
-    <li><p>Tap <b>Submit</b>. The bar at the bottom says what was logged.</p><p>Tapped the wrong thing? Hit <b>Undo</b> on that bar within two minutes. That undoes production counts only, not clock punches.</p></li>
-  </ol>
-  <p>The top strip is the scoreboard: boxed today, boxed this week, and your own numbers. Green is on pace, yellow is close, red is behind. Pace follows the hours people are clocked in.</p>
-  <div class="callout"><b>No signal?</b> Submit anyway. It waits on the phone and sends itself.</div>
-</section>
 
 <section id="setup">
   <h2>Get it on your phone</h2>
   <p>The app is a web page. Put it on your home screen once and it opens like any other app, and it keeps working when the shop Wi-Fi drops.</p>
   <ol class="steps">
-    <li><p>Open <b>prod-through-inv-3.dan-daf.workers.dev/floor</b> in your phone's browser.</p><p>Safari on iPhone, Chrome on Android.</p></li>
+    <li><p>Open <b>prod-through-inv-3.dan-daf.workers.dev</b> in your phone's browser.</p><p>Safari on iPhone, Chrome on Android. It opens Floor mode on its own.</p></li>
     <li><p>iPhone: tap the <span class="kbd">Share</span> button, then <span class="kbd">Add to Home Screen</span>.</p><p>Android: tap the <span class="kbd">⋮</span> menu, then <span class="kbd">Add to Home screen</span>.</p></li>
-    <li><p>Open it from the home screen from now on.</p><p>It updates itself. If it ever looks stale, close it and reopen it.</p></li>
+    <li><p>Open it from the home screen from now on.</p><p>It updates itself. If it ever says the site can't be reached or looks stale, close it and open it again.</p></li>
   </ol>
 </section>
 
-<section id="day">
-  <h2>Log your day</h2>
-  <p>One entry per product you worked on, at the end of your shift or when you finish a batch. You log what you <b>finished</b> at each station today, not what you touched.</p>
+<section id="login">
+  <h2>Log in</h2>
   <figure class="fig">
-    <img src="img/notes.png" alt="Log My Day screen with counts entered at Cut and Boxed and a note on the Boxed row">
-    <figcaption><b>Log My Day</b>Date, your name, the product, then one number per station. The pencil opens a note for that station only.</figcaption>
+    <img src="img/floor-login.png" alt="Floor mode login: a button for each person's name">
+    <figcaption><b>Log in</b>Tap your name, then type your 4-digit PIN on the number pad.</figcaption>
   </figure>
   <ol class="steps">
-    <li><p>Check the date. It's today unless you change it.</p><p>Logging yesterday's work? Change the date first.</p></li>
-    <li><p>Pick <b>your own name</b>.</p><p>Your pace and hours come from this. Never log under someone else's name.</p></li>
-    <li><p>Pick the product.</p><p>Tubes: the size <b>and</b> Exo or Standard. Blanks are their own product: cutting and gluing goes under the blank, not the tube.</p></li>
-    <li><p>Type how many you finished at each station.</p><p>Leave a station at 0 if you didn't work it. Hours next to a count are optional but they make your rate real.</p></li>
-    <li><p>Tap the pencil ✎ on a station if something happened there.</p><p>"Dryer down 2 hours." "Ran out of tape." Short and specific. It lands on that station's row.</p></li>
-    <li><p>Tap <b>Submit My Day</b> and read the green box.</p><p>It lists what was logged and what materials came off the shelf. If it says "already logged today", read it: <b>Cancel</b> if you tapped twice, <b>OK</b> if this is a real second batch.</p></li>
+    <li><p>Tap your name.</p><p>Only your own. Everything you log and every punch goes under it.</p></li>
+    <li><p>Type your <b>4-digit PIN</b>.</p><p>A manager sets it. No PIN yet? The app says "Ask a manager to set your PIN." Five wrong tries lock you out for 15 minutes.</p></li>
+    <li><p>That's it until you log out.</p><p>The phone remembers you. Sharing a phone? Tap <b>log out</b> at the top right when you're done so the next person logs in as themselves.</p></li>
   </ol>
-  <div class="callout"><b>Every station, every time.</b> If you glued 50 blanks, log Glued 50, even if the same 50 get meshed later by someone else. Skipping a station makes the floor look like work appeared from nowhere, and the piles on the managers' screens go wrong.</div>
-  <div class="callout"><b>No signal?</b> Submit anyway. The entry waits on your phone and sends itself when the connection comes back. A yellow bar says "1 entry waiting to send". Tap <b>Send now</b> when you're back in range.</div>
+</section>
+
+<section id="clock">
+  <h2>Clock in and out</h2>
+  <figure class="fig">
+    <img src="img/floor-pin.png" alt="Number pad asking for a PIN, with two of four dots filled">
+    <figcaption><b>Every punch asks for your PIN</b>So nobody can punch for you, even on your own phone.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><p>Tap the big green <b>Clock in</b> button when you start. It turns red and says <b>Clock out</b> while you're on.</p><p>Both ask for your PIN.</p></li>
+    <li><p>The clock only works <b>at the shop</b>, so the phone asks for your location. Say yes, and keep location on.</p><p>You'll see "Clocked in 7:02am at shop ✓". If it says to turn on location, do that and try again.</p></li>
+    <li><p>Tap <b>Clock out</b> when you leave.</p><p>Forgot? Anyone still clocked in at <b>6pm</b> is clocked out at 6pm automatically.</p></li>
+    <li><p>Missed a punch, or worked past 6pm? Tap <b>I forgot to punch</b>.</p><p>Pick in or out, today or yesterday, the time and a reason, and enter your PIN. A manager approves it. Nothing changes until they do, and only managers can change times.</p></li>
+  </ol>
+</section>
+
+<section id="log">
+  <h2>Log your work</h2>
+  <figure class="fig">
+    <img src="img/floor-main.png" alt="Floor mode: crew scoreboard, my day, Clock out button, Making set to Rescue tube, Job set to Boxed, 50 inch selected, quantity 24">
+    <figcaption><b>Floor mode</b>Making, Job, size, count, Submit. The scoreboard at the top updates as the crew logs.</figcaption>
+  </figure>
+  <ol class="steps">
+    <li><p><b>Making:</b> what you're working on.</p><p><b>Rescue tube</b> for tubes and straps. Otherwise pick the chair, foam shape or kickboard by name. The phone remembers your last pick.</p></li>
+    <li><p><b>Job:</b> the station you finished.</p><p>Tubes: Cut, Glued, Meshed, Patched, Paint 1, Paint 2, Printed, Straps Attached, Boxed, or Strap made. Chairs: Cut, Assemble, Box. Shapes: CNC, Clean, Box.</p></li>
+    <li><p>Tubes only: pick <b>50"</b> or <b>40"</b>.</p><p>The small <b>Standard (not Exo)</b> button is for tubes without mesh. Leave it off for Exo. Cut and Glued go on the blank, and Strap made has no size; the app handles both.</p></li>
+    <li><p>Count it up: <b>+1</b>, <b>+5</b>, <b>+12 box</b> (tubes only), <b>-1</b> if you went too far, or type the number.</p></li>
+    <li><p>Tap <b>Submit</b>. The bar at the bottom says what was logged.</p></li>
+  </ol>
+  <figure class="fig">
+    <img src="img/floor-chair.png" alt="Floor mode with Making set to Lifeguard Chair 50 inch and Job set to Assemble, quantity 2, no +12 box button">
+    <figcaption><b>Chairs and shapes</b>Pick it under Making, then its own job. No size buttons, no +12.</figcaption>
+  </figure>
+  <div class="callout"><b>Log what you finished, at every station.</b> Glued 50 blanks? Log Glued 50, even if someone else meshes them later. A tube counts at a station when it's done there and ready for the next one.</div>
+  <div class="callout"><b>No signal?</b> Submit anyway. It waits on the phone and sends itself when the signal comes back.</div>
 </section>
 
 <section id="fix">
   <h2>Fix a mistake</h2>
-  <figure class="fig">
-    <img src="img/today-notes.png" alt="Today's totals with chips for Cut 112 and Boxed 40 and a notes list below">
-    <figcaption><b>Today's totals</b>Everything logged today, by product. Each chip is a button.</figcaption>
-  </figure>
-  <p>Logged something twice, or typed 40 when you meant 4? Scroll down to <b>Today's totals</b> and tap the chip for that station. It asks how many to take back and why. Type the number and a word or two. The materials go back on the shelf too. That's the only way to undo, so use it the moment you notice.</p>
-  <div class="callout no"><b>Don't</b> log a negative number, and don't "fix" it by logging less tomorrow. Take it back with the chip.</div>
-</section>
-
-<section id="ship">
-  <h2>Ship</h2>
-  <p>When finished product leaves storage, record it on the <b>Ship</b> tab. That's how the count in storage stays right and how the office knows which channel took it.</p>
-  <figure class="fig">
-    <img src="img/ship.png" alt="Ship tab with product, quantity, channel and order number fields">
-    <figcaption><b>Ship tab</b>Who, product, how many, where it went, and the order number if there is one.</figcaption>
-  </figure>
-  <ul>
-    <li><b>Where it went:</b> Shopify for website orders, Amazon for Amazon orders, QuickBooks for invoiced or wholesale orders the office wrote up, Sample for anything given away, Other if none fit.</li>
-    <li><b>Order number:</b> from the packing slip or label. #6107, 111-2345678, INV 18897. Optional, but it makes the record traceable.</li>
-    <li>One entry per product per order. Two products on one order are two entries.</li>
-  </ul>
+  <p>Tapped the wrong thing? Hit <b>Undo</b> on the bar at the bottom. It's there for <b>two minutes</b> after each Submit and takes back exactly that entry, materials included. It doesn't touch clock punches.</p>
+  <p>Noticed later? Tell Alex or John. They can reverse any entry. Don't log a negative number or "make up for it" tomorrow.</p>
 </section>
 
 <section id="pace">
-  <h2>Your pace</h2>
-  <figure class="fig">
-    <img src="img/mypace.png" alt="Floor tab showing one person's units today, this week, hours, and pace by station">
-    <figcaption><b>Floor tab</b>Your numbers only: today, this week, hours, and your pace at each station against the target.</figcaption>
-  </figure>
-  <p>The <b>Floor</b> tab shows your own work and nobody else's. Pick your name. The tick on each bar is the station target. If you log hours, you also see units per hour. That's the number a rate is built from, so it's worth the extra tap.</p>
-</section>
-
-<section id="count">
-  <h2>Floor count</h2>
-  <figure class="fig">
-    <img src="img/walk.png" alt="WIP tab in whole-floor walk mode with a count box per station per product">
-    <figcaption><b>WIP tab, walk the whole floor</b>One box per pile. Zero is a real answer.</figcaption>
-  </figure>
-  <p>Now and then a manager will ask for a floor count. On the <b>WIP</b> tab tap <b>Walk the whole floor</b>, then walk the shop and type what is actually sitting at each station for each product. Count what's there, not what should be there. Zero means "I looked, nothing there", so type it. Submit once at the end.</p>
+  <h2>The scoreboard</h2>
+  <ul>
+    <li><b>Crew boxed today / this week</b>: everyone's boxed tubes against the goal (64 a day, 320 a week). Green is on pace, yellow is close, red is behind.</li>
+    <li><b>Par now</b>: where the crew should be right now, based on the hours people are actually clocked in.</li>
+    <li><b>My day</b>: what you logged today and your boxed per hour next to the crew's and par.</li>
+  </ul>
 </section>
 
 <section id="rules">
   <h2>Ground rules</h2>
   <div class="grid">
-    <div class="card"><h4>Your name, your work</h4><p>Only log what you did, under your name.</p></div>
-    <div class="card"><h4>Finished, not touched</h4><p>A tube counts at a station when it's done there and ready for the next one.</p></div>
-    <div class="card"><h4>Every station</h4><p>Cut, Glued, Meshed… each one gets its own number, even if the same units flow through them.</p></div>
-    <div class="card"><h4>Once a day, or per batch</h4><p>If the app says "already logged today", stop and read it.</p></div>
-    <div class="card"><h4>Undo with the chip</h4><p>Never with a negative number or a smaller entry tomorrow.</p></div>
-    <div class="card"><h4>Ship what leaves</h4><p>If it left storage, it's on the Ship tab, with the channel.</p></div>
+    <div class="card"><h4>Your name, your work</h4><p>Only log what you did, logged in as you. Log out on a shared phone.</p></div>
+    <div class="card"><h4>Your PIN is yours</h4><p>Don't share it. Every punch and log-in uses it.</p></div>
+    <div class="card"><h4>Finished, not touched</h4><p>Count a piece at a station when it's done there.</p></div>
+    <div class="card"><h4>Every station</h4><p>Each station gets its own number, even if the same pieces go through all of them.</p></div>
+    <div class="card"><h4>Undo right away</h4><p>Two minutes on the bottom bar. After that, ask a manager.</p></div>
+    <div class="card"><h4>6pm</h4><p>You're clocked out at 6pm. Worked later? "I forgot to punch".</p></div>
   </div>
-  <p>Questions or something that looks wrong: tell Alex or John. They can see the whole floor and fix entries.</p>
+  <p>Questions or something looks wrong: tell Alex or John.</p>
 </section>
 
-<footer>Aquamentor Production · <a href="https://prod-through-inv-3.dan-daf.workers.dev">Open the app</a> · Managers: the manager guide and What's new are inside the app, behind the lock.</footer>
+<footer>Aquamentor Production · <a href="https://prod-through-inv-3.dan-daf.workers.dev/floor">Open Floor mode</a> · Managers: the manager guide is inside the full app, after you log in.</footer>
 </div>
 
 </body>

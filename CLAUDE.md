@@ -262,8 +262,9 @@ assert on them rather than trusting the parser.
   `aq_floor_login` until "log out"; an old backend answering "Unknown action" lets them in
   unchecked with a warning so production still logs. Punches still ask the PIN. The full app shows
   only a login card (manager `auth`, name + PIN) until unlocked; top bar is Floor / Summary / Time.
-  The other screens' HTML and JS are still in place, just off the bar. Guides in `help/src/`
-  still describe the old tabs
+  The other screens' HTML and JS are still in place, just off the bar. Guides rewritten for
+  3.01.8 (new screenshots `help/img/floor-*.png`, `mgr-*.png`; PDFs rendered with Playwright
+  `page.pdf` from `help/crew.html` and `help/_private/managers.html`)
 - **3.01.2:** Reconcile + Inventory back on the manager bar (John's loop; count-only view shows
   just those two and lands on Reconcile). Login epochs (`aq_login_epoch` in index.html,
   `aq_floor_epoch` in floor.js) log every phone out once when bumped

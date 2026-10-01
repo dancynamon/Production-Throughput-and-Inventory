@@ -2,8 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
-  { version: '3.01.8', date: '2026-10-01', title: 'No +12 box on chairs and shapes', items: [
-    { who: 'crew', text: 'The "+12 box" button only shows for rescue tubes. Chairs and foam shapes get +1, +5 and the number box.' }
+  { version: '3.01.8', date: '2026-10-01', title: 'No +12 box on chairs and shapes; guides rewritten', items: [
+    { who: 'crew', text: 'The "+12 box" button only shows for rescue tubes. Chairs and foam shapes get +1, +5 and the number box.' },
+    { who: 'crew', text: 'The crew guide now covers Floor mode only: log in, clock in and out, the 6pm clock-out, Making and Job, undo, and the scoreboard.' },
+    { who: 'mgr',  text: 'The manager guide covers the PIN-only login, the five tabs, the time clock (clock PINs, 6pm clock-out, requests, edits) and the weekly counts.' }
   ]},
   { version: '3.01.7', date: '2026-10-01', title: 'Automatic clock-out at 6pm', items: [
     { who: 'crew', text: 'Anyone still clocked in at 6pm is clocked out at 6pm automatically. If you really worked later, tap "I forgot to punch" and a manager will approve the extra time.' },

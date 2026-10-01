@@ -3,37 +3,63 @@
 <div class="band"><div class="wrap">
   <div class="eyebrow">Aquamentor Production · for Alex and John</div>
   <h1>Running the floor from the app</h1>
-  <p>Everything the crew does, plus the eight manager tabs behind the lock: where work is piling up, what to buy, what's in storage and where it went, and how to fix bad entries. Five minutes a day, twenty on Monday.</p>
+  <p>The crew lives on Floor mode. You get five tabs behind your PIN: where work is piling up, the time clock, the weekly counts, and the shelf and storage. Five minutes a day, twenty on Monday.</p>
   <a class="app-link" href="https://prod-through-inv-3.dan-daf.workers.dev" target="_blank" rel="noopener">Open the app</a>
 </div></div>
 
 <div class="wrap">
 <nav class="toc">
-  <a href="#unlock">Unlock</a><a href="#time">Time clock</a><a href="#reconcile">Reconcile</a><a href="#routine">Daily and weekly</a><a href="#tabs">The tabs</a><a href="#trust">Reading the numbers</a>
+  <a href="#unlock">Log in</a><a href="#tabs">The tabs</a><a href="#time">Time clock</a><a href="#reconcile">Reconcile</a><a href="#routine">Daily and weekly</a><a href="#trust">Reading the numbers</a>
   <a href="#fixing">Fixing entries</a><a href="#storage">Storage and shipping</a><a href="#counts">Counts</a><a href="#faq">When something looks wrong</a>
 </nav>
 
 <section id="unlock">
-  <h2>Unlock</h2>
+  <h2>Log in</h2>
+  <figure class="fig">
+    <img src="img/mgr-login.png" alt="Full app login card asking only for a PIN, with a link for crew to go to Floor mode">
+    <figcaption><b>The full app opens on this</b>PIN only. The app works out whose PIN it is.</figcaption>
+  </figure>
   <ol class="steps">
-    <li><p>Tap the 🔒 at the top right.</p><p>Type your name exactly as it appears in the crew list, then your PIN. Dan set it. The lock turns to 🔓 and the manager tabs appear.</p></li>
-    <li><p>Tap 🔓 to lock again when you're done on a shared phone.</p><p>Your own phone can stay unlocked. If the app ever drops you back to the crew view on its own, a PIN was changed: unlock again.</p></li>
+    <li><p>Open the app and tap <b>Full app (managers)</b> at the bottom of Floor mode, or go straight to <b>prod-through-inv-3.dan-daf.workers.dev/?full=1</b>.</p><p>Once you're logged in, the plain address opens the full app on that phone.</p></li>
+    <li><p>Type your PIN and tap <b>Log in</b>.</p><p>Either your manager PIN or the same 4-digit PIN you use on Floor mode. Two people with the same PIN are refused, so keep them different.</p></li>
+    <li><p>Tap <b>Log out</b> at the top when you're done on a shared phone.</p><p>Your own phone can stay logged in. If it drops you back to the login on its own, a PIN was changed: log in again.</p></li>
   </ol>
-  <div class="callout"><b>First, read the crew guide.</b> Everything there applies to you too, and you'll be the one explaining it. <a href="crew.html">Crew guide</a>.</div>
+  <div class="callout"><b>Who is a manager.</b> Dan, John and Alex. Dan can change the list in the sheet (Script Property MANAGERS). Manager PINs: sheet menu → Settings → Set a manager's PIN (full app).</div>
+  <div class="callout"><b>Read the crew guide too.</b> You'll be the one explaining Floor mode. <a href="crew.html">Crew guide</a>.</div>
+</section>
+
+<section id="tabs">
+  <h2>The tabs</h2>
+  <figure class="fig">
+    <img src="img/mgr-tabs.png" alt="Manager tab bar: Floor, Summary, Time, Reconcile, Inventory">
+    <figcaption><b>Five tabs</b>Everything else from the old app is off the bar.</figcaption>
+  </figure>
+  <div class="tbl-wrap"><table>
+    <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>
+    <tbody>
+      <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>
+      <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated or wrong entries under Fix-ups. Export CSVs.</td></tr>
+      <tr><td><b>Time</b></td><td>Who worked when, and what needs a look?</td><td>Approve forgot-to-punch requests, edit shifts, read flags, set clock PINs and the shop location.</td></tr>
+      <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons (floor, shelf, storage), then read the cards. The weekly loop.</td></tr>
+      <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout"><b>The count-only view.</b> Dan can set a person to see only Reconcile, Inventory and Time (sheet menu → Settings → Set a person's view).</div>
 </section>
 
 <section id="time">
   <h2>Time clock</h2>
   <p>Floor mode's clock is the real time clock. Every clock in and every clock out needs the person's own 4-digit PIN and, once the shop location is set, the phone has to be at the shop. Open the <b>Time</b> tab.</p>
   <ol class="steps">
-    <li><p><b>Set the shop location once.</b> Stand inside the shop and tap <b>Set shop location to where I'm standing</b>. Check the coordinates in the box and confirm.</p><p>Until you do, punches work from anywhere and are flagged "No location check", and a red banner shows on this tab. The default radius is 150 m; change it with the SHOP_RADIUS_M script property.</p></li>
-    <li><p><b>Give everyone a PIN.</b> Under <b>Clock PINs</b> tap <b>Set PIN</b> beside a name. Someone with no PIN sees "Ask a manager to set your PIN." <b>Reset PIN</b> also lifts a lockout (five wrong PINs lock a name for 15 minutes).</p><p>PINs are stored as a salted hash. Nobody, including you, can read one back.</p></li>
+    <li><p><b>Set the shop location once.</b> Stand inside the shop and tap <b>Set shop location to where I'm standing</b>. Check the coordinates in the box and confirm.</p><p>Until you do, punches work from anywhere and are flagged "No location check", and a banner shows on this tab. The default radius is 150 m; change it with the SHOP_RADIUS_M script property.</p></li>
+    <li><p><b>Give everyone a PIN.</b> Under <b>Clock PINs</b> tap <b>Set PIN</b> beside a name. Without one, a person can't log in to Floor mode at all. <b>Reset PIN</b> also lifts a lockout (five wrong PINs lock a name for 15 minutes).</p><p>PINs are stored as a salted hash. Nobody, including you, can read one back. Dan can also set them from the sheet: Settings → Set a crew clock PIN (Floor mode).</p></li>
     <li><p><b>Forgot-to-punch requests.</b> Under <b>Time requests</b>, read the reason and tap <b>Approve</b> or <b>Deny</b>. Approving writes the punch to the time log and keeps the original values and who approved it.</p></li>
     <li><p><b>Edit a shift.</b> Tap <b>Edit</b> on any row, change In or Out, and give a reason. The reason is required and every edit is kept in the row's history. Only managers can edit time.</p></li>
   </ol>
-  <p>Flags to look at: clocked in 2 hours or more with nothing logged; a shift open over 10 hours; a shift the 14-hour rule closed on its own (any edit clears the review flag); a punch with no location check; an edited row.</p>
+  <div class="callout"><b>6pm clock-out.</b> Anyone still clocked in at 6pm New York time is clocked out at 6pm automatically and shows "Auto clock-out 6pm". If they really stayed later, they send "I forgot to punch" and you approve it. Someone who clocks in after 6pm is closed at 14 hours instead. Dan can move or turn off the cutoff (Script Property CLOCK_CUTOFF_HOUR).</div>
+  <p>Flags to look at: clocked in 2 hours or more with nothing logged; a shift open over 10 hours; auto clock-out at 6pm; a shift the 14-hour rule closed (any edit clears the review flag); a punch with no location check; an edited row.</p>
   <div class="callout"><b>Honest limits.</b> GPS on a phone can be faked. This stops casual cheating, such as punching in from home, not a determined person.</div>
-  <p>A summary email goes out at 6pm New York time: who worked, in and out, hours, meshed, patched and boxed per person, boxed per clocked hour, open shifts, flags and pending requests. Turn it on once from the sheet: <b>Aquamentor → Settings → Install daily 6pm time summary</b>. It goes to the sheet owner; add more addresses in the SUMMARY_TO script property. For the weekly payroll check, the <code>timeExport</code> action returns hours per person per day.</p>
+  <p>A summary email goes out at 6pm New York time: who worked, in and out, hours, meshed, patched and boxed per person, boxed per clocked hour, open shifts, flags and pending requests. Turn it on once from the sheet: <b>Aquamentor → Settings → Install daily 6pm time summary</b>. It goes to the sheet owner; add more addresses in the SUMMARY_TO script property.</p>
 </section>
 
 <section id="reconcile">
@@ -49,7 +75,6 @@
     <li><p>Count storage.</p><p>Opens the finished-goods panel. What is physically boxed per product. Record.</p></li>
     <li><p>Read the cards.</p><p>Floor: the app's pile at each station beside what you counted. Shelf: the recipe's estimate beside the count. Storage: the count, then what was made and shipped since. Anything within 10% is close. The rest is either a station someone is not logging, a recipe that is wrong, or a shipment nobody recorded.</p></li>
   </ol>
-  <div class="callout"><b>The count-only view.</b> Dan can set a person to see only Log My Day, Ship and Reconcile (sheet menu → Settings → Set a person's view). Everything in this guide still applies; the other tabs are simply out of the way.</div>
 </section>
 
 <section id="routine">
@@ -57,10 +82,9 @@
   <div class="routine">
     <h3>Every day, end of shift · 5 minutes</h3>
     <ol>
-      <li><b>Floor tab.</b> Where work is piling up, worst first. Anything red means five or more days to clear at the logged pace. Read the "how much to trust this" list at the bottom before you act on a pile.</li>
+      <li><b>Time.</b> Approve or deny forgot-to-punch requests. Glance at the flags, especially "nothing logged" and auto clock-outs.</li>
+      <li><b>Floor.</b> Where work is piling up, worst first. Anything red means five or more days to clear at the logged pace. Read the "how much to trust this" list at the bottom before you act on a pile.</li>
       <li><b>Summary → Fix-ups.</b> Any entry logged twice shows here with a Reverse button. Tap it if it was a double-tap. Leave it if it was a real second batch.</li>
-      <li><b>Overview.</b> Tomorrow's suggested numbers per station. Tap a target to change it.</li>
-      <li><b>Receive</b> any deliveries that came in today.</li>
     </ol>
   </div>
   <div class="routine">
@@ -69,43 +93,11 @@
       <li><b>Reconcile.</b> The three counts (floor, shelf, storage) and the scorecard. Fifteen of the twenty minutes go here.</li>
       <li><b>Inventory → Stocktake to-do.</b> Until it reads zero, count a few of these each week: every material never counted or below zero.</li>
       <li><b>Inventory → Finished goods.</b> Count what's physically in storage per product and record it. Anything under its minimum is red; set minimums in the MinOnHand column of the sheet's FinishedGoods tab.</li>
-      <li><b>Buy.</b> Anything under "Order these" grouped by supplier. <b>Copy order list</b> gives you the PO lines. Pass to Dan or place the order.</li>
-      <li><b>Capacity.</b> Check the bottleneck per line and the crew rates. If a rate says "no hours", ask that person to log hours next week.</li>
-    </ol>
-  </div>
-  <div class="routine">
-    <h3>Monthly, or whenever the piles look wrong</h3>
-    <ol>
-      <li><b>WIP → Walk the whole floor.</b> Count every pile at every station in one pass and submit once. This resets the pipeline to reality and clears every "logged out of order" warning.</li>
     </ol>
   </div>
 </section>
 
-<section id="tabs">
-  <h2>The tabs</h2>
-  <div class="tbl-wrap"><table>
-    <thead><tr><th>Tab</th><th>Question it answers</th><th>What you do there</th></tr></thead>
-    <tbody>
-      <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons, then read the cards. The weekly loop.</td></tr>
-      <tr><td><b>Floor</b></td><td>Where is work piling up, how fast is each station going?</td><td>Read. Piles worst-first with days to clear; pace per station against target; finished per day.</td></tr>
-      <tr><td><b>Summary</b></td><td>How did the last 7 days go, and how much of it can I trust?</td><td>Read. Reverse repeated entries under Fix-ups. Export CSVs.</td></tr>
-      <tr><td><b>Overview</b></td><td>What's done, what's waiting, what should each station do tomorrow?</td><td>Tap a target number to change it.</td></tr>
-      <tr><td><b>Capacity</b></td><td>What's the bottleneck, when could an order ship, who's fastest at what?</td><td>Use the promise calculator: product + quantity → working days and a date.</td></tr>
-      <tr><td><b>Receive</b></td><td>A delivery arrived. Put it on the shelf.</td><td>Material, quantity, PO number. Recent deliveries listed below.</td></tr>
-      <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>
-      <tr><td><b>WIP</b></td><td>What's physically at each station right now?</td><td>Walk the floor and count. Resets the piles.</td></tr>
-      <tr><td><b>Buy</b></td><td>What runs out, when, and how much to order?</td><td>Order lists per supplier. "Order by" dates once lead times are filled in.</td></tr>
-    </tbody>
-  </table></div>
-  <figure class="fig">
-    <img src="img/floor.png" alt="Manager Floor tab with piles, pace by station, finished per day and a trust list">
-    <figcaption><b>Floor, manager view</b>The crew sees only their own pace here. You see the whole shop.</figcaption>
-  </figure>
-  <figure class="fig">
-    <img src="img/buy-orderby.png" alt="Buy tab with a supplier group, a shortfall and an order-by line">
-    <figcaption><b>Buy</b>Short means the work already on the floor needs more than the shelf holds. "Order today" means you're late.</figcaption>
-  </figure>
-</section>
+
 
 <section id="trust">
   <h2>Reading the numbers</h2>
@@ -116,17 +108,18 @@
     <li><b>"Stages logged out of order."</b> More units logged at a later station than at the one before it. Someone skipped a station on the phone, or the pile existed before the app did. The pile size is a guess until you walk the floor.</li>
     <li><b>Likely duplicates.</b> Same person, product, station, quantity and day saved more than once. The Floor tab leaves them out of the numbers. Fix-ups on Summary is where you reverse them.</li>
     <li><b>Never counted.</b> A material or product with no physical count yet. The first count sets the baseline. The variance on that first count means nothing; the second count is where drift becomes readable.</li>
-    <li><b>Confidence on Capacity.</b> "Thin" or "partial" means few days or few stations have a rate. Treat the promise date as rough.</li>
+    <li><b>Par on Floor mode.</b> About 1.94 boxed per clocked crew hour (320 a week over 165 crew hours). It follows the clock, so it is only as good as the punches.</li>
   </ul>
 </section>
 
 <section id="fixing">
   <h2>Fixing entries</h2>
   <div class="grid">
-    <div class="card"><h4>Double-tap or wrong number</h4><p>Log My Day → set the date → tap the chip under Today's totals → how many to take back and why. Materials go back too.</p></div>
-    <div class="card"><h4>Repeated entries across days</h4><p>Summary → Fix-ups. One Reverse button per repeat. Reverses the extra copies only.</p></div>
-    <div class="card"><h4>Piles that don't match the floor</h4><p>WIP → Walk the whole floor. Counts win over the log from that moment on.</p></div>
+    <div class="card"><h4>Crew caught it right away</h4><p>Floor mode's <b>Undo</b> on the bottom bar, within two minutes of Submit. Materials go back too.</p></div>
+    <div class="card"><h4>Anything later</h4><p>Summary → Fix-ups. One Reverse button per repeated entry; it reverses the extra copies only.</p></div>
+    <div class="card"><h4>Piles that don't match the floor</h4><p>Reconcile → Count the floor. Counts win over the log from that moment on.</p></div>
     <div class="card"><h4>Shelf numbers that don't match</h4><p>Inventory → type the real count → Record. The estimate restarts from your number and the variance is filed.</p></div>
+    <div class="card"><h4>Wrong clock times</h4><p>Time → Edit on the row, with a reason. The original times are kept.</p></div>
   </div>
   <div class="callout no"><b>Never edit the sheet's log tabs by hand.</b> Deleting a row fixes the count but leaves the materials deducted forever. Every fix above puts things back properly.</div>
 </section>
@@ -137,9 +130,8 @@
     <img src="img/finished.png" alt="Finished goods panel on the Inventory tab with storage, made, shipped and count columns">
     <figcaption><b>Finished goods</b>Top of the Inventory tab. Storage per product, made and shipped in the last 30 days, split by channel, last count, and a box to record a new count.</figcaption>
   </figure>
-  <p>When a tube is logged as <b>Boxed</b> (or a chair or mat as Box) it lands in storage automatically. It leaves storage three ways:</p>
+  <p>When a tube is logged as <b>Boxed</b> (or a chair or mat as Box) it lands in storage automatically. It leaves storage two ways:</p>
   <ul>
-    <li><b>The crew's Ship tab.</b> Product, quantity, channel, order number. This is the everyday path.</li>
     <li><b>Shopify, automatically.</b> Fulfilled orders come in on their own every hour once Dan connects the store.</li>
     <li><b>Amazon and QuickBooks orders.</b> Dan imports these from reports. If a shipment is already on file, importing it again changes nothing.</li>
   </ul>
@@ -149,7 +141,7 @@
 <section id="counts">
   <h2>Counts</h2>
   <ol class="steps">
-    <li><p>Pick who you are at the top of the form.</p><p>Counts are signed. Yours goes on the record.</p></li>
+    <li><p>Counts are signed with the name you logged in as.</p><p>Yours goes on the record.</p></li>
     <li><p>Type only the numbers you actually counted.</p><p>A blank box means "didn't count", and that material is left alone. Zero means "I looked and there's none", and that counts.</p></li>
     <li><p>Watch the difference appear as you type.</p><p>"That can't be right" costs nothing at the shelf and a walk back from the desk.</p></li>
     <li><p>Record.</p><p>The estimate restarts from your number. Materials that miss the same way every time are the ones whose recipe is wrong; tell Dan.</p></li>
@@ -162,13 +154,14 @@
   <ul>
     <li><b>A tab says "Unknown action" or "backend is older than this app."</b> The sheet's code is behind. It updates itself within 30 minutes of a change. Wait, then reload. If it persists, tell Dan.</li>
     <li><b>The footer says app and backend on different versions.</b> Normal for a few minutes after a change. Reload twice.</li>
-    <li><b>You got locked out.</b> A PIN changed, or Dan reset something. Tap 🔒 and unlock again.</li>
+    <li><b>You got logged out.</b> A PIN changed, or Dan reset something. Log in again with your PIN.</li>
+    <li><b>Someone can't log in to Floor mode.</b> They have no clock PIN yet, or five wrong tries locked them for 15 minutes. Time → Clock PINs → Set or Reset PIN.</li>
     <li><b>A number is negative.</b> Materials: no opening count was ever taken. Storage: more shipped than was logged as finished. Count it, and the number resets.</li>
     <li><b>The crew's entries look inflated.</b> Check Summary → Fix-ups first. Then the Floor tab's trust list.</li>
-    <li><b>The crew asks what changed.</b> The What's new tab is yours, not theirs: a dot on it means a version landed since you last looked. Tell them the crew lines in your own words.</li>
+    <li><b>The crew asks what changed.</b> The What changed link at the bottom of the full app is yours, not theirs. Tell them the crew lines in your own words.</li>
     <li><b>Something else.</b> Tell Dan what tab, what you tapped, and what it said. A screenshot is the fastest way.</li>
   </ul>
 </section>
 
-<footer>Aquamentor Production · <a href="https://prod-through-inv-3.dan-daf.workers.dev">Open the app</a> · What changed: the What's new tab · <a href="crew.html">Crew guide</a></footer>
+<footer>Aquamentor Production · <a href="https://prod-through-inv-3.dan-daf.workers.dev">Open the app</a> · What changed: the link at the bottom of the full app · <a href="crew.html">Crew guide</a></footer>
 </div>
