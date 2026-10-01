@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.5';
+  var FLOOR_VERSION = '3.01.6';
   // Every tube job, in floor order (3.01.5). Cut and Glued log against the
   // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
   var JOBS = [
@@ -18,10 +18,10 @@
   ];
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
-  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue' };
+  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue', prod: 'aq_floor_prod' };
 
   var el = function (id) { return document.getElementById(id); };
-  var S = { cfg: null, name: '', size: '50', std: false, stage: 'Boxed', busy: false, pace: null, undo: null };
+  var S = { cfg: null, name: '', prod: 'TUBE', size: '50', std: false, stage: 'Boxed', busy: false, pace: null, undo: null };
 
   function ls(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {}
@@ -65,8 +65,35 @@
   }
 
   /* ---- product / stage ------------------------------------------------------ */
+  /* What is being made (3.01.6): "Rescue tube" keeps the size / Exo-Standard
+   * pickers and the tube JOBS above; every other active product (chairs,
+   * foam shapes, kickboards, anything added to the sheet later) is picked by
+   * name and offers its own line's stations. */
+  var TUBE_LINES = ['Blank', 'TubeExo', 'TubeStd', 'Strap', 'Tube'];
+  function otherProducts() {
+    return ((S.cfg && S.cfg.products) || []).filter(function (p) { return TUBE_LINES.indexOf(p.line) === -1; });
+  }
+  function prodInfo() {
+    if (S.prod === 'TUBE') return null;
+    var hit = null; otherProducts().forEach(function (p) { if (p.id === S.prod) hit = p; });
+    return hit;
+  }
+  function renderProducts() {
+    var sel = el('flProd'); sel.innerHTML = '';
+    var o = document.createElement('option'); o.value = 'TUBE'; o.textContent = 'Rescue tube'; sel.appendChild(o);
+    var groups = {};
+    otherProducts().forEach(function (p) { (groups[p.family || 'Other'] = groups[p.family || 'Other'] || []).push(p); });
+    Object.keys(groups).forEach(function (g) {
+      var og = document.createElement('optgroup'); og.label = g;
+      groups[g].forEach(function (p) { var op = document.createElement('option'); op.value = p.id; op.textContent = p.name || p.id; og.appendChild(op); });
+      sel.appendChild(og);
+    });
+    if (S.prod !== 'TUBE' && !prodInfo()) S.prod = 'TUBE';
+    sel.value = S.prod;
+  }
   function jobOf(stage) { for (var i = 0; i < JOBS.length; i++) if (JOBS[i].stage === stage) return JOBS[i]; return JOBS[JOBS.length - 2]; }
   function productFor(stage) {
+    if (S.prod !== 'TUBE') return S.prod;
     var k = jobOf(stage).kind;
     if (k === 'blank') return 'BLANK' + S.size;
     if (k === 'strap') return 'STRAP6';
@@ -74,6 +101,7 @@
   }
   function productId() { return productFor(S.stage); }
   function productLabel(stage) {
+    var pi = prodInfo(); if (pi) return pi.name || pi.id;
     var k = jobOf(stage).kind;
     if (k === 'strap') return '';
     if (k === 'blank') return S.size + '" blank';
@@ -89,6 +117,15 @@
     return valid ? valid.indexOf(j.stage) !== -1 : !(j.stage === 'Meshed' && S.std);
   }
   function renderStages() {
+    var pi = prodInfo();
+    if (pi) {
+      var st = (S.cfg.lines && S.cfg.lines[pi.line]) || [];
+      if (st.indexOf(S.stage) === -1) S.stage = st[st.length - 1] || '';
+      var ps = el('flStage'); ps.innerHTML = '';
+      st.forEach(function (s) { var o = document.createElement('option'); o.value = s; o.textContent = s; if (s === S.stage) o.selected = true; ps.appendChild(o); });
+      el('flSizeRow').hidden = true; el('flStd').hidden = true;
+      return;
+    }
     var list = JOBS.filter(jobOk);
     if (!list.some(function (j) { return j.stage === S.stage; })) S.stage = 'Boxed';
     var sel = el('flStage'); sel.innerHTML = '';
@@ -202,7 +239,7 @@
                          : 'Clocked out ' + t + (r.atShop ? ' at shop \u2713' : '') + '. Shift ' + fmt(r.shiftHours) + ' h');
       return refresh().then(function () {
         var boxed = S.pace && S.pace.ok ? S.pace.crew.today.Boxed : 1;
-        if (dir === 'out' && boxed <= 0) { el('flAskQty').value = ''; el('flAsk').hidden = false; }
+        if (dir === 'out' && boxed <= 0 && S.prod === 'TUBE') { el('flAskQty').value = ''; el('flAsk').hidden = false; }
       });
     }).catch(function (e) { PIN.busy = false; PIN.digits = ''; renderDots(); pinMsg(e.message, 'bad'); });
   }
@@ -275,7 +312,7 @@
   function payloadFor(stage, n) {
     var counts = {}; counts[stage] = n;
     var id = uid();
-    var j = jobOf(stage), lbl = productLabel(stage);
+    var j = prodInfo() ? { label: stage } : jobOf(stage), lbl = productLabel(stage);
     return { action: 'submitDay', workDate: todayIso(), employee: S.name, productId: productFor(stage), counts: JSON.stringify(counts),
              notes: 'floor ' + id.slice(-6), clientId: 'fl-' + id, _label: n + ' ' + (j.label || stage) + (lbl ? ' ' + lbl : '') };
   }
@@ -340,6 +377,7 @@
     el('flPick').hidden = true; el('flApp').hidden = false; el('flNotYou').hidden = false;
     el('flNotYou').textContent = 'log out';
     el('flWho').textContent = S.name;
+    S.prod = ls(K.prod) || 'TUBE'; renderProducts();
     renderStages(); setQty(0);
     if (!known(productId())) toast('Product ' + productId() + ' is not set up in the sheet.', { bad: true });
     refresh(); flush(); writeQ(readQ());
@@ -368,6 +406,9 @@
     });
     el('flStd').addEventListener('click', function () {
       S.std = !S.std; el('flStd').setAttribute('aria-pressed', String(S.std)); renderStages();
+    });
+    el('flProd').addEventListener('change', function () {
+      S.prod = el('flProd').value; ls(K.prod, S.prod); renderStages();
     });
     el('flStage').addEventListener('change', function () {
       S.stage = el('flStage').value; renderStages();

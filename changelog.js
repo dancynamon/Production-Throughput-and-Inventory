@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.6', date: '2026-10-01', title: 'Chairs and foam shapes on Floor mode', items: [
+    { who: 'crew', text: 'Floor mode has a "Making" dropdown above Job: Rescue tube, or any lifeguard chair, foam shape or kickboard. Pick what you are making, then the job (Cut, Assemble, Box for chairs; CNC, Clean, Box for shapes), then the count. The phone remembers your last pick.' }
+  ]},
   { version: '3.01.5', date: '2026-10-01', title: 'Every job on Floor mode, PIN-only manager login', items: [
     { who: 'crew', text: 'Floor mode has a Job dropdown with every station: Cut, Glued, Meshed, Patched, Paint 1, Paint 2, Printed, Straps Attached, Boxed, and Strap made. Pick the job, then 50" or 40", then the count.' },
     { who: 'mgr',  text: 'The full app asks for your PIN only, not your name. John and Alex are managers: they can log in with their own manager PIN or with the same 4-digit PIN they use on Floor mode.' },

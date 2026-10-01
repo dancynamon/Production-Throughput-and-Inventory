@@ -288,6 +288,10 @@ assert on them rather than trusting the parser.
   locks their phone. One-time `MIGRATED_MANAGERS_3015` in upgradeSchema drops `VIEW:John/Alex`
   = count. RawMaterials gets `Active`; `materialRetired()` hides NO, and M001 Glue Pods while
   blank (YES brings it back); filtered in `getStock` and `config`
+- **3.01.6:** Floor *Making* dropdown (`flProd`): "Rescue tube" (tube `JOBS`, size + Exo/Std) or
+  any active product whose line is not Blank/TubeExo/TubeStd/Strap/Tube, grouped by Family; those
+  offer their own line's stages from `config.lines`. Last pick kept in `aq_floor_prod`. The
+  clock-out "how many boxed" prompt only fires on Rescue tube
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
