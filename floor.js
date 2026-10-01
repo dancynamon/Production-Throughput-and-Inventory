@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.6';
+  var FLOOR_VERSION = '3.01.7';
   // Every tube job, in floor order (3.01.5). Cut and Glued log against the
   // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
   var JOBS = [

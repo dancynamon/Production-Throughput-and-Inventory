@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.7', date: '2026-10-01', title: 'Automatic clock-out at 6pm', items: [
+    { who: 'crew', text: 'Anyone still clocked in at 6pm is clocked out at 6pm automatically. If you really worked later, tap "I forgot to punch" and a manager will approve the extra time.' },
+    { who: 'mgr',  text: 'Automatic 6pm clock-outs show on the Time tab as "Auto clock-out 6pm". The hour is the Script Property CLOCK_CUTOFF_HOUR (0 to 23, or off); a shift started after the cutoff still closes at 14 hours.' }
+  ]},
   { version: '3.01.6', date: '2026-10-01', title: 'Chairs and foam shapes on Floor mode', items: [
     { who: 'crew', text: 'Floor mode has a "Making" dropdown above Job: Rescue tube, or any lifeguard chair, foam shape or kickboard. Pick what you are making, then the job (Cut, Assemble, Box for chairs; CNC, Clean, Box for shapes), then the count. The phone remembers your last pick.' }
   ]},

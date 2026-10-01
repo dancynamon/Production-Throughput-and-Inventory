@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.01.6';
+  var APP_VERSION = '3.01.7';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -2266,7 +2266,7 @@
     });
   }
   function tClock(iso) { if (!iso) return ''; var d = new Date(iso); return d.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }); }
-  var FLAG_TEXT = { noProduction: 'No production logged', openLong: 'Open over 10 h', autoClosed: 'Auto-closed, review', noGeofence: 'No location check', edited: 'Edited' };
+  var FLAG_TEXT = { noProduction: 'No production logged', openLong: 'Open over 10 h', autoClosed: 'Auto-closed, review', autoOut: 'Auto clock-out 6pm', noGeofence: 'No location check', edited: 'Edited' };
   function renderTime() {
     var d = TIME.data, box = el('timeBody'); if (!d) return;
     var h = '';

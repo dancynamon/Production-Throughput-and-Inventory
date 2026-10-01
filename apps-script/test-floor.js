@@ -39,6 +39,8 @@ const log  = fakeSheet(LOG_H, []);
 const time = fakeSheet(TIME_H, []);
 const emps = fakeSheet(EMP_H, [['Joe','YES',''],['Alex','YES',''],['Gone','NO','']]);
 const cacheStore = {}, props = {};
+// The 14 h and approval checks below predate the 6pm auto clock-out (3.01.7); it has its own block at the end.
+props.CLOCK_CUTOFF_HOUR = 'off';
 const sandbox = {
   CacheService: { getScriptCache: () => ({ get: (k) => cacheStore[k] || null, put: (k, v) => { cacheStore[k] = v; } }) },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; } }) },
@@ -170,6 +172,35 @@ const fp2 = sandbox.getFloorPace({ workDate: '2026-09-29' });
 check('Script Property FLOOR_WEEKLY_TARGET overrides', [fp2.target.weeklyBoxed, fp2.target.dailyBoxed, fp2.target.source], [400, 80, 'FLOOR_WEEKLY_TARGET']);
 check('floorPace works without an employee', fp2.me, undefined);
 function round(n) { return Math.round(n * 100) / 100; }
+
+/* 3.01.7: everyone still in at 6pm is clocked out at 6pm (TZ=UTC here, so 18:00Z). */
+{
+  props.CLOCK_CUTOFF_HOUR = '';               // blank = default 18
+  const day = Date.parse('2026-10-05T00:00:00Z'), at = (h) => day + h * H;
+  clock.t = at(7);
+  sandbox.clockShift({ pin: '1111', employee: 'Joe', dir: 'in', clientId: 'c6a' });
+  clock.t = at(17.5);
+  check('6pm: before the cutoff the shift is still open', sandbox.clockShift({ pin: '1111', employee: 'Joe', dir: 'in', clientId: 'c6b' }).already, true);
+  clock.t = at(19);
+  const pace = sandbox.getFloorPace({ employee: 'Joe', workDate: '2026-10-05' });
+  const joe6 = rowsOf().filter((r) => r.Employee === 'Joe').pop();
+  check('6pm: the pace read writes the clock-out at 18:00 with Source auto6pm, 11 h',
+    [new Date(joe6.Out).toISOString(), joe6.Source, joe6.Hours, pace.me.clockedIn], ['2026-10-05T18:00:00.000Z', 'auto6pm', 11, false]);
+  const lateOut = sandbox.clockShift({ pin: '1111', employee: 'Joe', dir: 'out', clientId: 'c6c' });
+  check('6pm: a clock-out tap after it says you are already out', [lateOut.ok, /not clocked in/.test(lateOut.error)], [false, true]);
+  clock.t = at(19.5);
+  sandbox.clockShift({ pin: '1111', employee: 'Joe', dir: 'in', clientId: 'c6d' });
+  clock.t = at(21);
+  check('6pm: a shift started after 6pm is not cut, it runs on the 14 h rule', sandbox.clockShift({ pin: '1111', employee: 'Joe', dir: 'out', clientId: 'c6e' }).shiftHours, 1.5);
+  clock.t = at(30);   // next day 06:00, someone left in since 17:00 the day before
+  sandbox.clockShift({ pin: '1111', employee: 'Alex', dir: 'in', clientId: 'c6f' });
+  clock.t = at(30) + 0;
+  props.CLOCK_CUTOFF_HOUR = '16';
+  clock.t = at(41);   // 17:00 next day
+  check('CLOCK_CUTOFF_HOUR moves it', sandbox.getFloorPace({ employee: 'Alex', workDate: '2026-10-06' }).me.hoursToday, 10);
+  props.CLOCK_CUTOFF_HOUR = 'off';
+  check('off: no cutoff', sandbox.cutoffMsFor(at(7)), Infinity);
+}
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

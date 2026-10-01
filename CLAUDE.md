@@ -170,7 +170,7 @@ node apps-script/test-update.js     # self-update: replace file, keep manifest, 
 node apps-script/test-finished.js   # finished goods: storage, ship, count, imports, Shopify pull
 node apps-script/test-menu.js       # sheet menu: short top level, handlers exist, schedule toggles
 node apps-script/test-reconcile.js  # walk keeps the app's estimate; floor/shelf/storage scored; to-do
-node apps-script/test-floor.js      # floor mode: clock in/out, auto-close, floorPace dedupe, open access
+node apps-script/test-floor.js      # floor mode: clock in/out, 6pm + 14 h auto-close, floorPace dedupe, open access
 node apps-script/test-timeclock.js  # login, PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
 ```
 
@@ -292,6 +292,12 @@ assert on them rather than trusting the parser.
   any active product whose line is not Blank/TubeExo/TubeStd/Strap/Tube, grouped by Family; those
   offer their own line's stages from `config.lines`. Last pick kept in `aq_floor_prod`. The
   clock-out "how many boxed" prompt only fires on Rescue tube
+- **3.01.7 (app + backend):** auto clock-out at 6pm New York (`CLOCK_CUTOFF_HOUR`, default 18,
+  `off` disables). `autoCloseAt(s)` = min(in + 14 h, cutoff that day if clocked in before it);
+  open-shift hours everywhere use `openHours()`; the close is written by `sweepOpenShifts()` from
+  `getFloorPace` (Floor polls it every minute), `getTimeView`, `sendDailyTimeSummary`, and in
+  `clockShift`. Source `auto6pm`, flag `autoOut`. test-floor/test-timeclock set it `off` for
+  their legacy 14 h blocks; the 6pm block is at the end of test-floor.js
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

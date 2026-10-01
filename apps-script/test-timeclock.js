@@ -33,6 +33,8 @@ const EMP_H = ['Name','Active','PinHash'];
 const log = fakeSheet(LOG_H, []), time = fakeSheet(TIME_H, []), reqs = fakeSheet(REQ_H, []);
 const emps = fakeSheet(EMP_H, [['Joe','YES',''],['Alex','YES',''],['Maria','YES','']]);
 const cacheStore = {}, props = {}, mails = [], triggers = [];
+// The 14 h and approval checks below predate the 6pm auto clock-out (3.01.7); it has its own block at the end.
+props.CLOCK_CUTOFF_HOUR = 'off';
 const sandbox = {
   CacheService: { getScriptCache: () => ({ get: (k) => (k in cacheStore ? cacheStore[k] : null), put: (k, v) => { cacheStore[k] = v; }, remove: (k) => { delete cacheStore[k]; } }) },
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in props ? props[k] : null), setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; } }) },

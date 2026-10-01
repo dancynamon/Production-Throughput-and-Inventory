@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-01 17:00 UTC      version 3.01.5
+ *  BUILD:  2026-10-01 21:00 UTC      version 3.01.7
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -295,12 +295,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.5';
+var BACKEND_VERSION = '3.01.7';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-01 17:00 UTC';
+var BUILD_STAMP = '2026-10-01 21:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -2165,6 +2165,7 @@ var TIMEREQ_HEADERS = ['RequestId', 'Timestamp', 'Employee', 'Dir', 'RequestedTi
 var FLOOR_STAGES = ['Meshed', 'Patched', 'Boxed'];
 var FLOOR_PRODUCTS = ['XRT50EXO', 'XRT40EXO', 'XRT50STD', 'XRT40STD'];
 var SHIFT_MAX_HOURS = 14;          // a shift left open longer than this is closed at this
+var CLOCK_CUTOFF_DEFAULT = 18;     // 3.01.7: everyone still in is clocked out at 6pm shop time; Script Property CLOCK_CUTOFF_HOUR (0-23, or "off")
 var FLOOR_WEEKLY_DEFAULT = 320;    // boxed per week; override: Script Property FLOOR_WEEKLY_TARGET
 var FLOOR_CREW_HOURS_DEFAULT = 165; // crew clocked hours in a week; Script Property FLOOR_WEEKLY_CREW_HOURS
 
@@ -2205,6 +2206,54 @@ function readShifts(sh) {
   }
   return out;
 }
+/* Automatic clock-out (3.01.7). A shift that started before the cutoff hour
+ * (6pm New York unless CLOCK_CUTOFF_HOUR says otherwise) ends at the cutoff
+ * that day; one started after it falls back to the 14 h rule. The close is
+ * written the next time anything reads the time log (a punch, Floor mode's
+ * pace strip, the Time tab, the 6pm summary), and every open-shift hour count
+ * stops at the cutoff even before it is written. */
+function clockCutoffHour() {
+  var v = null;
+  try { v = PropertiesService.getScriptProperties().getProperty('CLOCK_CUTOFF_HOUR'); } catch (e) { v = null; }
+  if (v === null || String(v).trim() === '') return CLOCK_CUTOFF_DEFAULT;
+  if (/^off$/i.test(String(v).trim())) return null;
+  var n = Number(v);
+  return isFinite(n) && n >= 0 && n <= 23 ? Math.floor(n) : CLOCK_CUTOFF_DEFAULT;
+}
+function cutoffMsFor(inMs) {
+  var hr = clockCutoffHour();
+  if (hr === null || !isFinite(inMs)) return Infinity;
+  var cut = NaN, hh = (hr < 10 ? '0' : '') + hr;
+  try {
+    var tz = 'America/New_York';
+    try { tz = Session.getScriptTimeZone() || tz; } catch (e0) {}
+    var day = Utilities.formatDate(new Date(inMs), tz, 'yyyy-MM-dd'), off = Utilities.formatDate(new Date(inMs), tz, 'XXX');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(day) && /^(Z|[+-]\d{2}:\d{2})$/.test(off)) cut = Date.parse(day + 'T' + hh + ':00:00' + off);
+  } catch (e) { cut = NaN; }
+  if (!isFinite(cut)) { var d = new Date(inMs); d.setHours(hr, 0, 0, 0); cut = d.getTime(); }
+  return inMs < cut ? cut : Infinity;
+}
+function autoCloseAt(s) { return Math.min(s.inMs + SHIFT_MAX_HOURS * 3600000, cutoffMsFor(s.inMs)); }
+function autoCloseWhy(s) { return cutoffMsFor(s.inMs) <= s.inMs + SHIFT_MAX_HOURS * 3600000 ? 'cutoff' : 'max'; }
+function openHours(s, nowMs) { return Math.max(0, (Math.min(nowMs, autoCloseAt(s)) - s.inMs) / 3600000); }
+/* Writes the automatic clock-out for every open shift past its limit. Returns how many. */
+function autoCloseOpenShifts(sh, shifts, nowMs) {
+  var n = 0;
+  shifts.forEach(function (s) {
+    if (s.outMs !== null || !isFinite(s.inMs)) return;
+    var at = autoCloseAt(s);
+    if (nowMs >= at) { closeShift(sh, s, at, autoCloseWhy(s) === 'cutoff' ? 'auto6pm' : 'auto'); n++; }
+  });
+  return n;
+}
+function sweepOpenShifts(nowMs) {
+  try {
+    var sh = floorTimeSheet(), shifts = readShifts(sh);
+    if (!shifts.some(function (s) { return s.outMs === null && nowMs >= autoCloseAt(s); })) return 0;
+    var lock = LockService.getScriptLock(); lock.waitLock(20000);
+    try { return autoCloseOpenShifts(sh, readShifts(sh), nowMs); } finally { lock.releaseLock(); }
+  } catch (e) { return 0; }
+}
 function closeShift(sh, s, endMs, source) {
   var hrs = round2(Math.max(0, (endMs - s.inMs) / 3600000));
   setCell(sh, s, 'Out', new Date(endMs));
@@ -2218,7 +2267,7 @@ function hoursOn(shifts, employee, workDate, nowMs) {
   var h = 0;
   shifts.forEach(function (s) {
     if (s.employee.toLowerCase() !== employee.toLowerCase() || s.workDate !== workDate) return;
-    h += s.outMs === null ? Math.min(SHIFT_MAX_HOURS, Math.max(0, (nowMs - s.inMs) / 3600000)) : s.hours;
+    h += s.outMs === null ? openHours(s, nowMs) : s.hours;
   });
   return round2(h);
 }
@@ -2377,10 +2426,11 @@ function clockShift(p) {
     var open = mine.length ? mine[mine.length - 1] : null;
     var autoClosed = null, result;
 
-    // A shift left open past the limit is closed at the limit, whichever button is next.
-    if (open && (nowMs - open.inMs) / 3600000 > SHIFT_MAX_HOURS) {
-      var hrsA = closeShift(sh, open, open.inMs + SHIFT_MAX_HOURS * 3600000, 'auto');
-      autoClosed = { workDate: open.workDate, hours: hrsA };
+    // A shift left open past its limit (6pm, or 14 h) is closed there, whichever button is next.
+    if (open && nowMs >= autoCloseAt(open)) {
+      var why = autoCloseWhy(open);
+      var hrsA = closeShift(sh, open, autoCloseAt(open), why === 'cutoff' ? 'auto6pm' : 'auto');
+      autoClosed = { workDate: open.workDate, hours: hrsA, why: why };
       open = null;
     }
 
@@ -2397,7 +2447,9 @@ function clockShift(p) {
     } else {
       if (!open) {
         result = { ok: false, dir: 'out', error: autoClosed
-          ? 'Your last shift was left open and was closed at ' + SHIFT_MAX_HOURS + ' hours. A manager will review it. You are not clocked in.'
+          ? (autoClosed.why === 'cutoff'
+            ? 'You were clocked out automatically at ' + clockCutoffHour() % 12 + (clockCutoffHour() >= 12 ? 'pm' : 'am') + ' (' + autoClosed.hours + ' h). If you worked later, tap "I forgot to punch".'
+            : 'Your last shift was left open and was closed at ' + SHIFT_MAX_HOURS + ' hours. A manager will review it. You are not clocked in.')
           : 'You are not clocked in.' };
       } else {
         var hrs = closeShift(sh, open, nowMs, 'floor');
@@ -2575,6 +2627,7 @@ function computeTimeFlags(shifts, stageRows, nowMs, sinceDate) {
     }
     if (s.outMs === null && hrs > FLAG_OPEN_HOURS) add('openLong', 'Still clocked in after ' + round2(hrs) + ' h');
     if (s.source === 'auto' && !s.editedBy) add('autoClosed', 'Auto-closed at ' + SHIFT_MAX_HOURS + ' h, needs review');
+    if (s.source === 'auto6pm' && !s.editedBy) add('autoOut', 'Clocked out automatically at the end of the day');
     if (s.noGeofence) add('noGeofence', 'Punch made without a shop location check');
     if (s.editedBy) add('edited', 'Edited by ' + s.editedBy + (s.editReason ? ': ' + s.editReason : ''));
   });
@@ -2586,13 +2639,14 @@ function iso(ms) { return ms === null || ms === undefined || !isFinite(ms) ? nul
 function getTimeView(p) {
   var days = Math.max(1, Math.min(60, Number(p.days) || 14));
   var nowMs = Date.now(), since = fmtDate(new Date(nowMs - days * 86400000));
+  sweepOpenShifts(nowMs);
   var sh = floorTimeSheet(), shifts = readShifts(sh);
   var stage = readObjects(TAB.stagelog);
   var flags = computeTimeFlags(shifts, stage, nowMs, since);
   var byRow = {}; flags.forEach(function (f) { (byRow[f.row] = byRow[f.row] || []).push(f.type); });
   var rows = shifts.filter(function (s) { return s.workDate >= since || s.outMs === null; }).map(function (s) {
     return { row: s.row, employee: s.employee, workDate: s.workDate, in: iso(s.inMs), out: iso(s.outMs),
-             hours: s.outMs === null ? round2(Math.min(SHIFT_MAX_HOURS, (nowMs - s.inMs) / 3600000)) : s.hours,
+             hours: s.outMs === null ? round2(openHours(s, nowMs)) : s.hours,
              open: s.outMs === null, source: s.source, edited: !!s.editedBy, flags: byRow[s.row] || [] };
   }).reverse();
   var emps = readObjects(TAB.employees).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
@@ -2609,13 +2663,13 @@ function exportTime(p) {
   var nowMs = Date.now(), people = {}, daysSeen = {};
   readShifts(floorTimeSheet()).forEach(function (s) {
     if (s.workDate < from || s.workDate > to) return;
-    var hrs = s.outMs === null ? Math.min(SHIFT_MAX_HOURS, Math.max(0, (nowMs - s.inMs) / 3600000)) : s.hours;
+    var hrs = s.outMs === null ? openHours(s, nowMs) : s.hours;
     var who = people[s.employee] = people[s.employee] || { days: {}, total: 0, openShifts: 0, editedShifts: 0, autoClosedShifts: 0 };
     who.days[s.workDate] = round2((who.days[s.workDate] || 0) + hrs);
     who.total = round2(who.total + hrs);
     if (s.outMs === null) who.openShifts++;
     if (s.editedBy) who.editedShifts++;
-    if (s.source === 'auto') who.autoClosedShifts++;
+    if (s.source === 'auto' || s.source === 'auto6pm') who.autoClosedShifts++;
     daysSeen[s.workDate] = true;
   });
   return { ok: true, from: from, to: to, days: Object.keys(daysSeen).sort(), people: people };
@@ -2683,6 +2737,7 @@ function summaryRecipients() {
   return list;
 }
 function sendDailyTimeSummary() {
+  sweepOpenShifts(Date.now());
   var nowMs = Date.now(), d = collectTimeSummary(fmtDate(new Date(nowMs)), nowMs);
   var to = summaryRecipients();
   if (!to.length) return { ok: false, error: 'No recipient.' };
@@ -2753,6 +2808,7 @@ function getFloorPace(p) {
   });
 
   var shifts = [];
+  sweepOpenShifts(nowMs);
   try { shifts = readShifts(floorTimeSheet()); } catch (e) { shifts = []; }
   var names = {}; Object.keys(per).forEach(function (n) { names[n] = true; });
   shifts.forEach(function (s) { if (s.employee && s.workDate >= weekStart && s.workDate <= today) names[s.employee] = true; });
@@ -2763,7 +2819,7 @@ function getFloorPace(p) {
     var wk = 0;
     shifts.forEach(function (s) {
       if (s.employee.toLowerCase() !== who.toLowerCase() || s.workDate < weekStart || s.workDate > today) return;
-      wk += s.outMs === null ? Math.min(SHIFT_MAX_HOURS, Math.max(0, (nowMs - s.inMs) / 3600000)) : s.hours;
+      wk += s.outMs === null ? openHours(s, nowMs) : s.hours;
     });
     b.hoursWeek = round2(wk);
     FLOOR_STAGES.forEach(function (st) {
