@@ -865,6 +865,36 @@ function addMissingReferencedMaterials() {
  * indistinguishable from the grouping feature simply not working.
  *
  * Only blank cells are written. A family someone re-typed by hand is theirs. */
+/* Purchasing defaults (3.01.10): Supplier, ReorderQty and QBOItem per
+ * material, researched from Gmail order history and the QBO item list on
+ * 2026-10-02. Filled into BLANK cells only, so anything typed on
+ * RawMaterials wins and a rerun changes nothing. Empty string = unknown. */
+var PURCHASING_DEFAULTS = {
+  // 'M002': { supplier: '', reorderQty: '', qboItem: '' },
+};
+function backfillPurchasingDefaults() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB.materials);
+  if (!sh) return 0;
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return 0;
+  var H = values[0], idCol = H.indexOf('MaterialID');
+  var cols = { supplier: H.indexOf('Supplier'), reorderQty: H.indexOf('ReorderQty'), qboItem: H.indexOf('QBOItem') };
+  if (idCol === -1) return 0;
+  var filled = 0;
+  for (var i = 1; i < values.length; i++) {
+    var d = PURCHASING_DEFAULTS[String(values[i][idCol] || '').trim()];
+    if (!d) continue;
+    Object.keys(cols).forEach(function (k) {
+      var c = cols[k];
+      if (c === -1 || d[k] === '' || d[k] === undefined || d[k] === null) return;
+      if (String(values[i][c] === undefined ? '' : values[i][c]).trim() !== '') return;
+      sh.getRange(i + 1, c + 1).setValue(d[k]);
+      filled++;
+    });
+  }
+  return filled;
+}
+
 function backfillProductFamilies() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(TAB.products);
@@ -950,6 +980,9 @@ function applySchemaUpgrades() {
   if (addedMaterials.length) {
     did.push('added missing material row(s) ' + addedMaterials.join(', ') + ' to RawMaterials');
   }
+
+  var purchasingFilled = backfillPurchasingDefaults();
+  if (purchasingFilled) did.push('filled ' + purchasingFilled + ' blank Supplier / ReorderQty / QBOItem cell(s)');
 
   var familiesFilled = backfillProductFamilies();
   if (familiesFilled) did.push('filled ' + familiesFilled + ' blank Family cell(s)');
