@@ -307,7 +307,10 @@ assert on them rather than trusting the parser.
   `receiveStock` (`refreshReorderSafe`), by the Monday 6am toggle (Schedules) and Maintenance →
   Rebuild the Reorder tab now. New RawMaterials columns `ReorderQty`, `QBOItem`. Managers get a
   "Time to reorder" banner (`loadReorderAlert`). The Cowork side is `skills/production-reorder/SKILL.md`
-  (draft QBO POs per supplier, branded PDF, Gmail drafts, stops at send); install it via skill-creator
+  (draft QBO POs per supplier, branded PDF, Gmail drafts, stops at send); install it via skill-creator.
+  3.01.10: `PURCHASING_DEFAULTS` (Supplier / ReorderQty from Gmail order history, 2026-10-02) filled
+  into BLANK RawMaterials cells by `backfillPurchasingDefaults()` in upgradeSchema. No QBOItem
+  could be confirmed; supplier names are invoice names, not verified QBO vendor names
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

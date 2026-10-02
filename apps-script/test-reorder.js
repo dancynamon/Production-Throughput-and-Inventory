@@ -36,5 +36,18 @@ check('floor owed: 20 days of use + committed - on hand = 26', [by('M004').sugge
 check('order-by within 5 working days makes it due', [/order by 2026-10-05/.test(by('M005').reason), by('M005').suggestedQty], [true, 5]);
 check('no use, no ReorderQty: back to twice the reorder point', by('M021').suggestedQty, 5);
 check('a comfortable shelf is not listed', r.items.some((i) => i.id === 'M009'), false);
+
+/* 3.01.10: purchasing defaults fill BLANK cells only. */
+{
+  const H = ['MaterialID', 'MaterialName', 'Supplier', 'ReorderQty', 'QBOItem'];
+  const grid = [H, ['M014', '1" Red', '', '', ''], ['M015', '1" Black', 'My Mill', '', ''], ['M999', 'Other', '', '', '']];
+  const sh = { getDataRange: () => ({ getValues: () => grid.map((r) => r.slice()) }), getRange: (r, c) => ({ setValue: (v) => { grid[r - 1][c - 1] = v; } }) };
+  sandbox.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: () => sh }) };
+  const n = sandbox.backfillPurchasingDefaults();
+  check('fills blanks: Granat + 4000 on M014, only qty on M015 (typed supplier kept), unknown id untouched',
+    [grid[1][2], grid[1][3], grid[2][2], grid[2][3], grid[3][2], n], ['Granat Industries Inc', 4000, 'My Mill', 8000, '', 3]);
+  check('second run changes nothing', sandbox.backfillPurchasingDefaults(), 0);
+  check('every default is for a real material and has a supplier', Object.keys(sandbox.PURCHASING_DEFAULTS).every((k) => /^M0\d\d$/.test(k) && sandbox.PURCHASING_DEFAULTS[k].supplier), true);
+}
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

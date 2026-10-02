@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.10', date: '2026-10-02', title: 'Suppliers and order sizes filled in', items: [
+    { who: 'mgr',  text: 'RawMaterials now has a supplier on 21 materials and a usual order size on 9, taken from past orders in email. Only blank cells were filled; anything already typed stays.' }
+  ]},
   { version: '3.01.9', date: '2026-10-01', title: 'Reorder alerts and the Reorder tab', items: [
     { who: 'mgr',  text: 'When a material is at or under its reorder point, the floor needs more than the shelf holds, or its order-by date is within a week, managers see a "Time to reorder" box at the top of the app with what to order and from whom.' },
     { who: 'mgr',  text: 'The sheet has a Reorder tab with the same list and a suggested quantity. It refreshes after every shelf count and delivery. Type your usual order size in the new ReorderQty column on RawMaterials, and the QuickBooks item name in QBOItem, so POs come out right.' }

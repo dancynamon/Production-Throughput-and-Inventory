@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-02 00:30 UTC      version 3.01.9
+ *  BUILD:  2026-10-02 15:00 UTC      version 3.01.10
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -296,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.9';
+var BACKEND_VERSION = '3.01.10';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-02 00:30 UTC';
+var BUILD_STAMP = '2026-10-02 15:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -870,7 +870,31 @@ function addMissingReferencedMaterials() {
  * 2026-10-02. Filled into BLANK cells only, so anything typed on
  * RawMaterials wins and a rerun changes nothing. Empty string = unknown. */
 var PURCHASING_DEFAULTS = {
-  // 'M002': { supplier: '', reorderQty: '', qboItem: '' },
+  // Coatings, adhesives, foam
+  'M002': { supplier: 'Fiber Dynamics', reorderQty: '' },                       // PO 8466, Jun 2026; ordered in cases of yards, box conversion unknown
+  'M006': { supplier: 'Ravago Chemicals North America', reorderQty: 8 },        // PO 8665, 8 drums, Sep 2026 (Lubrizol Carboset CA1009A in this slot)
+  'M008': { supplier: 'Siltech Corporation', reorderQty: '' },                  // POs 7741/7866, invoice 360534, Mar 2026
+  'M009': { supplier: 'Chromatech Colors', reorderQty: '' },                    // ordered by forecast, 1 skid Apr 2026
+  'M011': { supplier: 'DKSH USA, LLC', reorderQty: '' },                        // Everlight Eversorb distributor, invoice Mar 2026
+  'M036': { supplier: 'Flexabar Corporation', reorderQty: 440 },                // PO 8471, 8 drums x ~55 gal, Jul 2026
+  'M038': { supplier: 'Worldwide Foam', reorderQty: '' },                       // PO 8245 / 8467, by the pallet
+  // Webbing, thread, hardware
+  'M014': { supplier: 'Granat Industries Inc', reorderQty: 4000 },              // 1" red HW, 4 cases x 1000 yd, PO 8430 + SO 0263588
+  'M015': { supplier: 'Granat Industries Inc', reorderQty: 8000 },              // 1" black LW, 8 cases x 1000 yd, Jan 2026
+  'M019': { supplier: 'Granat Industries Inc', reorderQty: 3200 },              // 2" black LW, 4 cases x 800 yd, Jan 2026
+  'M018': { supplier: 'Granat Industries Inc', reorderQty: '' },                // 1-1/2" side release shipped SO 0258291, Dec 2025
+  'M025': { supplier: 'Granat Industries Inc', reorderQty: '' },                // buckles quoted Sep 2026 (sold out); no confirmed qty
+  'M026': { supplier: 'Granat Industries Inc', reorderQty: '' },
+  'M027': { supplier: 'Granat Industries Inc', reorderQty: '' },
+  'M028': { supplier: 'Granat Industries Inc', reorderQty: '' },
+  'M022': { supplier: 'American & Efird, LLC', reorderQty: 20 },                // invoice 11284573, 20 spools; PO 8236 2026
+  'M030': { supplier: 'Weaver Leather LLC', reorderQty: 400 },                  // PO 8675, 400 #7 solid brass rings, Sep 2026
+  // Packaging
+  'M032': { supplier: 'Uline', reorderQty: 20 },                                // order 56160252, 20 boxes, Aug 2026
+  'M033': { supplier: 'R&R Corrugated', reorderQty: '' },                       // rescue tube boxes, invoice Dec 2024
+  // Chair lumber (ordered as 12 ft boards; the stock unit here is 8 ft, so no qty until that is settled)
+  'M040': { supplier: 'Professional Plastics', reorderQty: '' },                // quote 943549-A, PO 8655, Sep 2026
+  'M041': { supplier: 'Professional Plastics', reorderQty: '' }                 // order 933719, PO 8582, Jul 2026
 };
 function backfillPurchasingDefaults() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB.materials);
