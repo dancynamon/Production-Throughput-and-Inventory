@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.11', date: '2026-10-02', title: 'Order sizes from Dan', items: [
+    { who: 'mgr',  text: 'Usual orders filled in: mesh 40 boxes (10,000 yd), Siltech 1 pail, Chromatint 1 drum, Eversorb 1 pail, tube boxes 1,000. Only blank cells change.' }
+  ]},
   { version: '3.01.10', date: '2026-10-02', title: 'Suppliers and order sizes filled in', items: [
     { who: 'mgr',  text: 'RawMaterials now has a supplier on 21 materials and a usual order size on 8, taken from past orders in email. Only blank cells were filled; anything already typed stays.' }
   ]},

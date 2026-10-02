@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-02 15:00 UTC      version 3.01.10
+ *  BUILD:  2026-10-02 16:30 UTC      version 3.01.11
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -296,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.10';
+var BACKEND_VERSION = '3.01.11';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-02 15:00 UTC';
+var BUILD_STAMP = '2026-10-02 16:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -871,11 +871,11 @@ function addMissingReferencedMaterials() {
  * RawMaterials wins and a rerun changes nothing. Empty string = unknown. */
 var PURCHASING_DEFAULTS = {
   // Coatings, adhesives, foam
-  'M002': { supplier: 'Fiber Dynamics', reorderQty: '' },                       // PO 8466, Jun 2026; ordered in cases of yards, box conversion unknown
+  'M002': { supplier: 'Fiber Dynamics', reorderQty: 40 },                       // Dan: 10,000 yd at a time = about 40 boxes
   'M006': { supplier: 'Ravago Chemicals North America', reorderQty: 8 },        // PO 8665, 8 drums, Sep 2026 (Lubrizol Carboset CA1009A in this slot)
-  'M008': { supplier: 'Siltech Corporation', reorderQty: '' },                  // POs 7741/7866, invoice 360534, Mar 2026
-  'M009': { supplier: 'Chromatech Colors', reorderQty: '' },                    // ordered by forecast, 1 skid Apr 2026
-  'M011': { supplier: 'DKSH USA, LLC', reorderQty: '' },                        // Everlight Eversorb distributor, invoice Mar 2026
+  'M008': { supplier: 'Siltech Corporation', reorderQty: 1, unit: 'Pail' },    // Dan: one pail at a time                  // POs 7741/7866, invoice 360534, Mar 2026
+  'M009': { supplier: 'Chromatech Colors', reorderQty: 1 },                     // Dan: one drum at a time                    // ordered by forecast, 1 skid Apr 2026
+  'M011': { supplier: 'DKSH USA, LLC', reorderQty: 1, unit: 'Pail' },          // Dan: one pail at a time                        // Everlight Eversorb distributor, invoice Mar 2026
   'M036': { supplier: 'Flexabar Corporation', reorderQty: 440 },                // PO 8471, 8 drums x ~55 gal, Jul 2026
   'M038': { supplier: 'Worldwide Foam', reorderQty: '' },                       // PO 8245 / 8467, by the pallet
   // Webbing, thread, hardware
@@ -891,7 +891,7 @@ var PURCHASING_DEFAULTS = {
   'M030': { supplier: 'Weaver Leather LLC', reorderQty: 400 },                  // PO 8675, 400 #7 solid brass rings, Sep 2026
   // Packaging
   'M032': { supplier: 'Uline', reorderQty: 20 },                                // order 56160252, 20 boxes, Aug 2026
-  'M033': { supplier: 'R&R Corrugated', reorderQty: '' },                       // rescue tube boxes, invoice Dec 2024
+  'M033': { supplier: 'R&R Corrugated', reorderQty: 1000 },                     // Dan: 1,000 at a time                       // rescue tube boxes, invoice Dec 2024
   // Chair lumber (ordered as 12 ft boards; the stock unit here is 8 ft, so no qty until that is settled)
   'M040': { supplier: 'Professional Plastics', reorderQty: '' },                // quote 943549-A, PO 8655, Sep 2026
   'M041': { supplier: 'Professional Plastics', reorderQty: '' }                 // order 933719, PO 8582, Jul 2026
@@ -902,7 +902,7 @@ function backfillPurchasingDefaults() {
   var values = sh.getDataRange().getValues();
   if (values.length < 2) return 0;
   var H = values[0], idCol = H.indexOf('MaterialID');
-  var cols = { supplier: H.indexOf('Supplier'), reorderQty: H.indexOf('ReorderQty'), qboItem: H.indexOf('QBOItem') };
+  var cols = { supplier: H.indexOf('Supplier'), reorderQty: H.indexOf('ReorderQty'), qboItem: H.indexOf('QBOItem'), unit: H.indexOf('Unit') };
   if (idCol === -1) return 0;
   var filled = 0;
   for (var i = 1; i < values.length; i++) {

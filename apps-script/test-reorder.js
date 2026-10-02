@@ -39,13 +39,14 @@ check('a comfortable shelf is not listed', r.items.some((i) => i.id === 'M009'),
 
 /* 3.01.10: purchasing defaults fill BLANK cells only. */
 {
-  const H = ['MaterialID', 'MaterialName', 'Supplier', 'ReorderQty', 'QBOItem'];
-  const grid = [H, ['M014', '1" Red', '', '', ''], ['M015', '1" Black', 'My Mill', '', ''], ['M999', 'Other', '', '', '']];
+  const H = ['MaterialID', 'MaterialName', 'Supplier', 'ReorderQty', 'QBOItem', 'Unit'];
+  const grid = [H, ['M014', '1" Red', '', '', '', 'Yards'], ['M015', '1" Black', 'My Mill', '', '', 'Yards'], ['M999', 'Other', '', '', '', ''], ['M011', 'Eversorb', '', '', '', '']];
   const sh = { getDataRange: () => ({ getValues: () => grid.map((r) => r.slice()) }), getRange: (r, c) => ({ setValue: (v) => { grid[r - 1][c - 1] = v; } }) };
   sandbox.SpreadsheetApp = { getActiveSpreadsheet: () => ({ getSheetByName: () => sh }) };
   const n = sandbox.backfillPurchasingDefaults();
   check('fills blanks: Granat + 4000 on M014, only qty on M015 (typed supplier kept), unknown id untouched',
-    [grid[1][2], grid[1][3], grid[2][2], grid[2][3], grid[3][2], n], ['Granat Industries Inc', 4000, 'My Mill', 8000, '', 3]);
+    [grid[1][2], grid[1][3], grid[2][2], grid[2][3], grid[3][2], n], ['Granat Industries Inc', 4000, 'My Mill', 8000, '', 6]);
+  check('a blank Unit gets the pail; a typed Unit is kept', [grid[4][5], grid[4][3], grid[1][5]], ['Pail', 1, 'Yards']);
   check('second run changes nothing', sandbox.backfillPurchasingDefaults(), 0);
   check('every default is for a real material and has a supplier', Object.keys(sandbox.PURCHASING_DEFAULTS).every((k) => /^M0\d\d$/.test(k) && sandbox.PURCHASING_DEFAULTS[k].supplier), true);
 }
