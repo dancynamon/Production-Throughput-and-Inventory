@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-02 16:30 UTC      version 3.01.11
+ *  BUILD:  2026-10-03 14:00 UTC      version 3.01.12
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -296,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.11';
+var BACKEND_VERSION = '3.01.12';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-02 16:30 UTC';
+var BUILD_STAMP = '2026-10-03 14:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -892,9 +892,12 @@ var PURCHASING_DEFAULTS = {
   // Packaging
   'M032': { supplier: 'Uline', reorderQty: 20 },                                // order 56160252, 20 boxes, Aug 2026
   'M033': { supplier: 'R&R Corrugated', reorderQty: 1000 },                     // Dan: 1,000 at a time                       // rescue tube boxes, invoice Dec 2024
-  // Chair lumber (ordered as 12 ft boards; the stock unit here is 8 ft, so no qty until that is settled)
-  'M040': { supplier: 'Professional Plastics', reorderQty: '' },                // quote 943549-A, PO 8655, Sep 2026
-  'M041': { supplier: 'Professional Plastics', reorderQty: '' }                 // order 933719, PO 8582, Jul 2026
+  // Chair lumber: bought by the pallet of 12-ft boards, counted here in 8-ft equivalents
+  // (Dan, 2026-10-03). One 12-ft board = 1.5 of the stock unit, so receive a pallet as 1.5x its count.
+  'M039': { supplier: 'Professional Plastics', reorderQty: '' },                // pallet size for 1x4 not on file
+  'M040': { supplier: 'Professional Plastics', reorderQty: 189 },               // pallet of 126 x 12 ft (quote 943549-A) = 189 x 8 ft
+  'M041': { supplier: 'Professional Plastics', reorderQty: 148.5 },             // pallet of 99 x 12 ft (order 933719) = 148.5 x 8 ft
+  'M042': { supplier: 'Professional Plastics', reorderQty: '' }                 // pallet size for 1x6 not on file
 };
 function backfillPurchasingDefaults() {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB.materials);

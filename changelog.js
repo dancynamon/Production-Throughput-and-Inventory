@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.01.12', date: '2026-10-03', title: 'Chair lumber reorder by the pallet', items: [
+    { who: 'mgr',  text: 'Chair lumber is still counted in 8-ft boards. A pallet of 12-ft boards is 1.5 times its board count in 8-ft boards: receive 126 boards of 1.25x4 as 189, and 99 boards of 2x4 as 148.5. Those are now the usual orders; all four lumber sizes list Professional Plastics as the supplier.' }
+  ]},
   { version: '3.01.11', date: '2026-10-02', title: 'Order sizes from Dan', items: [
     { who: 'mgr',  text: 'Usual orders filled in: mesh 40 boxes (10,000 yd), Siltech 1 pail, Chromatint 1 drum, Eversorb 1 pail, tube boxes 1,000. Only blank cells change.' }
   ]},
