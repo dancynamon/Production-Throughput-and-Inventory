@@ -48,7 +48,7 @@ check('a comfortable shelf is not listed', r.items.some((i) => i.id === 'M009'),
     [grid[1][2], grid[1][3], grid[2][2], grid[2][3], grid[3][2], n], ['Granat Industries Inc', 4000, 'My Mill', 8000, '', 6]);
   check('a blank Unit gets the pail; a typed Unit is kept', [grid[4][5], grid[4][3], grid[1][5]], ['Pail', 1, 'Yards']);
   check('second run changes nothing', sandbox.backfillPurchasingDefaults(), 0);
-  check('every default is for a real material and has a supplier', Object.keys(sandbox.PURCHASING_DEFAULTS).every((k) => /^M0\d\d$/.test(k) && sandbox.PURCHASING_DEFAULTS[k].supplier), true);
+  check('every default is for a real material and carries a supplier or a quantity', Object.keys(sandbox.PURCHASING_DEFAULTS).every((k) => /^M0\d\d$/.test(k) && (sandbox.PURCHASING_DEFAULTS[k].supplier || sandbox.PURCHASING_DEFAULTS[k].reorderQty)), true);
 }
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed.');
 process.exit(failures ? 1 : 0);

@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-03 14:00 UTC      version 3.01.12
+ *  BUILD:  2026-10-03 15:00 UTC      version 3.01.13
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -296,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.12';
+var BACKEND_VERSION = '3.01.13';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-03 14:00 UTC';
+var BUILD_STAMP = '2026-10-03 15:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -877,7 +877,8 @@ var PURCHASING_DEFAULTS = {
   'M009': { supplier: 'Chromatech Colors', reorderQty: 1 },                     // Dan: one drum at a time                    // ordered by forecast, 1 skid Apr 2026
   'M011': { supplier: 'DKSH USA, LLC', reorderQty: 1, unit: 'Pail' },          // Dan: one pail at a time                        // Everlight Eversorb distributor, invoice Mar 2026
   'M036': { supplier: 'Flexabar Corporation', reorderQty: 440 },                // PO 8471, 8 drums x ~55 gal, Jul 2026
-  'M038': { supplier: 'Worldwide Foam', reorderQty: '' },                       // PO 8245 / 8467, by the pallet
+  'M034': { supplier: '', reorderQty: 50 },                                     // Dan: about 50 sheets a pallet; supplier not confirmed
+  'M038': { supplier: 'Worldwide Foam', reorderQty: '' },                       // PO 8245 / 8467, by the pallet (~50 sheets); stock unit is sq ft, sheet size not on file
   // Webbing, thread, hardware
   'M014': { supplier: 'Granat Industries Inc', reorderQty: 4000 },              // 1" red HW, 4 cases x 1000 yd, PO 8430 + SO 0263588
   'M015': { supplier: 'Granat Industries Inc', reorderQty: 8000 },              // 1" black LW, 8 cases x 1000 yd, Jan 2026
