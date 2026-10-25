@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.01.8';
+  var FLOOR_VERSION = '3.02.0';
   // Every tube job, in floor order (3.01.5). Cut and Glued log against the
   // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
   var JOBS = [
@@ -18,10 +18,17 @@
   ];
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
-  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue', prod: 'aq_floor_prod' };
+  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue', prod: 'aq_floor_prod', cfg: 'aq_floor_cfg', pace: 'aq_floor_pace' };
+  // Stages and products the pace strip counts; same lists as FLOOR_STAGES / FLOOR_PRODUCTS in Code.gs.
+  var PACE_STAGES = ['Meshed', 'Patched', 'Boxed'], PACE_PRODUCTS = ['XRT50EXO', 'XRT40EXO', 'XRT50STD', 'XRT40STD'];
+  var RETRY_MS = [3000, 6000, 15000, 30000];
 
   var el = function (id) { return document.getElementById(id); };
-  var S = { cfg: null, name: '', prod: 'TUBE', size: '50', std: false, stage: 'Boxed', busy: false, pace: null, undo: null };
+  var S = { cfg: null, name: '', prod: 'TUBE', size: '50', std: false, stage: 'Boxed', busy: false, pace: null, undo: null,
+            flushing: null, inflight: '', retry: 0, retryTimer: null, offline: false };
+  // Round-trip times this session, newest last, for anyone measuring: window.__flPerf.
+  var perf = window.__flPerf = [];
+  function note(what, t0, r) { perf.push({ what: what, ms: Math.round(Date.now() - t0), serverMs: r && r.serverMs }); if (perf.length > 50) perf.shift(); }
 
   function ls(k, v) {
     try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {}
@@ -39,7 +46,8 @@
       var cb = '__fl_cb_' + (++seq), script = document.createElement('script');
       var timer = setTimeout(function () { cleanup(); reject(new Error('No answer. Check signal.')); }, timeoutMs || 15000);
       function cleanup() { clearTimeout(timer); delete window[cb]; if (script.parentNode) script.parentNode.removeChild(script); }
-      window[cb] = function (data) { cleanup(); resolve(data); };
+      var t0 = Date.now();
+      window[cb] = function (data) { cleanup(); note(params.action, t0, data); resolve(data); };
       var qs = Object.keys(params).filter(function (k) { return k !== '__retry'; })
         .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
       script.src = API + '?' + qs + '&callback=' + cb;
@@ -147,6 +155,24 @@
   // Par comes from the backend: crew clocked hours so far x (weekly target / weekly crew hours).
   var grade = FloorCore.grade, fmt = FloorCore.fmt;
 
+  /* Optimistic pace (3.02.0): an entry counts on the strip the moment it is
+   * tapped. The server's numbers replace ours on every refresh, and entries
+   * still on the phone are added back on top so nothing flickers down. */
+  function bumpPace(p, pl, sign) {
+    if (!p || !p.ok || !p.crew || pl.workDate !== p.today || PACE_PRODUCTS.indexOf(pl.productId) === -1) return;
+    var c = {}; try { c = JSON.parse(pl.counts || '{}'); } catch (e) { c = {}; }
+    if (pl.action === 'reverse') { c = {}; c[pl.stage] = Number(pl.qty) || 0; sign = -sign; }
+    PACE_STAGES.forEach(function (st) {
+      var n = (Number(c[st]) || 0) * sign; if (!n) return;
+      p.crew.today[st] += n; p.crew.week[st] += n;
+      if (p.me && pl.employee === p.me.name) { p.me.today[st] += n; p.me.week[st] += n; }
+    });
+    var hrs = p.crew.hoursToday;
+    p.crew.boxedPerHourToday = hrs > 0 ? Math.round(p.crew.today.Boxed / hrs * 100) / 100 : null;
+  }
+  function withPending(p) { readQ().forEach(function (pl) { bumpPace(p, pl, 1); }); return p; }
+  function savePace() { if (S.pace && S.pace.ok) ls(K.pace, JSON.stringify({ name: S.name, pace: S.pace })); }
+
   function renderPace() {
     var p = S.pace; if (!p || !p.ok) return;
     var dayT = p.target.dailyBoxed, weekT = p.target.weeklyBoxed;
@@ -191,6 +217,8 @@
   }
   function openPin(dir) {
     PIN.dir = dir; PIN.digits = ''; PIN.busy = false; renderDots(); pinMsg('');
+    // Start the GPS fix while the PIN is typed: it used to start after the 4th digit (3.02.0).
+    PIN.fix = dir === 'login' ? null : locate();
     el('flPinTitle').textContent = dir === 'login' ? PIN.who + ': enter your PIN'
       : dir === 'in' ? 'Clock in: enter your PIN' : 'Clock out: enter your PIN';
     el('flPin').hidden = false;
@@ -223,7 +251,7 @@
   function doPunch() {
     PIN.busy = true; pinMsg('Finding you...', '', true);
     var dir = PIN.dir, pin = PIN.digits;
-    locate().then(function (fix) {
+    (PIN.fix || locate()).then(function (fix) {
       pinMsg('Checking...', '', true);
       var q = { action: 'clock', employee: S.name, dir: dir, pin: pin, clientId: uid(), workDate: todayIso() };
       if (fix) { q.lat = fix.lat; q.lng = fix.lng; q.accuracy = fix.accuracy; }
@@ -236,14 +264,15 @@
         if (r.locked) el('flPad').style.visibility = 'hidden';
         return;
       }
-      el('flPin').hidden = true;
+      el('flPin').hidden = true; PIN.fix = null;
       var t = clockTime(Date.now());
       toast(dir === 'in' ? (r.already ? 'Already clocked in' : 'Clocked in ' + t + (r.atShop ? ' at shop \u2713' : ''))
                          : 'Clocked out ' + t + (r.atShop ? ' at shop \u2713' : '') + '. Shift ' + fmt(r.shiftHours) + ' h');
-      return refresh().then(function () {
-        var boxed = S.pace && S.pace.ok ? S.pace.crew.today.Boxed : 1;
-        if (dir === 'out' && boxed <= 0 && S.prod === 'TUBE') { el('flAskQty').value = ''; el('flAsk').hidden = false; }
-      });
+      // The punch reply carries the new state: show it now, refresh the rest behind it.
+      if (S.pace && S.pace.me) { S.pace.me.clockedIn = r.clockedIn; S.pace.me.since = r.since; S.pace.me.hoursToday = r.hoursToday; renderClock(S.pace.me); }
+      var boxed = S.pace && S.pace.ok ? S.pace.crew.today.Boxed : 1;
+      if (dir === 'out' && boxed <= 0 && S.prod === 'TUBE') { el('flAskQty').value = ''; el('flAsk').hidden = false; }
+      refresh();
     }).catch(function (e) { PIN.busy = false; PIN.digits = ''; renderDots(); pinMsg(e.message, 'bad'); });
   }
   /* Log in once per phone: name + clock PIN, checked by the server. */
@@ -300,7 +329,7 @@
   function refresh() {
     if (!S.name) return Promise.resolve();
     return api({ action: 'floorPace', employee: S.name, workDate: todayIso() }).then(function (r) {
-      if (r && r.ok) { S.pace = r; renderPace(); }
+      if (r && r.ok) { S.pace = withPending(r); renderPace(); savePace(); }
       else if (r && r.error) toast(r.error, { bad: true });
     }).catch(function () { /* stale numbers beat a scary error; the queue banner covers writes */ });
   }
@@ -310,7 +339,19 @@
   function setQty(n) { el('flQty').value = String(Math.max(0, n)); el('flSubmit').disabled = qty() <= 0; }
 
   function readQ() { try { return JSON.parse(ls(K.queue) || '[]'); } catch (e) { return []; } }
-  function writeQ(q) { ls(K.queue, JSON.stringify(q)); var b = el('flQueue'); b.hidden = !q.length; b.textContent = q.length + ' waiting to send (no signal). Sends itself.'; }
+  /* The queue lives in localStorage, so it survives a reload, a dead battery
+   * swap and no signal. It is drained from the page (iPhones have no
+   * background sync): on load, on every save, when signal or the screen comes
+   * back, and on a backoff timer while anything is waiting. */
+  function writeQ(q) { ls(K.queue, JSON.stringify(q)); showQ(q); }
+  function showQ(q) {
+    q = q || readQ(); var b = el('flQueue');
+    b.hidden = !q.length;
+    b.textContent = !q.length ? '' : S.offline
+      ? q.length + ' saved on this phone. Sends itself when there is signal.'
+      : q.length + ' sending…';
+  }
+  function dropQ(clientId) { writeQ(readQ().filter(function (x) { return x.clientId !== clientId; })); }
   function dupText(r) { return FloorCore.dupText(r.duplicates, S.name); }
   function payloadFor(stage, n) {
     var counts = {}; counts[stage] = n;
@@ -323,45 +364,74 @@
     var wire = Object.assign({}, payload); delete wire._label;
     return api(wire, 20000);
   }
+  function scheduleRetry() {
+    clearTimeout(S.retryTimer);
+    var wait = RETRY_MS[Math.min(S.retry, RETRY_MS.length - 1)]; S.retry++;
+    S.retryTimer = setTimeout(flush, wait);
+  }
+  // One at a time, oldest first, so an undo never reaches the sheet before its entry.
   function flush() {
-    var q = readQ(); if (!q.length) return Promise.resolve();
-    var first = q[0];
-    return send(first).then(function (r) {
-      if (r && (r.ok || r.replayed)) { q.shift(); writeQ(q); return flush(); }
-      if (r && r.error) { q.shift(); writeQ(q); toast('Server refused a saved entry: ' + r.error, { bad: true }); return flush(); }
-    }).catch(function () {});
+    if (S.flushing) return S.flushing;
+    clearTimeout(S.retryTimer);
+    var sent = 0;
+    function next() {
+      var q = readQ();
+      if (!q.length) { S.retry = 0; S.offline = false; showQ(q); if (sent) refresh(); return null; }
+      var item = q[0]; S.inflight = item.clientId;
+      return send(item).then(function (r) {
+        S.inflight = ''; S.offline = false; S.retry = 0;
+        if (r && (r.ok || r.replayed)) {
+          sent++; dropQ(item.clientId);
+          var dup = item.action === 'submitDay' ? dupText(r) : '', dn = el('flDup');
+          if (dup) { dn.hidden = false; dn.textContent = dup; }
+          return next();
+        }
+        // Refused (bad product, nothing to reverse...): retrying cannot help.
+        dropQ(item.clientId);
+        toast('Not saved: ' + (item._label || item.action) + '. ' + ((r && r.error) || 'The sheet refused it.'), { bad: true });
+        return refresh().then(next);
+      }, function () {
+        S.inflight = ''; S.offline = true; showQ(); scheduleRetry();
+      });
+    }
+    // Anything saved while this run was finishing gets a run of its own.
+    function done() { S.flushing = null; if (readQ().length && !S.offline) flush(); }
+    S.flushing = Promise.resolve().then(next).then(done, done);
+    return S.flushing;
   }
 
-  function submit(stage, n, quiet) {
-    if (n <= 0 || S.busy) return Promise.resolve();
+  /* Saved means saved on the phone (3.02.0). The tap shows "Saved" and moves
+   * the numbers at once; the sheet catches up in the background. The same
+   * clientId on every retry means the sheet logs it once. */
+  function submit(stage, n) {
+    if (n <= 0) return;
     var pl = payloadFor(stage, n);
-    S.busy = true; el('flSubmit').disabled = true;
-    return send(pl).then(function (r) {
-      S.busy = false;
-      if (!r.ok) { toast(r.error || 'Not saved', { bad: true }); setQty(qty()); return; }
-      setQty(0);
-      var dup = dupText(r), dn = el('flDup');
-      dn.hidden = !dup; dn.textContent = dup;
-      S.undo = { employee: S.name, productId: pl.productId, workDate: pl.workDate, stage: stage, qty: n };
-      toast('Logged ' + pl._label, { undo: true });
-      return refresh();
-    }).catch(function () {
-      S.busy = false;
-      var q = readQ(); q.push(pl); writeQ(q);          // same clientId on retry: logs once
-      setQty(0);
-      toast('No signal. Saved on phone: ' + pl._label);
-    });
+    var q = readQ(); q.push(pl); writeQ(q);
+    setQty(0);
+    el('flDup').hidden = true;
+    S.undo = { clientId: pl.clientId, employee: S.name, productId: pl.productId, workDate: pl.workDate, stage: stage, qty: n, label: pl._label };
+    bumpPace(S.pace, pl, 1); renderPace(); savePace();
+    toast('Saved ' + pl._label, { undo: true });
+    flush();
   }
 
   function onUndo() {
     var u = S.undo; if (!u) return;
-    S.undo = null; el('flUndo').hidden = true;
-    api({ action: 'reverse', employee: u.employee, by: u.employee, productId: u.productId, workDate: u.workDate,
-          stage: u.stage, qty: u.qty, reason: 'floor undo' }).then(function (r) {
-      toast(r.ok ? 'Undone: ' + u.qty + ' ' + u.stage : (r.error || 'Could not undo'), { bad: !r.ok });
-      el('flDup').hidden = true;
-      refresh();
-    }).catch(function (e) { toast(e.message, { bad: true }); });
+    S.undo = null; el('flUndo').hidden = true; el('flDup').hidden = true;
+    var q = readQ(), waiting = q.filter(function (x) { return x.clientId === u.clientId; })[0];
+    if (waiting && S.inflight !== u.clientId) {
+      // Never left the phone: just take it back.
+      writeQ(q.filter(function (x) { return x !== waiting; }));
+      bumpPace(S.pace, waiting, -1);
+    } else {
+      var rv = { action: 'reverse', employee: u.employee, by: u.employee, productId: u.productId, workDate: u.workDate,
+                 stage: u.stage, qty: u.qty, reason: 'floor undo', clientId: 'rv-' + u.clientId, _label: 'undo ' + u.label };
+      q.push(rv); writeQ(q);
+      bumpPace(S.pace, rv, 1);
+      flush();
+    }
+    renderPace(); savePace();
+    toast('Undone: ' + u.label);
   }
 
   /* ---- who am I ----------------------------------------------------------------- */
@@ -383,7 +453,10 @@
     S.prod = ls(K.prod) || 'TUBE'; renderProducts();
     renderStages(); setQty(0);
     if (!known(productId())) toast('Product ' + productId() + ' is not set up in the sheet.', { bad: true });
-    refresh(); flush(); writeQ(readQ());
+    // Last numbers this phone saw, today's only, painted before the network answers.
+    var saved = null; try { saved = JSON.parse(ls(K.pace) || 'null'); } catch (e) { saved = null; }
+    if (saved && saved.name === S.name && saved.pace && saved.pace.today === todayIso()) { S.pace = saved.pace; renderPace(); }
+    showQ(); refresh(); flush();
   }
 
   function wire() {
@@ -430,7 +503,8 @@
       el('flAsk').hidden = true;
       if (n > 0) submit('Boxed', n);
     });
-    window.addEventListener('online', flush);
+    window.addEventListener('online', function () { S.offline = false; showQ(); flush(); });
+    window.addEventListener('offline', function () { S.offline = true; showQ(); });
     document.addEventListener('visibilitychange', function () { if (!document.hidden) { refresh(); flush(); } });
     setInterval(function () { if (!document.hidden && S.name) refresh(); }, 60000);
   }
@@ -440,13 +514,29 @@
     ls('aq_floor_name', null);
     if (ls('aq_floor_epoch') !== '3.01.2') { ls(K.name, null); ls('aq_floor_epoch', '3.01.2'); }  // everyone logs in once more
     S.name = ls(K.name) || '';
+    S.offline = navigator.onLine === false;
     if (!API) { el('flPick').hidden = false; el('flNames').textContent = 'API_URL is not set (edit config.js).'; return; }
+    /* Names, products and stations from the last visit draw the screen at once;
+     * the sheet's answer replaces them in the background (3.02.0). */
+    var cached = null; try { cached = JSON.parse(ls(K.cfg) || 'null'); } catch (e) { cached = null; }
+    var shown = false;
+    if (cached && cached.ok) {
+      S.cfg = cached; shown = true;
+      if (S.name && cached.employees.indexOf(S.name) === -1) { S.name = ''; ls(K.name, null); }
+      if (S.name) start(); else showPick();
+    }
     api({ action: 'config' }).then(function (c) {
       if (!c || !c.ok) throw new Error((c && c.error) || 'Could not load names');
+      var was = JSON.stringify(S.cfg && { p: S.cfg.products, e: S.cfg.employees, l: S.cfg.lines });
       S.cfg = c;
-      if (S.name && c.employees.indexOf(S.name) === -1) { S.name = ''; ls(K.name, null); }
-      if (S.name) start(); else showPick();
+      var keep = Object.assign({}, c); delete keep.serverMs; delete keep.cached; ls(K.cfg, JSON.stringify(keep));
+      if (S.name && c.employees.indexOf(S.name) === -1) { S.name = ''; ls(K.name, null); showPick(); return; }
+      if (!shown) { if (S.name) start(); else showPick(); return; }
+      if (was === JSON.stringify({ p: c.products, e: c.employees, l: c.lines })) return;
+      // Something changed in the sheet: redraw what depends on it, keep the person where they are.
+      if (S.name) { renderProducts(); renderStages(); } else showPick();
     }).catch(function (e) {
+      if (shown) return;   // the cached screen is already up; the next load tries again
       // Offline with a remembered name: still let them log; the queue holds it.
       if (S.name) start(); else { el('flPick').hidden = false; el('flNames').textContent = e.message + ' Reload when you have signal.'; }
     });

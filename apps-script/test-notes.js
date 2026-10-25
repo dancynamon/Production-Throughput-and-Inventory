@@ -6,7 +6,7 @@
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
 function fakeSheet(headers, rows) {
   const grid = [headers.slice(), ...rows.map((r) => r.slice())];
-  return { appended: [], getLastColumn: () => grid[0].length,
+  return { appended: [], getLastColumn: () => grid[0].length, getLastRow: () => grid.length,
     getDataRange: () => ({ getValues: () => grid.map((r) => r.slice()) }),
     getRange(r, c, nr, nc) { return { getValues: () => { const o = []; for (let i = 0; i < (nr || 1); i++) o.push(grid[r - 1 + i].slice(c - 1, c - 1 + (nc || 1))); return o; }, setValue: (v) => { grid[r - 1][c - 1] = v; } }; },
     appendRow(row) { this.appended.push(row.slice()); grid.push(row.slice()); }, grid };

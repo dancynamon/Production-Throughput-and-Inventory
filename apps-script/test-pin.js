@@ -64,7 +64,8 @@ check('auth rejects an empty PIN', auth(''), false);
 
 /* --- Per-person PINs ------------------------------------------------------- */
 store['PIN:Dan'] = sandbox.pinHash('990011');
-const authAs = (name, pin) => JSON.parse(sandbox.doGet({ parameter: { action: 'auth', name, pin } }).getContent());
+const noMs = (o) => { delete o.serverMs; return o; };   // timing field, 3.02.0
+const authAs = (name, pin) => noMs(JSON.parse(sandbox.doGet({ parameter: { action: 'auth', name, pin } }).getContent()));
 const sansToken = (r) => { const c = { ...r }; delete c.token; return c; };
 check('a person with a PIN on file unlocks with name + their PIN, full view by default',
   sansToken(authAs('Dan', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full' });
@@ -81,7 +82,7 @@ check('no name at all is the shared PIN, as before', authAs('', '731905').ok, tr
 check('what is stored is a hash, never the PIN', store['PIN:Dan'].indexOf('990011') === -1 && store['PIN:Dan'].length === 64, true);
 
 /* --- The lock lives on the server ------------------------------------------ */
-const call = (params) => JSON.parse(sandbox.doGet({ parameter: params }).getContent());
+const call = (params) => noMs(JSON.parse(sandbox.doGet({ parameter: params }).getContent()));
 const tok = authAs('', '731905').token;
 check('a successful unlock returns a token, and it is not the PIN',
   [typeof tok, tok.length, tok.indexOf('731905')], ['string', 64, -1]);

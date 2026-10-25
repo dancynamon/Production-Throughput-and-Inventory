@@ -2,6 +2,13 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.02.0', date: '2026-10-24', title: 'Floor mode saves instantly', items: [
+    { who: 'crew', text: 'Submit says Saved the moment you tap it and the scoreboard moves right away. The phone sends it to the sheet in the background and shows "1 sending…" until it lands. No signal: it says how many are saved on the phone and sends them itself later, even after the app is closed.' },
+    { who: 'crew', text: 'Floor mode opens straight to your screen with the last names, jobs and numbers it saw, then updates them. Undo works the same, even before an entry has left the phone.' },
+    { who: 'crew', text: 'Clocking in and out is quicker: the phone finds your location while you type the PIN instead of after.' },
+    { who: 'mgr',  text: 'The sheet does less work per entry: Products is read once, StageLog only from the bottom, and the material writes go out together. The names and products list is kept for 5 minutes and refreshed the moment someone edits Products, Employees, RawMaterials, FinishedGoods or WipBaseline in the sheet.' },
+    { who: 'mgr',  text: 'The Overview tab now rebuilds itself every 15 minutes (sheet menu → Schedules → Overview tab refresh to switch it off or on).' }
+  ]},
   { version: '3.01.13', date: '2026-10-03', title: 'Foam order size', items: [
     { who: 'mgr',  text: 'EVA foam (2# black) usual order is one pallet, about 50 sheets.' }
   ]},

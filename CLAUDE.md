@@ -173,6 +173,7 @@ node apps-script/test-reconcile.js  # walk keeps the app's estimate; floor/shelf
 node apps-script/test-floor.js      # floor mode: clock in/out, 6pm + 14 h auto-close, floorPace dedupe, open access
 node apps-script/test-reorder.js    # reorder: due rules, never-counted skipped, qty rules, supplier grouping
 node apps-script/test-timeclock.js  # login, PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
+node apps-script/test-speed.js      # submitDay: one Products read, StageLog tail only; config cache + onEdit; one TimeLog read
 ```
 
 `node --check` passes plenty of real bugs in this file — a missing comma
@@ -311,6 +312,22 @@ assert on them rather than trusting the parser.
   3.01.10: `PURCHASING_DEFAULTS` (Supplier / ReorderQty from Gmail order history, 2026-10-02) filled
   into BLANK RawMaterials cells by `backfillPurchasingDefaults()` in upgradeSchema. No QBOItem
   could be confirmed; supplier names are invoice names, not verified QBO vendor names
+- **Speed since 3.02.0** (crew stopped logging after 10/5 because it lagged). Floor mode
+  saves optimistically: Submit shows *Saved* and moves the scoreboard at once, the entry goes
+  into the localStorage queue `aq_floor_queue` (same format as before), and the page drains it
+  one at a time, oldest first, on load / save / online / screen-on and on a 3-6-15-30 s backoff
+  (iPhones have no Background Sync, so a service-worker queue would buy nothing). Undo of an
+  entry still on the phone just drops it; otherwise it queues a `reverse` with `clientId`
+  `rv-<id>` (reverse is replay-safe since 3.02.0). Config and the last pace are cached in
+  `aq_floor_cfg` / `aq_floor_pace` and painted before the network answers. Backend: submitDay
+  reads Products once and only the bottom `DUP_TAIL_ROWS` (400) of StageLog, writes after all
+  reads; floorPace reads the bottom `PACE_TAIL_ROWS` (3000) and TimeLog once; config is in the
+  script cache 5 min, dropped by the `onEdit` simple trigger on Products/Employees/RawMaterials/
+  FinishedGoods/WipBaseline. Every reply carries `serverMs`; the page keeps `window.__flPerf`.
+  The Overview tab rebuilds on a 15-min trigger (`rebuildOverviewTrigger`, auto-installed on
+  the first request after a deploy unless Script Property `OVERVIEW_SCHEDULE` = off). The
+  ~1.5-2 s Apps Script floor per request is not ours to remove; it is hidden, not shortened.
+  Clock punches stay server-confirmed (PIN + geofence); GPS starts when the PIN pad opens
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-03 15:00 UTC      version 3.01.13
+ *  BUILD:  2026-10-25 01:35 UTC      version 3.02.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -296,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.01.13';
+var BACKEND_VERSION = '3.02.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-03 15:00 UTC';
+var BUILD_STAMP = '2026-10-25 01:35 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -970,6 +970,7 @@ function upgradeSchema() {
 function applySchemaUpgrades() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var did = [];
+  dropConfigCache();
 
   /* Append any missing headers to an existing tab without touching a single
    * existing cell. Rows written through appendByHeader() then start filling
@@ -1115,6 +1116,7 @@ function ensureSchemaCurrent() {
     var props = PropertiesService.getScriptProperties();
     if (props.getProperty('schemaStamp') === BUILD_STAMP) return;
     applySchemaUpgrades();
+    ensureOverviewSchedule();
     props.setProperty('schemaStamp', BUILD_STAMP);
   } catch (err) {
     // Deliberately swallowed. Surfaced via whatAmIRunning() instead.
@@ -1122,6 +1124,7 @@ function ensureSchemaCurrent() {
 }
 
 function doGet(e) {
+  var t0 = Date.now();
   ensureSchemaCurrent();
   var p = e && e.parameter ? e.parameter : {};
   var action = p.action || 'config';
@@ -1174,10 +1177,38 @@ function doGet(e) {
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
   }
+  // Time spent inside doGet, so a slow phone can be told apart from a slow sheet.
+  if (result && typeof result === 'object' && !Array.isArray(result)) result = Object.assign({}, result, { serverMs: Date.now() - t0 });
   return respond(result, p.callback);
 }
 
+/* config is what every phone asks for first, and it reads five tabs. It is
+ * kept in the script cache for CONFIG_CACHE_SECONDS and dropped the moment a
+ * person edits one of those tabs in the sheet (onEdit below), by a schema
+ * upgrade, or by a floor count; an edit made some other way (the Sheets API)
+ * shows within the five minutes. 3.02.0. */
+var CONFIG_CACHE_SECONDS = 300;
+var CONFIG_TABS = ['Products', 'Employees', 'RawMaterials', 'FinishedGoods', 'WipBaseline'];
+function configCacheKey() { return 'cfg:' + BUILD_STAMP; }
+function dropConfigCache() {
+  try { CacheService.getScriptCache().remove(configCacheKey()); } catch (e) { /* no cache: nothing to drop */ }
+}
 function getConfig() {
+  var cache = null, hit = null;
+  try { cache = CacheService.getScriptCache(); hit = cache.get(configCacheKey()); } catch (e) { cache = null; }
+  if (hit) { try { var c = JSON.parse(hit); c.cached = true; return c; } catch (e1) { /* rebuild */ } }
+  var fresh = buildConfig();
+  if (cache) { try { cache.put(configCacheKey(), JSON.stringify(fresh), CONFIG_CACHE_SECONDS); } catch (e2) { /* over 100 KB: serve uncached */ } }
+  return fresh;
+}
+/* Simple trigger: a hand edit to a tab config reads makes the next config fresh. */
+function onEdit(e) {
+  try {
+    var name = e && e.range ? e.range.getSheet().getName() : '';
+    if (!name || CONFIG_TABS.indexOf(name) !== -1) dropConfigCache();
+  } catch (err) { /* never get in the way of typing */ }
+}
+function buildConfig() {
   var products = readObjects(TAB.products)
     .filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
     .map(function (r) {
@@ -1604,33 +1635,41 @@ function submitDay(p) {
     if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
   }
 
-  var valid = stagesForLine(productLineMap()[productId] || 'Blank');
+  /* Speed (3.02.0). Everything that does not change under us is read before
+   * the lock, Products once (it used to be three reads), and the lock only
+   * covers the read-modify-write of OnHand plus the append. StageLog is read
+   * from the bottom only: today's rows are the newest ones, so the last
+   * DUP_TAIL_ROWS rows are enough to call out a second entry. A back-dated
+   * entry older than that tail just goes without the advisory. */
+  var productRows = readObjects(TAB.products);
+  var product = productRows.filter(function (r) { return r.ProductID === productId; })[0];
+  var valid = stagesForLine((product && product.Line) || 'Blank');
   var total = 0;
   for (var k in counts) { if (valid.indexOf(k) >= 0 && Number(counts[k]) > 0) total += Number(counts[k]); }
   if (total <= 0) return { ok: false, error: 'Enter at least one stage count.' };
+  if (!product) return { ok: false, error: 'Unknown product: ' + productId };
+  var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId; });
+  var sellable = {}; sellableFrom(productRows).forEach(function (r) { sellable[r.ProductID] = true; });
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
-    if (!product) return { ok: false, error: 'Unknown product: ' + productId };
-
-    // Preload materials + BOM once.
     var matSheet = ss.getSheetByName(TAB.materials);
     var matRows  = matSheet.getDataRange().getValues();
     var rowOf = {};                                   // MaterialID -> sheet row index
     for (var i = 1; i < matRows.length; i++) rowOf[matRows[i][0]] = i;
-    var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId; });
+    var matWrites = {};                               // sheet row index -> new OnHand, written once at the end
 
     var logSheet = ss.getSheetByName(TAB.stagelog);
+    var tail = tailObjects(logSheet, DUP_TAIL_ROWS);
     /* What is already on the books for this product today, so a second entry
      * for the same stage can be called out. Not blocked — two batches in a day
      * is normal, and a shift handover legitimately produces two rows — but a
      * double-tap and a real second batch look identical in the data, and only
      * the person who just pressed the button can tell them apart. */
     var priorToday = {};
-    readObjects(TAB.stagelog).forEach(function (r) {
+    tail.rows.forEach(function (r) {
       if (r.ProductID !== productId || fmtDate(r.WorkDate) !== workDate) return;
       var k = r.Stage;
       priorToday[k] = priorToday[k] || { qty: 0, by: [] };
@@ -1641,8 +1680,7 @@ function submitDay(p) {
     });
 
     var logged = [], consumed = {}, warnings = [], produced = [], duplicates = [], stocked = [];
-    var missingMaterials = {}, now = new Date();
-    var sellable = {}; sellableProducts().forEach(function (r) { sellable[r.ProductID] = true; });
+    var missingMaterials = {}, now = new Date(), newRows = [];
 
     valid.forEach(function (stage) {
       var qty = Number(counts[stage]) || 0;
@@ -1658,11 +1696,11 @@ function submitDay(p) {
       var hrs = Number(hours[stage]);
       hrs = (isFinite(hrs) && hrs > 0) ? round2(hrs) : '';
       var note = String(stageNotes[stage] || '').trim() || notes;
-      appendByHeader(logSheet, {
+      newRows.push(rowByHeader(tail.headers, {
         Timestamp: now, WorkDate: workDate, Employee: employee,
         ProductID: productId, ProductName: product.ProductName,
         Stage: stage, Qty: qty, Hours: hrs, Notes: note
-      });
+      }));
       logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs, note: note || null });
 
       // A finished product's LAST stage goes into storage.
@@ -1684,7 +1722,7 @@ function submitDay(p) {
         } else {
           var made = round2((Number(matRows[outRi][3]) || 0) + qty);
           matRows[outRi][3] = made;
-          matSheet.getRange(outRi + 1, 4).setValue(made);
+          matWrites[outRi] = made;
           produced.push({ id: matRows[outRi][0], name: matRows[outRi][1],
                           unit: matRows[outRi][2], added: qty, onHand: made });
         }
@@ -1708,7 +1746,7 @@ function submitDay(p) {
         var before = Number(matRows[ri][3]) || 0;
         var after = round2(before - used);
         matRows[ri][3] = after;                       // update our in-memory copy too
-        matSheet.getRange(ri + 1, 4).setValue(after); // col D
+        matWrites[ri] = after;                        // col D, written after the loop
         var key = r.MaterialID;
         consumed[key] = consumed[key] || { name: matRows[ri][1], unit: matRows[ri][2], used: 0, onHand: after };
         consumed[key].used = round2(consumed[key].used + used);
@@ -1719,6 +1757,11 @@ function submitDay(p) {
         }
       });
     });
+
+    // Writes last and together: no read in between forces a flush per cell.
+    // appendRow, not setValues below lastRow: it grows the grid when the tab is full.
+    newRows.forEach(function (r) { logSheet.appendRow(r); });
+    Object.keys(matWrites).forEach(function (ri) { matSheet.getRange(Number(ri) + 1, 4).setValue(matWrites[ri]); });
 
     var result = {
       ok: true,
@@ -2231,6 +2274,8 @@ var TIMELOG_HEADERS = ['Timestamp', 'WorkDate', 'Employee', 'In', 'Out', 'Hours'
 var TIMEREQ_HEADERS = ['RequestId', 'Timestamp', 'Employee', 'Dir', 'RequestedTime', 'WorkDate', 'Reason',
   'Status', 'DecidedBy', 'DecidedAt', 'DecisionNote'];
 var FLOOR_STAGES = ['Meshed', 'Patched', 'Boxed'];
+var PACE_TAIL_ROWS = 3000;         // StageLog rows floorPace reads: weeks of floor logging
+var DUP_TAIL_ROWS = 400;           // StageLog rows submitDay reads back for the duplicate advisory
 var FLOOR_PRODUCTS = ['XRT50EXO', 'XRT40EXO', 'XRT50STD', 'XRT40STD'];
 var SHIFT_MAX_HOURS = 14;          // a shift left open longer than this is closed at this
 var CLOCK_CUTOFF_DEFAULT = 18;     // 3.01.7: everyone still in is clocked out at 6pm shop time; Script Property CLOCK_CUTOFF_HOUR (0-23, or "off")
@@ -2315,12 +2360,17 @@ function autoCloseOpenShifts(sh, shifts, nowMs) {
   return n;
 }
 function sweepOpenShifts(nowMs) {
-  try {
-    var sh = floorTimeSheet(), shifts = readShifts(sh);
-    if (!shifts.some(function (s) { return s.outMs === null && nowMs >= autoCloseAt(s); })) return 0;
+  try { return readShiftsSwept(floorTimeSheet(), nowMs).closed; } catch (e) { return 0; }
+}
+/* One read of TimeLog with any overdue open shift already closed (3.02.0).
+ * The lock and the second read happen only when something is overdue. */
+function readShiftsSwept(sh, nowMs) {
+  var shifts = readShifts(sh), closed = 0;
+  if (shifts.some(function (s) { return s.outMs === null && nowMs >= autoCloseAt(s); })) {
     var lock = LockService.getScriptLock(); lock.waitLock(20000);
-    try { return autoCloseOpenShifts(sh, readShifts(sh), nowMs); } finally { lock.releaseLock(); }
-  } catch (e) { return 0; }
+    try { shifts = readShifts(sh); closed = autoCloseOpenShifts(sh, shifts, nowMs); } finally { lock.releaseLock(); }
+  }
+  return { shifts: shifts, closed: closed };
 }
 function closeShift(sh, s, endMs, source) {
   var hrs = round2(Math.max(0, (endMs - s.inMs) / 3600000));
@@ -2510,6 +2560,7 @@ function clockShift(p) {
                              Hours: '', Source: 'floor', ClientId: clientId,
                              InLat: geo.lat, InLng: geo.lng, InAccuracy: geo.acc, InDistanceM: geo.dist,
                              NoGeofence: geo.noGeofence ? 'TRUE' : '' });
+        shifts.push({ employee: employee, workDate: workDate, inMs: nowMs, outMs: null, hours: 0 });
         result = { ok: true, dir: 'in', already: false, message: 'Clocked in.' };
       }
     } else {
@@ -2529,8 +2580,8 @@ function clockShift(p) {
     }
     if (result.ok) { result.atShop = !geo.noGeofence; result.distanceM = geo.dist === '' ? null : geo.dist; }
     if (autoClosed) result.autoClosed = autoClosed;
-    var after = readShifts(sh);
-    var st = shiftState(after, employee, workDate, nowMs);
+    // closeShift updates the shift in memory, and a new one was pushed above: no second read.
+    var st = shiftState(shifts, employee, workDate, nowMs);
     result.employee = employee; result.workDate = workDate;
     result.clockedIn = st.clockedIn; result.since = st.since; result.hoursToday = st.hoursToday;
     if (cache && clientId) {
@@ -2859,7 +2910,9 @@ function getFloorPace(p) {
   function bucket(who) {
     return per[who] = per[who] || { today: { Meshed: 0, Patched: 0, Boxed: 0 }, week: { Meshed: 0, Patched: 0, Boxed: 0 }, hoursToday: 0, hoursWeek: 0 };
   }
-  readObjects(TAB.stagelog).forEach(function (r) {
+  // This week's rows are the newest ones: read the bottom of the log, not all of it (3.02.0).
+  var logSh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TAB.stagelog);
+  (logSh ? tailObjects(logSh, PACE_TAIL_ROWS).rows : []).forEach(function (r) {
     var date = fmtDate(r.WorkDate), stage = String(r.Stage || '').trim(), pid = String(r.ProductID || '').trim();
     if (date < weekStart || date > today) return;
     if (FLOOR_STAGES.indexOf(stage) === -1 || FLOOR_PRODUCTS.indexOf(pid) === -1) return;
@@ -2876,8 +2929,7 @@ function getFloorPace(p) {
   });
 
   var shifts = [];
-  sweepOpenShifts(nowMs);
-  try { shifts = readShifts(floorTimeSheet()); } catch (e) { shifts = []; }
+  try { shifts = readShiftsSwept(floorTimeSheet(), nowMs).shifts; } catch (e) { shifts = []; }
   var names = {}; Object.keys(per).forEach(function (n) { names[n] = true; });
   shifts.forEach(function (s) { if (s.employee && s.workDate >= weekStart && s.workDate <= today) names[s.employee] = true; });
   var crewHoursToday = 0, crewHoursWeek = 0;
@@ -2959,7 +3011,20 @@ function exportTable(p) {
  *   ?action=reverse&employee=Joe&productId=XRT50EXO&workDate=2026-09-13
  *          &stage=Boxed&qty=40&reason=double%20tap&by=Dan
  */
+/* Replay-safe like submitDay (3.02.0): Floor mode queues an undo on the phone
+ * and may send it twice when a reply is lost; the same clientId reverses once. */
 function reverseEntry(p) {
+  var clientId = String((p && p.clientId) || '').trim(), cache = null;
+  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
+  if (cache && clientId) {
+    var seen = null; try { seen = cache.get('rev:' + clientId); } catch (e1) { seen = null; }
+    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
+  }
+  var result = reverseEntryOnce(p);
+  if (cache && clientId && result && result.ok) { try { cache.put('rev:' + clientId, JSON.stringify(result), 21600); } catch (e2) {} }
+  return result;
+}
+function reverseEntryOnce(p) {
   var employee  = String(p.employee || '').trim();
   var by        = String(p.by || employee).trim();
   var productId = String(p.productId || '').trim();
@@ -3087,6 +3152,7 @@ function currentWaitingMap() {
  * whatever baseline it had, or none.
  */
 function submitWipWalk(p) {
+  dropConfigCache();                 // config carries wipCounted
   var employee = String(p.employee || '').trim();
   var notes    = String(p.notes || '').trim();
   if (!employee) return { ok: false, error: 'Please pick who you are.' };
@@ -3443,6 +3509,7 @@ function wipBaselineMap() {
  *     &piles={"Patched":40,"Paint 1":12,"(finished)":8}
  */
 function submitWipBaseline(p) {
+  dropConfigCache();                 // config carries wipCounted
   var employee  = String(p.employee || '').trim();
   var productId = String(p.productId || '').trim();
   var notes     = String(p.notes || '').trim();
@@ -3870,7 +3937,8 @@ function onOpen() {
       .addItem('Monday 7am digest', 'toggleDigest')
       .addItem('Monday 6am reorder list', 'toggleReorder')
       .addItem('Hourly Shopify sync', 'toggleShopifySync')
-      .addItem('Auto-update from GitHub every 30 min', 'toggleAutoUpdate'))
+      .addItem('Auto-update from GitHub every 30 min', 'toggleAutoUpdate')
+      .addItem('Overview tab refresh every 15 min', 'toggleOverview'))
     .addSubMenu(ui.createMenu('Maintenance')
       .addItem('Set up / repair missing tabs', 'setup')
       .addItem('Rebuild overview / next-day goals', 'rebuildOverview')
@@ -3888,6 +3956,37 @@ function triggerIsOn(handler) {
 function toggleDigest()      { triggerIsOn('sendWeeklyDigest')    ? digestTriggerOffMenu() : digestTriggerOn(); }
 function toggleShopifySync() { triggerIsOn('syncShopifyTrigger')  ? shopifySyncOffMenu()   : shopifySyncOn(); }
 function toggleAutoUpdate()  { triggerIsOn('autoUpdateFromGitHub') ? autoUpdateOffMenu()   : autoUpdateOn(); }
+function toggleOverview()    { triggerIsOn('rebuildOverviewTrigger') ? overviewTriggerOffMenu() : overviewTriggerOn(); }
+
+/* Overview tab on a clock (3.02.0). Nothing a phone does rebuilds it; every
+ * 15 minutes a trigger does, so the tab stays current without a person
+ * opening the menu. Installed by the first request after a deploy unless
+ * someone switched it off (OVERVIEW_SCHEDULE = off). */
+function rebuildOverviewTrigger() { try { rebuildOverview(); } catch (e) { /* next run tries again */ } }
+function overviewTriggerOn() {
+  overviewTriggerOff();
+  ScriptApp.newTrigger('rebuildOverviewTrigger').timeBased().everyMinutes(15).create();
+  try { PropertiesService.getScriptProperties().setProperty('OVERVIEW_SCHEDULE', 'on'); } catch (e) {}
+  SpreadsheetApp.getActive().toast('Overview refresh is on: the tab rebuilds every 15 minutes.', 'Aquamentor', 6);
+}
+function overviewTriggerOff() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'rebuildOverviewTrigger') ScriptApp.deleteTrigger(t); });
+}
+function overviewTriggerOffMenu() {
+  overviewTriggerOff();
+  try { PropertiesService.getScriptProperties().setProperty('OVERVIEW_SCHEDULE', 'off'); } catch (e) {}
+  SpreadsheetApp.getActive().toast('Overview refresh is off. Maintenance → Rebuild overview still works.', 'Aquamentor', 6);
+}
+function ensureOverviewSchedule() {
+  try {
+    if (PropertiesService.getScriptProperties().getProperty('OVERVIEW_SCHEDULE') === 'off') return;
+    // Two first requests after a deploy can arrive together: only one installs.
+    var lock = LockService.getScriptLock(); if (!lock.tryLock(5000)) return;
+    try {
+      if (!triggerIsOn('rebuildOverviewTrigger')) ScriptApp.newTrigger('rebuildOverviewTrigger').timeBased().everyMinutes(15).create();
+    } finally { lock.releaseLock(); }
+  } catch (e) { /* no trigger scope here: the menu toggle still works */ }
+}
 
 
 /* ============================================================================
@@ -3908,8 +4007,9 @@ var FINISHED_HEADERS = ['ProductID', 'ProductName', 'OnHand', 'LastCounted', 'La
 var SHIPLOG_HEADERS  = ['Timestamp', 'ShipDate', 'ProductID', 'ProductName', 'Qty', 'Channel', 'Ref', 'By', 'Notes', 'Key'];
 var CHANNELS = ['Shopify', 'Amazon', 'QuickBooks', 'Wholesale', 'Sample', 'Other'];
 
-function sellableProducts() {
-  var all = readObjects(TAB.products).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; });
+function sellableProducts() { return sellableFrom(readObjects(TAB.products)); }
+function sellableFrom(productRows) {
+  var all = productRows.filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; });
   var feeders = {};
   all.forEach(function (r) { if (r.FeedsFrom) feeders[String(r.FeedsFrom).trim()] = true; });
   return all.filter(function (r) { return !feeders[r.ProductID] && !String(r.OutputMaterial || '').trim(); });
@@ -4631,6 +4731,25 @@ function appendByHeader(sh, obj) {
   sh.appendRow(headers.map(function (h) {
     return Object.prototype.hasOwnProperty.call(obj, h) ? obj[h] : '';
   }));
+}
+
+/* The bottom of a log tab: its headers, the last n rows as objects, and the
+ * last row number, from two small reads instead of the whole tab (3.02.0). */
+function tailObjects(sh, n) {
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  var headers = lastCol ? sh.getRange(1, 1, 1, lastCol).getValues()[0] : [];
+  var out = { headers: headers, rows: [], lastRow: Math.max(1, lastRow) };
+  if (lastRow < 2) return out;
+  var start = Math.max(2, lastRow - n + 1);
+  sh.getRange(start, 1, lastRow - start + 1, lastCol).getValues().forEach(function (v) {
+    if (v.join('') === '') return;
+    var o = {}; for (var c = 0; c < headers.length; c++) o[headers[c]] = v[c];
+    out.rows.push(o);
+  });
+  return out;
+}
+function rowByHeader(headers, obj) {
+  return headers.map(function (h) { return Object.prototype.hasOwnProperty.call(obj, h) ? obj[h] : ''; });
 }
 
 function writeTab(ss, tabName, headers, rows) {

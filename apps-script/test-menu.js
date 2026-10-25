@@ -49,7 +49,10 @@ sandbox.toggleAutoUpdate();  check('auto-update toggle: off → on, sync untouch
 sandbox.toggleAutoUpdate();  check('auto-update toggle: on → off, sync untouched', triggers, ['syncShopifyTrigger']);
 sandbox.toggleReorder();     check('reorder toggle: off → on, Monday 6am', triggers, ['syncShopifyTrigger', 'writeReorderTab']);
 sandbox.toggleReorder();     check('reorder toggle: on → off', triggers, ['syncShopifyTrigger']);
-check('every flip says which way it went', toasts.length, 7);
+sandbox.toggleOverview();    check('overview toggle: off → on, every 15 min', triggers, ['syncShopifyTrigger', 'rebuildOverviewTrigger']);
+sandbox.toggleOverview();    check('overview toggle: on → off', triggers, ['syncShopifyTrigger']);
+check('overview toggle is on the Schedules menu', all.some((i) => i.fn === 'toggleOverview'), true);
+check('every flip says which way it went', toasts.length, 9);
 check('toasts say on or off', toasts.every((t) => /\bon\b|\boff\b|every hour|every 30/i.test(t)), true);
 
 console.log(fails ? fails + ' FAILED' : 'All checks passed.');
