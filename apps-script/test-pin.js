@@ -172,6 +172,23 @@ sandbox.readObjects = (tab) => (tab === 'RawMaterials' ? [{ MaterialID: 'M001', 
 check('typing YES brings Glue Pods back', sandbox.getStock().materials.map((m) => m.id), ['M001']);
 sandbox.readObjects = () => [];
 
+/* --- Clock PINs: PIN admins with their own PIN only ------------------------- */
+store = {}; store.MANAGER_PIN = '731905'; store['PIN:John C'] = sandbox.pinHash('7777'); store['PIN:Alex'] = sandbox.pinHash('4444');
+const PIN_ADMIN_ERR = 'Only PIN admins unlocked with their own PIN can set clock PINs.';
+const setClock = (name, token) => call({ action: 'setClockPin', employee: 'Joe', pin: '1234', mgrName: name, token });
+const johnTok = authAs('John C', '7777').token;
+check('the default PIN admins are Dan and John C (exactly as on Employees)', sandbox.pinAdmins(), ['Dan', 'John C']);
+check('a PIN admin unlocked with their own PIN gets past the gate', setClock('John C', johnTok).error !== PIN_ADMIN_ERR, true);
+check('a manager with a personal PIN but not a PIN admin: refused', setClock('Alex', authAs('Alex', '4444').token).error, PIN_ADMIN_ERR);
+check('a PIN admin\'s name unlocked with the shared PIN: refused', setClock('Dan', authAs('Dan', '731905').token).error, PIN_ADMIN_ERR);
+check('the shared PIN with no name: refused', setClock('', authAs('', '731905').token).error, PIN_ADMIN_ERR);
+check('a listed name with no personal PIN on file is not a PIN admin', sandbox.canSetClockPins('Dan'), false);
+check('the shared PIN cannot pass for John C once he has his own', authAs('John C', '731905').ok, false);
+check('no token: still locked before the gate', setClock('John C').locked, true);
+store.PIN_ADMINS = 'Alex';
+check('PIN_ADMINS is editable from the sheet', [setClock('Alex', authAs('Alex', '4444').token).error !== PIN_ADMIN_ERR, setClock('John C', johnTok).error], [true, PIN_ADMIN_ERR]);
+delete store.PIN_ADMINS;
+
 check('the source no longer carries a PIN constant',
   /var MANAGER_PIN\s*=/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8')), false);
 

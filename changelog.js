@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.02.1', date: '2026-10-26', title: 'Clock PINs: PIN admins only', items: [
+    { who: 'mgr',  text: 'Setting or resetting a clock PIN on the Time tab now takes a PIN admin (Dan and John C to start) unlocked with their own PIN. The shared manager PIN no longer opens it; everyone else sees who has a PIN, without the buttons. Sheet menu Settings, Set PIN admins changes the list.' }
+  ]},
   { version: '3.02.0', date: '2026-10-24', title: 'Floor mode saves instantly', items: [
     { who: 'crew', text: 'Submit says Saved the moment you tap it and the scoreboard moves right away. The phone sends it to the sheet in the background and shows "1 sending…" until it lands. No signal: it says how many are saved on the phone and sends them itself later, even after the app is closed.' },
     { who: 'crew', text: 'Floor mode opens straight to your screen with the last names, jobs and numbers it saw, then updates them. Undo works the same, even before an entry has left the phone.' },

@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.02.0';
+  var APP_VERSION = '3.02.1';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -2313,10 +2313,13 @@
         + ' &middot; ' + escapeHtml(s.hours) + ' h' + (s.flags.length ? '<div class="time-flags">' + s.flags.map(function (f) { return '<span>' + escapeHtml(FLAG_TEXT[f] || f) + '</span>'; }).join('') + '</div>' : '')
         + ' <button type="button" class="inv-mini" data-tact="edit" data-row="' + s.row + '" data-in="' + escapeHtml(s.in || '') + '" data-out="' + escapeHtml(s.out || '') + '">Edit</button></div>';
     }).join('') || '<div class="muted">No shifts yet.</div>';
+    // Setting a clock PIN is for PIN admins unlocked with their own PIN; the
+    // server refuses anyone else, this only spares them a button that fails.
     h += '</div><div class="ov-card"><div class="ov-card__head">Clock PINs</div>';
+    if (!d.pinAdmin) h += '<div class="muted">Only ' + escapeHtml((d.pinAdmins || []).join(', ')) + ', unlocked with their own PIN, can set or reset clock PINs.</div>';
     h += d.employees.map(function (e) {
       return '<div class="time-row"><b>' + escapeHtml(e.name) + '</b> ' + (e.hasPin ? 'PIN set' : '<span class="time-flags"><span>no PIN, cannot punch</span></span>')
-        + ' <button type="button" class="inv-mini" data-tact="pin" data-name="' + escapeHtml(e.name) + '">' + (e.hasPin ? 'Reset PIN' : 'Set PIN') + '</button></div>';
+        + (d.pinAdmin ? ' <button type="button" class="inv-mini" data-tact="pin" data-name="' + escapeHtml(e.name) + '">' + (e.hasPin ? 'Reset PIN' : 'Set PIN') + '</button>' : '') + '</div>';
     }).join('') + '</div>';
     box.innerHTML = h;
   }

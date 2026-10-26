@@ -68,16 +68,19 @@ function check(label, actual, expected) {
 const H = 3600000, body = (o) => JSON.parse(o.t), rows = () => objs(time, TIME_H);
 const SHOP = { lat: 40.6600, lng: -74.3100 }, M_PER_DEG = 111195;
 const near = (m) => ({ lat: SHOP.lat + m / M_PER_DEG, lng: SHOP.lng });
+// Setting clock PINs takes a PIN admin with a personal PIN (Dan is on the default list).
+props['PIN:Dan'] = sandbox.pinHash('9090');
+const setPin = (o) => sandbox.managerSetClockPin(Object.assign({ mgrName: 'Dan' }, o));
 let cid = 0;
 const punch = (o) => sandbox.clockShift(Object.assign({ employee: 'Joe', pin: '1111', clientId: 'c' + (++cid) }, o));
 
 // ---- PIN ----------------------------------------------------------------------
 check('no PIN on file: refused with the manager message', punch({ dir: 'in' }).error, 'Ask a manager to set your PIN.');
-check('PIN must be exactly 4 digits', [sandbox.managerSetClockPin({ employee: 'Joe', pin: '12' }).ok, sandbox.managerSetClockPin({ employee: 'Joe', pin: '12345' }).ok, sandbox.managerSetClockPin({ employee: 'Joe', pin: 'abcd' }).ok], [false, false, false]);
-check('manager sets Joe\'s PIN', sandbox.managerSetClockPin({ employee: 'Joe', pin: '1111' }).ok, true);
+check('PIN must be exactly 4 digits', [setPin({ employee: 'Joe', pin: '12' }).ok, setPin({ employee: 'Joe', pin: '12345' }).ok, setPin({ employee: 'Joe', pin: 'abcd' }).ok], [false, false, false]);
+check('manager sets Joe\'s PIN', setPin({ employee: 'Joe', pin: '1111' }).ok, true);
 const stored = emps.grid[1][2];
 check('only "salt:sha256" is stored, never the PIN', [/^[0-9a-f]{12}:[0-9a-f]{64}$/.test(stored), stored.indexOf('1111') === -1], [true, true]);
-sandbox.managerSetClockPin({ employee: 'Maria', pin: '1111' });
+setPin({ employee: 'Maria', pin: '1111' });
 check('same PIN, different person: different hash (salted)', emps.grid[1][2] !== emps.grid[3][2], true);
 const cfgJson = JSON.stringify(sandbox.getConfig());
 check('config never carries the hash', cfgJson.indexOf(stored) === -1 && cfgJson.indexOf('PinHash') === -1, true);
@@ -98,7 +101,7 @@ check('locked means locked, even for the right PIN', [r.ok, r.locked], [false, t
 check('and an in-request is locked too', sandbox.submitTimeRequest({ employee: 'Joe', pin: '1111', dir: 'out', at: clock.t - H, reason: 'x' }).locked, true);
 check('Maria is not affected', punch({ employee: 'Maria', dir: 'in' }).ok, true);
 punch({ employee: 'Maria', dir: 'out' });
-sandbox.managerSetClockPin({ employee: 'Joe', pin: '1111' });
+setPin({ employee: 'Joe', pin: '1111' });
 check('a manager PIN reset lifts the lock', punch({ dir: 'in' }).ok, true);
 punch({ dir: 'out' });
 
@@ -144,7 +147,7 @@ const rq = (o) => sandbox.submitTimeRequest(Object.assign({ employee: 'Joe', pin
 check('request needs a reason', rq({ reason: '' }).ok, false);
 check('request refuses the future', rq({ at: clock.t + 3 * H }).ok, false);
 check('request needs the PIN', rq({ pin: '0000' }).ok, false);
-sandbox.managerSetClockPin({ employee: 'Joe', pin: '1111' });      // the wrong-PIN try above counted one
+setPin({ employee: 'Joe', pin: '1111' });      // the wrong-PIN try above counted one
 const rqOk = rq({});
 check('request lands as Pending and changes NOTHING in TimeLog', [rqOk.ok, objs(reqs, REQ_H)[0].Status, rows()[0].Out], [true, 'Pending', '']);
 check('manager actions need a token: timeDecide', body(sandbox.doGet({ parameter: { action: 'timeDecide', id: rqOk.requestId, decision: 'approve' } })).locked, true);
@@ -212,6 +215,13 @@ check('every manager time action is locked without a token',
   ['timeView', 'timeEdit', 'timeExport', 'timeDecide', 'setClockPin', 'setShopLocation'].map((a) => body(sandbox.doGet({ parameter: { action: a } })).locked === true), [true, true, true, true, true, true]);
 check('clock, floorPace and timeRequest stay open actions', ['clock', 'floorPace', 'timeRequest', 'submitDay'].map((a) => vm.runInContext('OPEN_ACTIONS', sandbox).indexOf(a) !== -1), [true, true, true, true]);
 
+// ---- PIN admins -------------------------------------------------------------------------
+check('a non-admin manager cannot set a clock PIN', sandbox.managerSetClockPin({ mgrName: 'Alex', employee: 'Joe', pin: '2222' }).error, 'Only PIN admins unlocked with their own PIN can set clock PINs.');
+cacheStore['pinlock:joe'] = String(Date.now() + 15 * 60000);
+check('a PIN admin\'s Reset PIN lifts a lockout', [setPin({ employee: 'Joe', pin: '1111' }).ok, 'pinlock:joe' in cacheStore], [true, false]);
+check('timeView tells the app whether this manager may set PINs',
+  [mgr({ action: 'timeView' }).pinAdmin, body(sandbox.doGet({ parameter: { action: 'timeView', mgrName: 'Alex', token: sandbox.managerToken('Alex') } })).pinAdmin], [true, false]);
+
 // ---- summary email -----------------------------------------------------------------------------
 time.grid.length = 1; log.grid.length = 1; reqs.grid.length = 1;
 clock.t = Date.parse('2026-09-29T22:00:00Z');
@@ -235,7 +245,7 @@ check('installDailyTimeSummary is idempotent: one trigger, 6pm New York', trigge
 check('it is in the sheet menu', /installDailyTimeSummary/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8').split('function onOpen')[1].split('addToUi')[0]), true);
 
 /* 3.01.1: log in on load. Clock PIN, same lockout, canonical name back. */
-sandbox.managerSetClockPin({ employee: 'Alex', pin: '4321' });
+setPin({ employee: 'Alex', pin: '4321' });
 check('login: right PIN, canonical name', JSON.stringify(sandbox.crewLogin({ name: 'alex', pin: '4321' })), JSON.stringify({ ok: true, name: 'Alex' }));
 check('login: wrong PIN refused', sandbox.crewLogin({ name: 'Alex', pin: '0000' }).ok, false);
 check('login: unknown name refused', sandbox.crewLogin({ name: 'Nobody', pin: '4321' }).ok, false);
