@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-26 16:54 UTC      version 3.02.1
+ *  BUILD:  2026-10-26 18:50 UTC      version 3.02.2
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -296,12 +296,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.02.1';
+var BACKEND_VERSION = '3.02.2';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-26 16:54 UTC';
+var BUILD_STAMP = '2026-10-26 18:50 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -4629,6 +4629,7 @@ function webAppDeploymentId() {
  * from the live web app. The code a trigger runs is the SAVED code, which
  * can be ahead of the deployment (a write that never got its version cut),
  * so BUILD_STAMP here is not the answer. */
+var CANARY_TRIES = 10, CANARY_WAIT_MS = 15000; // ~2.5 min, well inside the 6-min run limit
 function liveBuildStamp(depId) {
   try {
     var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config', { muteHttpExceptions: true, followRedirects: true });
@@ -4679,13 +4680,22 @@ function updateFromGitHub() {
 
   // Canary: the live web app must answer with the new stamp, anonymously,
   // the way a phone reaches it. Otherwise put the old version back.
+  // Google takes a while to route /exec to a moved deployment (2026-10-26:
+  // version 41 still answered as 39 on the first request), so the old stamp
+  // is retried for up to CANARY_TRIES before rolling back.
   var why = '';
-  try {
-    var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config', { muteHttpExceptions: true, followRedirects: true });
-    var body = r.getContentText();
-    if (r.getResponseCode() !== 200) why = 'HTTP ' + r.getResponseCode();
-    else if (body.indexOf(stamp) === -1) why = 'it answered without the new build stamp: ' + body.slice(0, 160);
-  } catch (e) { why = String(e && e.message ? e.message : e); }
+  for (var attempt = 1; attempt <= CANARY_TRIES; attempt++) {
+    why = '';
+    try {
+      var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config&canary=' + Date.now(), { muteHttpExceptions: true, followRedirects: true });
+      var body = r.getContentText();
+      var seen = /"buildStamp"\s*:\s*"([^"]+)"/.exec(body);
+      if (r.getResponseCode() !== 200) why = 'HTTP ' + r.getResponseCode();
+      else if (body.indexOf(stamp) === -1) why = 'it answered without the new build stamp (still ' + (seen ? seen[1] : 'no stamp') + ' after ' + attempt + ' tries): ' + body.slice(0, 160);
+    } catch (e) { why = String(e && e.message ? e.message : e); }
+    if (!why || attempt === CANARY_TRIES) break;
+    Utilities.sleep(CANARY_WAIT_MS);
+  }
   if (why) {
     scriptApi('put', scriptId + '/deployments/' + depId, config(prev));
     throw new Error('Version ' + ver.versionNumber + ' (' + version + ') went live but ' + why + '. Rolled the deployment back to version ' + prev + '. The editor holds the new code; check it and deploy by hand.');

@@ -21,7 +21,8 @@ const sandbox = {
     // The live web app answers with whatever is DEPLOYED: the old stamp until
     // the deployment is moved to version 8, then whatever `canary` says.
     if (url.indexOf('/exec?action=config') !== -1) return sandbox.__deployedVersion === 8
-      ? { getResponseCode: () => canary.code, getContentText: () => canary.body }
+      ? (sandbox.__lag > 0 ? (sandbox.__lag--, { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, buildStamp: sandbox.__liveStamp }) })
+                           : { getResponseCode: () => canary.code, getContentText: () => canary.body })
       : { getResponseCode: () => 200, getContentText: () => JSON.stringify({ ok: true, buildStamp: sandbox.__liveStamp }) };
     const m = /projects\/SID\/(.*)$/.exec(url); const p = m ? m[1] : '';
     const method = (opts.method || 'get').toLowerCase();
@@ -42,6 +43,7 @@ const sandbox = {
   PropertiesService: { getScriptProperties: () => ({
     getProperty: (k) => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = v; }, deleteProperty: (k) => { delete store[k]; } }) },
   MailApp: { sendEmail: (m) => mails.push(m) },
+  Utilities: { sleep: () => { sandbox.__slept = (sandbox.__slept || 0) + 1; } },
   SpreadsheetApp: { getActive: () => ({ toast() {} }), getActiveSpreadsheet: () => ({ getName: () => 'S', getId: () => 'ID', getSheetByName: () => null }), getUi: () => ({}) },
   Session: { getEffectiveUser: () => ({ getEmail: () => 'dan@example.com' }) },
   LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
@@ -63,7 +65,7 @@ function check(label, actual, expected) {
 }
 const running = sandbox.BUILD_STAMP;
 const newSrc = (stamp) => `header\nfunction doGet(e) {}\nvar BACKEND_VERSION = '9.9.9';\nvar BUILD_STAMP = '${stamp}';\n`;
-const reset = () => { calls = []; mails = []; store = {}; sandbox.__deployedVersion = 7; sandbox.__liveStamp = running; sandbox.__configDep = 'DEP'; };
+const reset = () => { sandbox.__lag = 0; sandbox.__slept = 0; calls = []; mails = []; store = {}; sandbox.__deployedVersion = 7; sandbox.__liveStamp = running; sandbox.__configDep = 'DEP'; };
 const wroteContent = () => calls.some((c) => c.method === 'put' && /\/content$/.test(c.url));
 const cutVersion = () => calls.some((c) => c.method === 'post' && /\/versions$/.test(c.url));
 
@@ -94,11 +96,18 @@ check('the existing deployment is moved to the new version — never a new deplo
 check('the canary hit the live web app anonymously', calls.some((c) => /macros\/s\/DEP\/exec\?action=config/.test(c.url)), true);
 check('the result is remembered for diagnostics', /9\.9\.9/.test(store.LAST_AUTO_UPDATE), true);
 
+/* --- Google slow to route /exec to the new version: wait, don't roll back -- */
+reset(); github = { code: 200, body: newSrc('2099-01-01 00:00 UTC') }; canary = { code: 200, body: '{"ok":true,"buildStamp":"2099-01-01 00:00 UTC"}' }; sandbox.__lag = 3;
+let lagErr = null, lagged = null; try { lagged = sandbox.updateFromGitHub(); } catch (e) { lagErr = e.message; }
+const lagPuts = calls.filter((c) => c.method === 'put' && /deployments\/DEP$/.test(c.url)).map((c) => c.payload.deploymentConfig.versionNumber);
+check('old stamp for the first 3 answers, new on the 4th: no rollback (2026-10-26 v41 incident)',
+  [lagErr, lagged && lagged.changed, lagPuts, sandbox.__slept], [null, true, [8], 3]);
+
 /* --- Canary fails: roll back ------------------------------------------------ */
 reset(); canary = { code: 200, body: '{"ok":true,"buildStamp":"' + running + '"}' };
 let err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
 const puts = calls.filter((c) => c.method === 'put' && /deployments\/DEP$/.test(c.url)).map((c) => c.payload.deploymentConfig.versionNumber);
-check('a web app still answering the old stamp rolls the deployment back', [puts, /rolled the deployment back to version 7/i.test(err)], [[8, 7], true]);
+check('a web app still answering the old stamp after every try rolls the deployment back', [puts, /rolled the deployment back to version 7/i.test(err), /after 10 tries/.test(err)], [[8, 7], true, true]);
 
 reset(); canary = { code: 500, body: 'boom' };
 err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }

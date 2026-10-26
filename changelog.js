@@ -2,6 +2,9 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.02.2', date: '2026-10-26', title: 'Auto-update waits for Google', items: [
+    { who: 'mgr',  text: 'The sheet\'s auto-update no longer rolls itself back when Google is slow to switch the web app to the new version. It now checks for up to about two and a half minutes before giving up.' }
+  ]},
   { version: '3.02.1', date: '2026-10-26', title: 'Clock PINs: PIN admins only', items: [
     { who: 'mgr',  text: 'Setting or resetting a clock PIN on the Time tab now takes a PIN admin (Dan and John C to start) unlocked with their own PIN. The shared manager PIN no longer opens it; everyone else sees who has a PIN, without the buttons. Sheet menu Settings, Set PIN admins changes the list.' }
   ]},
