@@ -744,6 +744,14 @@ body.view-count #screen-inventory > .stock-hint, body.view-count #invSummary, bo
   padding:7px 11px; border-radius:16px; text-decoration:none; white-space:nowrap}
 
 /* Manager Time screen */
+/* PIN admin: the one moment a PIN is on screen. */
+.pin-show{margin-bottom:14px;background:#eef6ee;border:1.5px solid var(--ok);border-radius:var(--radius);padding:14px;text-align:center}
+.pin-show__who{font-weight:600}
+.pin-show__pin{font:700 2.6rem/1.1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.35em;margin:8px 0 4px 0.35em}
+.pin-show .muted{text-align:center}
+.pin-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pin-row b{flex:1 1 auto}
+.pin-ok{color:var(--muted);font-size:.85rem}
 .time-row{padding:8px 0;border-bottom:1px solid var(--border);font-size:.95rem}
 .time-row:last-child{border-bottom:none}
 .time-flags{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}

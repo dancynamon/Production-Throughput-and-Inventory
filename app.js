@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.02.1';
+  var APP_VERSION = '3.03.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -750,7 +750,9 @@
     // Inventory only; everything else stays on the bar for other managers.
     document.querySelectorAll('.tab').forEach(function (t) {
       var s = t.getAttribute('data-screen');
-      if (count) t.style.display = (s === 'reconcile' || s === 'inventory' || s === 'time') ? '' : 'none';
+      if (count) t.style.display = (s === 'reconcile' || s === 'inventory' || s === 'time' || s === 'pins') ? '' : 'none';
+      // PINs: the server is the gate; this only hides a tab that would refuse.
+      if (t.hasAttribute('data-pinadmin') && !(mgr && localStorage.getItem('aq_pin_admin') === '1')) t.style.display = 'none';
     });
     // 3.01.1: log in on load. Nobody sees a screen until they have; crew are
     // sent to Floor mode, which has its own login.
@@ -782,6 +784,7 @@
     if (el('reorderBanner')) el('reorderBanner').hidden = true;
     var was = localStorage.getItem('aq_role') === 'mgr';
     localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token'); localStorage.removeItem('aq_view');
+    localStorage.removeItem('aq_pin_admin'); hidePin();
     applyRole();
     if (was && !lockOutShown) { lockOutShown = true; toast(msg); }
   }
@@ -801,6 +804,7 @@
         if (d.name) localStorage.setItem('aq_mgr_name', d.name); else localStorage.removeItem('aq_mgr_name');
         if (d.token) localStorage.setItem('aq_mgr_token', d.token); else localStorage.removeItem('aq_mgr_token');
         if (d.view === 'count') localStorage.setItem('aq_view', 'count'); else localStorage.removeItem('aq_view');
+        if (d.pinAdmin) localStorage.setItem('aq_pin_admin', '1'); else localStorage.removeItem('aq_pin_admin');
         lockOutShown = false;
         el('loginPin').value = '';
         applyRole();
@@ -831,6 +835,7 @@
     if (name === 'day') loadToday();
     if (name === 'reconcile') loadReconcile();
     if (name === 'time') loadTime();
+    if (name === 'pins') loadPins(); else hidePin();
     window.scrollTo(0, 0);
   }
   function countView() { return isMgr() && localStorage.getItem('aq_view') === 'count'; }
@@ -2317,9 +2322,9 @@
     // server refuses anyone else, this only spares them a button that fails.
     h += '</div><div class="ov-card"><div class="ov-card__head">Clock PINs</div>';
     if (!d.pinAdmin) h += '<div class="muted">Only ' + escapeHtml((d.pinAdmins || []).join(', ')) + ', unlocked with their own PIN, can set or reset clock PINs.</div>';
+    if (d.pinAdmin) h += '<button type="button" class="btn-primary" data-tact="pins">Create or reset PINs</button>';
     h += d.employees.map(function (e) {
-      return '<div class="time-row"><b>' + escapeHtml(e.name) + '</b> ' + (e.hasPin ? 'PIN set' : '<span class="time-flags"><span>no PIN, cannot punch</span></span>')
-        + (d.pinAdmin ? ' <button type="button" class="inv-mini" data-tact="pin" data-name="' + escapeHtml(e.name) + '">' + (e.hasPin ? 'Reset PIN' : 'Set PIN') + '</button>' : '') + '</div>';
+      return '<div class="time-row"><b>' + escapeHtml(e.name) + '</b> ' + (e.hasPin ? 'PIN set' : '<span class="time-flags"><span>no PIN, cannot punch</span></span>') + '</div>';
     }).join('') + '</div>';
     box.innerHTML = h;
   }
@@ -2330,10 +2335,8 @@
     var act = b.getAttribute('data-tact'), done = function (r) { toast(r.ok ? (r.message || 'Done') : ('⚠ ' + (r.error || 'Failed'))); loadTime(); };
     if (act === 'approve' || act === 'deny') {
       api({ action: 'timeDecide', id: b.getAttribute('data-id'), decision: act, note: '' }).then(done);
-    } else if (act === 'pin') {
-      var name = b.getAttribute('data-name'), pin = prompt('New 4-digit clock PIN for ' + name + ' (blank removes it):');
-      if (pin === null) return;
-      api({ action: 'setClockPin', employee: name, pin: pin }).then(done);
+    } else if (act === 'pins') {
+      localStorage.setItem('aq_pin_admin', '1'); applyRole(); selectScreen('pins');
     } else if (act === 'edit') {
       var inMs = new Date(b.getAttribute('data-in')).getTime(), outIso = b.getAttribute('data-out');
       var nin = prompt('In (YYYY-MM-DD HH:MM, this phone\'s time):', tLocal(inMs)); if (nin === null) return;
@@ -2368,13 +2371,87 @@
     });
   }
 
+  /* ---- PINs: clock PIN admin (3.03.0) ----------------------------------------
+   * PIN admins only. The list never holds a PIN; resetClockPin's reply is the
+   * one place a PIN exists outside the person's head, and it lives in the DOM
+   * until Done, leaving the screen, or logging out. Never stored. */
+  var PINS = { data: null };
+  function hidePin() { var b = el('pinShow'); if (b) { b.innerHTML = ''; b.hidden = true; } }
+  function loadPins() {
+    var box = el('pinsBody');
+    api({ action: 'pinAdmin' }, 30000).then(function (d) {
+      if (!d.ok) {
+        if (d.pinAdmin === false) { localStorage.removeItem('aq_pin_admin'); applyRole(); }
+        throw new Error(d.error || 'Could not load');
+      }
+      PINS.data = d; renderPins();
+    }).catch(function (err) {
+      var stale = /unknown action/i.test(err.message);
+      box.innerHTML = '<div class="muted">⚠ ' + escapeHtml(err.message) + (stale ? '<br>The sheet\'s code is behind this app. It updates itself within 30 minutes.' : '') + '</div>';
+    });
+  }
+  function pinTime(iso) { return iso ? new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : ''; }
+  function renderPins() {
+    var d = PINS.data; if (!d) return;
+    var locked = d.employees.filter(function (e) { return e.locked; }).length;
+    var h = '<div class="ov-card"><div class="ov-card__head">Employees <span class="ov-card__meta">' + d.employees.length + ' active'
+      + (locked ? ' &middot; ' + locked + ' locked' : '') + '</span></div>';
+    h += d.employees.map(function (e) {
+      var state = e.locked
+        ? '<span class="time-flags"><span>Locked' + (e.lockedUntil ? ' until ' + escapeHtml(pinTime(e.lockedUntil)) : '') + '</span></span>'
+        : (!e.hasPin ? '<span class="time-flags"><span>No PIN, cannot clock in</span></span>'
+          : '<span class="pin-ok">PIN set' + (e.fails ? ' &middot; ' + e.fails + ' wrong of ' + d.lockTries : '') + '</span>');
+      return '<div class="time-row pin-row"><b>' + escapeHtml(e.name) + '</b> ' + state
+        + ' <button type="button" class="inv-mini" data-pact="reset" data-name="' + escapeHtml(e.name) + '" data-has="' + (e.hasPin ? 1 : 0) + '">'
+        + (e.hasPin ? (e.locked ? 'Reset and unlock' : 'Reset PIN') : 'Create PIN') + '</button></div>';
+    }).join('');
+    h += '</div><p class="stock-hint">' + d.lockTries + ' wrong PINs lock a name for ' + d.lockMinutes + ' minutes. Checked ' + escapeHtml(pinTime(new Date(d.generatedAt).toISOString())) + '. <button type="button" class="inv-mini" data-pact="reload">Check again</button></p>';
+    el('pinsBody').innerHTML = h;
+  }
+  function showPin(r) {
+    var b = el('pinShow');
+    b.innerHTML = '<div class="pin-show__who">' + escapeHtml(r.created ? 'New PIN for ' : 'Reset PIN for ') + escapeHtml(r.employee) + '</div>'
+      + '<div class="pin-show__pin">' + escapeHtml(r.pin) + '</div>'
+      + '<div class="muted">Shown once. Give it to ' + escapeHtml(r.employee) + ' now; it cannot be looked up later.'
+      + (r.self ? ' This was your own PIN: log in again with it.' : '') + '</div>'
+      + '<button type="button" class="btn-primary" data-pact="done">Done, hide it</button>';
+    b.hidden = false; window.scrollTo(0, 0);
+  }
+  el('screen-pins').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-pact]'); if (!b) return;
+    var act = b.getAttribute('data-pact');
+    if (act === 'done') { hidePin(); return; }
+    if (act === 'reload') { loadPins(); return; }
+    var name = b.getAttribute('data-name'), has = b.getAttribute('data-has') === '1';
+    if (has && !confirm('Reset ' + name + '\'s PIN? Their old PIN stops working right away.')) return;
+    var typed = prompt('Leave blank for a random PIN, or type the 4 digits ' + name + ' asked for:', '');
+    if (typed === null) return;
+    b.disabled = true; hidePin();
+    api({ action: 'resetClockPin', employee: name, pin: typed.trim() }, 30000).then(function (r) {
+      if (!r.ok) { b.disabled = false; toast('⚠ ' + (r.error || 'Failed')); return; }
+      showPin(r);
+      // Our own token just changed, so the next call logs us out and the
+      // panel goes with it: say the PIN in a blocking alert as well.
+      if (r.self) { alert('Your new clock PIN: ' + r.pin + '\n\nLog in again with it.'); return; }
+      loadPins();
+    }).catch(function (err) { b.disabled = false; toast('⚠ ' + err.message); });
+  });
+  // A phone that unlocked before 3.03.0 has no PIN admin flag: ask once.
+  function checkPinAdmin() {
+    if (!isMgr() || localStorage.getItem('aq_pin_admin') !== null) return;
+    api({ action: 'pinAdmin' }).then(function (d) {
+      if (d && d.ok) { localStorage.setItem('aq_pin_admin', '1'); applyRole(); }
+      else localStorage.setItem('aq_pin_admin', '0');
+    }).catch(function () {});
+  }
+
   /* ---- Go ---------------------------------------------------------------- */
   (function initDate() {
     var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
     el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   })();
   applyRole();
-  if (isMgr()) { selectScreen(countView() ? 'reconcile' : 'floor'); loadReorderAlert(); }
+  if (isMgr()) { selectScreen(countView() ? 'reconcile' : 'floor'); loadReorderAlert(); checkPinAdmin(); }
   // A plain link to the backend, for when the toast says it cannot be reached:
   // if this opens and shows text, the network is fine and the app is at fault.
   if (API && el('connTest')) { el('connTest').href = API + '?action=config'; el('connTest').target = '_blank'; el('connTest').rel = 'noopener'; }

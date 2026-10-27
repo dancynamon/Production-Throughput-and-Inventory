@@ -49,6 +49,8 @@
        the finished-goods panel; Inventory is where shelf counts are entered. -->
   <button class="tab" data-screen="reconcile" data-mgr="1">Reconcile</button>
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
+  <!-- 3.03.0: PIN admins only (PIN_ADMINS, unlocked with their own PIN). -->
+  <button class="tab" data-screen="pins" data-mgr="1" data-pinadmin="1">PINs</button>
 </nav>
 
 <main>
@@ -133,6 +135,12 @@
 
   <section id="screen-time" class="screen">
     <div id="timeBody"><div class="muted">Loading…</div></div>
+  </section>
+
+  <section id="screen-pins" class="screen">
+    <p class="stock-hint">Clock PINs for Floor mode. A new PIN shows <b>once</b>, right here, when you create or reset it: give it to the person, then tap Done. Nobody can look a PIN up later, including you. Resetting also lifts a lockout.</p>
+    <div id="pinShow" class="pin-show" hidden></div>
+    <div id="pinsBody"><div class="muted">Loading…</div></div>
   </section>
 
   <section id="screen-guide" class="screen">

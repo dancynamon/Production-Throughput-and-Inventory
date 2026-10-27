@@ -222,6 +222,31 @@ check('a PIN admin\'s Reset PIN lifts a lockout', [setPin({ employee: 'Joe', pin
 check('timeView tells the app whether this manager may set PINs',
   [mgr({ action: 'timeView' }).pinAdmin, body(sandbox.doGet({ parameter: { action: 'timeView', mgrName: 'Alex', token: sandbox.managerToken('Alex') } })).pinAdmin], [true, false]);
 
+// ---- PIN admin screen (3.03.0) ---------------------------------------------------------------
+check('pinAdmin and resetClockPin are locked without a token',
+  ['pinAdmin', 'resetClockPin'].map((a) => body(sandbox.doGet({ parameter: { action: a } })).locked === true), [true, true]);
+const alexTok = sandbox.managerToken('Alex');
+check('a manager who is not a PIN admin gets no list',
+  [body(sandbox.doGet({ parameter: { action: 'pinAdmin', mgrName: 'Alex', token: alexTok } })).ok, body(sandbox.doGet({ parameter: { action: 'resetClockPin', employee: 'Joe', mgrName: 'Alex', token: alexTok } })).ok], [false, false]);
+Object.keys(cacheStore).forEach((k) => delete cacheStore[k]);
+['1', '2', '3', '4', '5'].forEach(() => sandbox.verifyClockPin('Maria', '0000'));
+const pa = mgr({ action: 'pinAdmin' });
+const maria = pa.employees.find((e) => e.name === 'Maria');
+check('the list shows lock state with an end time, five wrong = locked 15 min',
+  [pa.ok, maria.locked, Math.round((Date.parse(maria.lockedUntil) - clock.t) / 60000), pa.lockTries, pa.lockMinutes], [true, true, 15, 5, 15]);
+check('the list never carries a PIN or a hash', /PinHash|"pin"|:[0-9a-f]{64}/.test(JSON.stringify(pa)), false);
+sandbox.verifyClockPin('Joe', '0000'); sandbox.verifyClockPin('Joe', '0000');
+check('wrong tries short of a lock are counted', mgr({ action: 'pinAdmin' }).employees.find((e) => e.name === 'Joe').fails, 2);
+const rs = mgr({ action: 'resetClockPin', employee: 'Maria' });
+check('reset makes a 4-digit PIN, shown in that one reply, and lifts the lock',
+  [rs.ok, /^\d{4}$/.test(rs.pin), sandbox.weakClockPin(rs.pin), mgr({ action: 'pinAdmin' }).employees.find((e) => e.name === 'Maria').locked], [true, true, false, false]);
+check('the new PIN works and the stored value is only a salted hash',
+  [sandbox.verifyClockPin('Maria', rs.pin).ok, String(emps.grid.find((r) => r[0] === 'Maria')[2]).indexOf(rs.pin) === -1], [true, true]);
+check('an admin may type the PIN instead', [mgr({ action: 'resetClockPin', employee: 'Maria', pin: '8642' }).pin, sandbox.verifyClockPin('Maria', '8642').ok], ['8642', true]);
+check('a typed PIN must be 4 digits', mgr({ action: 'resetClockPin', employee: 'Maria', pin: '12' }).ok, false);
+check('weak PINs are never generated', ['0000', '1111', '1234', '4321', '9012', '1212'].map((x) => sandbox.weakClockPin(x)), [true, true, true, true, true, true]);
+check('ordinary PINs are fine', ['5831', '2580', '7319'].map((x) => sandbox.weakClockPin(x)), [false, false, false]);
+
 // ---- summary email -----------------------------------------------------------------------------
 time.grid.length = 1; log.grid.length = 1; reqs.grid.length = 1;
 clock.t = Date.parse('2026-09-29T22:00:00Z');

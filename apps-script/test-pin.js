@@ -68,7 +68,7 @@ const noMs = (o) => { delete o.serverMs; return o; };   // timing field, 3.02.0
 const authAs = (name, pin) => noMs(JSON.parse(sandbox.doGet({ parameter: { action: 'auth', name, pin } }).getContent()));
 const sansToken = (r) => { const c = { ...r }; delete c.token; return c; };
 check('a person with a PIN on file unlocks with name + their PIN, full view by default',
-  sansToken(authAs('Dan', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full' });
+  sansToken(authAs('Dan', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full', pinAdmin: true });
 store['VIEW:Dan'] = 'count';
 check('a person set to the count-only view is told so at unlock', authAs('Dan', '990011').view, 'count');
 store['VIEW:Dan'] = 'nonsense';
@@ -139,7 +139,8 @@ delete store.GUIDE_READERS;
 store = {}; store.MANAGER_PIN = '731905';
 store['PIN:Dan'] = sandbox.pinHash('990011'); store['PIN:John'] = sandbox.pinHash('5151');
 check('PIN only: a personal manager PIN logs in as its owner',
-  sansToken(authAs('', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full' });
+  sansToken(authAs('', '990011')), { ok: true, name: 'Dan', personal: true, view: 'full', pinAdmin: true });
+check('auth says pinAdmin false for a manager not on PIN_ADMINS', authAs('', '5151').pinAdmin, false);
 check('PIN only: John too', authAs('', '5151').name, 'John');
 check('PIN only: the shared PIN still works, no name', sansToken(authAs('', '731905')), { ok: true, name: '', personal: false });
 check('PIN only: an unknown PIN is refused', authAs('', '1212').ok, false);
@@ -150,7 +151,7 @@ delete store['PIN:Joe'];
 const salt = 'abc123';
 const emp = { Alex: sandbox.clockPinHash('Alex', '8080', salt), Maria: sandbox.clockPinHash('Maria', '7070', salt) };
 sandbox.employeeSheetRow = (n) => { const k = Object.keys(emp).find((x) => x.toLowerCase() === String(n).toLowerCase()); return k ? { name: k, hash: emp[k] } : null; };
-check('managers default to Dan, John, Alex', sandbox.managerNames(), ['Dan', 'John', 'Alex']);
+check('managers default to Dan, John, John C (John Cosgrove), Alex', sandbox.managerNames(), ['Dan', 'John', 'John C', 'Alex']);
 const alexIn = authAs('', '8080');
 check('a manager\'s clock PIN logs them in', [alexIn.ok, alexIn.name, alexIn.personal], [true, 'Alex', true]);
 check('...and that token works', call({ action: 'stock', token: alexIn.token, mgrName: 'Alex' }).locked, undefined);
@@ -188,6 +189,13 @@ check('no token: still locked before the gate', setClock('John C').locked, true)
 store.PIN_ADMINS = 'Alex';
 check('PIN_ADMINS is editable from the sheet', [setClock('Alex', authAs('Alex', '4444').token).error !== PIN_ADMIN_ERR, setClock('John C', johnTok).error], [true, PIN_ADMIN_ERR]);
 delete store.PIN_ADMINS;
+// John C logging in with his clock PIN (no PIN:John C) is a PIN admin too: the token derives from that hash.
+delete store['PIN:John C'];
+sandbox.employeeSheetRow = (n) => (String(n).toLowerCase() === 'john c' ? { name: 'John C', hash: sandbox.clockPinHash('John C', '2580', 'salt') } : null);
+const jc = authAs('', '2580');
+check('John C\'s own clock PIN opens the full app as a PIN admin', [jc.ok, jc.name, jc.pinAdmin], [true, 'John C', true]);
+check('...and gets past the PIN admin gate', setClock('John C', jc.token).error !== PIN_ADMIN_ERR, true);
+sandbox.employeeSheetRow = () => null;
 
 check('the source no longer carries a PIN constant',
   /var MANAGER_PIN\s*=/.test(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8')), false);

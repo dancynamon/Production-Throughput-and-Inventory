@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.03.0', date: '2026-10-27', title: 'PINs screen for PIN admins', items: [
+    { who: 'mgr',  text: 'New PINs tab for PIN admins (Dan and John C): every active employee, whether they have a clock PIN, and whether they are locked out right now (5 wrong tries = 15 minutes) and until when. Create PIN or Reset PIN makes a random 4-digit PIN, or uses the one you type, and shows it once on screen. It cannot be looked up again by anyone. Resetting also lifts a lockout.' },
+    { who: 'mgr',  text: 'John C can log in to the full app with his own Floor mode PIN.' }
+  ]},
   { version: '3.02.2', date: '2026-10-26', title: 'Auto-update waits for Google', items: [
     { who: 'mgr',  text: 'The sheet\'s auto-update no longer rolls itself back when Google is slow to switch the web app to the new version. It now checks for up to about two and a half minutes before giving up.' }
   ]},
