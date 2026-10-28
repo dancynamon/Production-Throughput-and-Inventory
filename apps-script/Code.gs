@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-27 17:00 UTC      version 3.03.0
+ *  BUILD:  2026-10-27 19:10 UTC      version 3.03.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -298,12 +298,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.03.0';
+var BACKEND_VERSION = '3.03.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-27 17:00 UTC';
+var BUILD_STAMP = '2026-10-27 19:10 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1005,6 +1005,21 @@ function applySchemaUpgrades() {
       mprops.setProperty('MIGRATED_MANAGERS_3015', '1');
     }
   } catch (eMgr) {}
+  // 3.03.1, once: John C (John Cosgrove) is a manager and a PIN admin. The
+  // defaults say so; a MANAGERS or PIN_ADMINS property set before 3.03.0
+  // overrides them, so add him to whichever is set and leaves him out.
+  try {
+    var jprops = PropertiesService.getScriptProperties();
+    if (!jprops.getProperty('MIGRATED_JOHNC_3031')) {
+      ['MANAGERS', 'PIN_ADMINS'].forEach(function (k) {
+        var v = String(jprops.getProperty(k) || '').trim();
+        if (!v) return;
+        var has = v.split(/[,;]/).some(function (n) { return n.trim().toLowerCase() === 'john c'; });
+        if (!has) { jprops.setProperty(k, v + ',John C'); did.push('added John C to ' + k); }
+      });
+      jprops.setProperty('MIGRATED_JOHNC_3031', '1');
+    }
+  } catch (eJc) {}
   addColumns(TAB.stagelog, ['Hours']);
 
   var addedMaterials = addMissingReferencedMaterials();
@@ -4688,6 +4703,31 @@ function webAppDeploymentId() {
  * can be ahead of the deployment (a write that never got its version cut),
  * so BUILD_STAMP here is not the answer. */
 var CANARY_TRIES = 10, CANARY_WAIT_MS = 15000; // ~2.5 min, well inside the 6-min run limit
+var CANARY_PENDING_RUNS = 4;                     // trigger runs (30 min apart) to wait for routing before mailing
+/* Ask the live web app which build it serves, the way a phone does.
+ *   'new'    — it answers with the new stamp
+ *   'old'    — it still answers with the stamp it had before the move. That
+ *              is Google routing /exec late (2026-10-26: versions 40, 41, 42
+ *              all rolled back for this alone), not a broken build: the old
+ *              code is still serving and nothing is down, so it is NEVER a
+ *              reason to roll back
+ *   'broken' — an error, a non-200, no stamp, or a stamp that is neither */
+function canaryCheck(depId, stamp, oldStamp, tries) {
+  var out = { state: 'broken', why: '', tries: 0 };
+  for (var attempt = 1; attempt <= tries; attempt++) {
+    out.tries = attempt;
+    try {
+      var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config&canary=' + Date.now(), { muteHttpExceptions: true, followRedirects: true });
+      var body = r.getContentText(), seen = /"buildStamp"\s*:\s*"([^"]+)"/.exec(body);
+      if (r.getResponseCode() !== 200) out = { state: 'broken', why: 'HTTP ' + r.getResponseCode(), tries: attempt };
+      else if (body.indexOf(stamp) !== -1) return { state: 'new', why: '', tries: attempt };
+      else if (seen && oldStamp && seen[1] === oldStamp) out = { state: 'old', why: 'Google is still serving the previous build (' + oldStamp + ') after ' + attempt + ' tries', tries: attempt };
+      else out = { state: 'broken', why: 'it answered ' + (seen ? 'with an unexpected build stamp ' + seen[1] : 'without a build stamp') + ': ' + body.slice(0, 160), tries: attempt };
+    } catch (e) { out = { state: 'broken', why: String(e && e.message ? e.message : e), tries: attempt }; }
+    if (attempt < tries) Utilities.sleep(CANARY_WAIT_MS);
+  }
+  return out;
+}
 function liveBuildStamp(depId) {
   try {
     var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config', { muteHttpExceptions: true, followRedirects: true });
@@ -4714,10 +4754,41 @@ function updateFromGitHub() {
   // Resolve the deployment BEFORE writing anything, so a project that cannot
   // be deployed is never left with saved code ahead of its live version.
   var depId = webAppDeploymentId();
+  var props = PropertiesService.getScriptProperties();
   var live = liveBuildStamp(depId);
-  if (stamp === (live || BUILD_STAMP)) return { changed: false, stamp: stamp, version: version, live: live };
-
   var scriptId = ScriptApp.getScriptId();
+
+  // An earlier run moved the deployment and Google was still serving the old
+  // build. If that is still the state of things, check again rather than
+  // cutting yet another version.
+  var pend = null;
+  try { pend = JSON.parse(props.getProperty('AUTO_UPDATE_PENDING') || 'null'); } catch (ep) { pend = null; }
+  if (pend && pend.stamp === stamp && stamp === BUILD_STAMP) {
+    var curVer = scriptApi('get', scriptId + '/deployments/' + depId).deploymentConfig.versionNumber;
+    if (curVer === pend.versionNumber) {
+      var pc = canaryCheck(depId, stamp, pend.oldStamp, 1);
+      var res = { changed: false, stamp: stamp, version: version, versionNumber: pend.versionNumber, previous: pend.previous, tries: pc.tries };
+      if (pc.state === 'new') {
+        props.deleteProperty('AUTO_UPDATE_PENDING');
+        try { props.setProperty('LAST_AUTO_UPDATE', new Date().toISOString() + ' → ' + version + ' (' + stamp + ') as version ' + pend.versionNumber + ', confirmed on run ' + (pend.runs + 1)); } catch (e3) {}
+        res.changed = true; return res;
+      }
+      if (pc.state === 'broken') {
+        props.deleteProperty('AUTO_UPDATE_PENDING');
+        scriptApi('put', scriptId + '/deployments/' + depId, { deploymentConfig: { scriptId: scriptId, versionNumber: pend.previous, manifestFileName: 'appsscript', description: 'Aquamentor Production' } });
+        throw new Error('Version ' + pend.versionNumber + ' (' + version + ') ' + pc.why + '. Rolled the deployment back to version ' + pend.previous + '. The editor holds the new code; check it and deploy by hand.');
+      }
+      pend.runs = (pend.runs || 1) + 1;
+      props.setProperty('AUTO_UPDATE_PENDING', JSON.stringify(pend));
+      if (pend.runs >= CANARY_PENDING_RUNS) {
+        throw new Error('Version ' + pend.versionNumber + ' (' + version + ') is deployed, but after ' + pend.runs + ' checks over ' + ((pend.runs - 1) * 30) + ' minutes the web app still serves the previous build (' + pend.oldStamp + '). Nothing was rolled back and phones are on the old build. Open Deploy → Manage deployments and check the active version.');
+      }
+      res.pending = true; res.why = pc.why; return res;
+    }
+    props.deleteProperty('AUTO_UPDATE_PENDING');   // someone moved the deployment by hand
+  }
+  if (stamp === (live || BUILD_STAMP)) { props.deleteProperty('AUTO_UPDATE_PENDING'); return { changed: false, stamp: stamp, version: version, live: live }; }
+
   if (stamp !== BUILD_STAMP) {
     // The saved code is behind GitHub: write it. (Equal means an earlier run
     // wrote it and failed before cutting the version — just cut it now.)
@@ -4737,37 +4808,33 @@ function updateFromGitHub() {
   scriptApi('put', scriptId + '/deployments/' + depId, config(ver.versionNumber));
 
   // Canary: the live web app must answer with the new stamp, anonymously,
-  // the way a phone reaches it. Otherwise put the old version back.
-  // Google takes a while to route /exec to a moved deployment (2026-10-26:
-  // version 41 still answered as 39 on the first request), so the old stamp
-  // is retried for up to CANARY_TRIES before rolling back.
-  var why = '';
-  for (var attempt = 1; attempt <= CANARY_TRIES; attempt++) {
-    why = '';
-    try {
-      var r = UrlFetchApp.fetch('https://script.google.com/macros/s/' + depId + '/exec?action=config&canary=' + Date.now(), { muteHttpExceptions: true, followRedirects: true });
-      var body = r.getContentText();
-      var seen = /"buildStamp"\s*:\s*"([^"]+)"/.exec(body);
-      if (r.getResponseCode() !== 200) why = 'HTTP ' + r.getResponseCode();
-      else if (body.indexOf(stamp) === -1) why = 'it answered without the new build stamp (still ' + (seen ? seen[1] : 'no stamp') + ' after ' + attempt + ' tries): ' + body.slice(0, 160);
-    } catch (e) { why = String(e && e.message ? e.message : e); }
-    if (!why || attempt === CANARY_TRIES) break;
-    Utilities.sleep(CANARY_WAIT_MS);
-  }
-  if (why) {
+  // the way a phone reaches it. Only a BROKEN answer rolls back; the old
+  // stamp means Google has not routed /exec yet, so the move stands and the
+  // next trigger run checks again (see the pending branch above).
+  var c = canaryCheck(depId, stamp, live, CANARY_TRIES);
+  if (c.state === 'broken') {
     scriptApi('put', scriptId + '/deployments/' + depId, config(prev));
-    throw new Error('Version ' + ver.versionNumber + ' (' + version + ') went live but ' + why + '. Rolled the deployment back to version ' + prev + '. The editor holds the new code; check it and deploy by hand.');
+    props.deleteProperty('AUTO_UPDATE_PENDING');
+    throw new Error('Version ' + ver.versionNumber + ' (' + version + ') went live but ' + c.why + '. Rolled the deployment back to version ' + prev + '. The editor holds the new code; check it and deploy by hand.');
   }
-  try { PropertiesService.getScriptProperties().setProperty('LAST_AUTO_UPDATE', new Date().toISOString() + ' → ' + version + ' (' + stamp + ') as version ' + ver.versionNumber); } catch (e2) {}
-  return { changed: true, stamp: stamp, version: version, versionNumber: ver.versionNumber, previous: prev };
+  var done = { changed: true, stamp: stamp, version: version, versionNumber: ver.versionNumber, previous: prev, tries: c.tries };
+  if (c.state === 'old') {
+    props.setProperty('AUTO_UPDATE_PENDING', JSON.stringify({ stamp: stamp, version: version, versionNumber: ver.versionNumber, previous: prev, oldStamp: live, runs: 1 }));
+    done.changed = false; done.pending = true; done.why = c.why;
+    return done;
+  }
+  props.deleteProperty('AUTO_UPDATE_PENDING');
+  try { props.setProperty('LAST_AUTO_UPDATE', new Date().toISOString() + ' → ' + version + ' (' + stamp + ') as version ' + ver.versionNumber + ', canary ' + c.tries + ' tries'); } catch (e2) {}
+  return done;
 }
 
 function updateFromGitHubMenu() {
   var ui = SpreadsheetApp.getUi();
   try {
     var r = updateFromGitHub();
-    ui.alert(r.changed ? 'Updated' : 'Already current',
+    ui.alert(r.changed ? 'Updated' : r.pending ? 'Deployed, waiting on Google' : 'Already current',
       r.changed ? 'Backend ' + r.version + ' (' + r.stamp + ') is live as deployment version ' + r.versionNumber + '. Phones pick it up on their next request.'
+      : r.pending ? 'Backend ' + r.version + ' is deployed as version ' + r.versionNumber + ', but ' + r.why + '. Nothing was rolled back; the next run (or this menu item again in a few minutes) confirms it.'
                 : 'GitHub has ' + r.version + ' (' + r.stamp + '), which is what is running.', ui.ButtonSet.OK);
   } catch (e) { ui.alert('Update failed', String(e && e.message ? e.message : e), ui.ButtonSet.OK); }
 }
@@ -4781,7 +4848,8 @@ function autoUpdateFromGitHub() {
     if (r.changed) {
       props.deleteProperty('AUTO_UPDATE_ERROR');
       if (to) MailApp.sendEmail({ to: to, subject: 'Aquamentor backend updated to ' + r.version,
-        body: 'Deployed automatically from GitHub.\n\nBuild: ' + r.stamp + '\nDeployment version: ' + r.versionNumber + ' (was ' + r.previous + ')\n\nApp: ' + APP_PUBLIC_URL });
+        body: 'Deployed automatically from GitHub.\n\nBuild: ' + r.stamp + '\nDeployment version: ' + r.versionNumber + ' (was ' + r.previous + ')\nLive check: answered on try ' + r.tries
+          + '\n\nManagers: ' + managerNames().join(', ') + '\nPIN admins: ' + pinAdmins().join(', ') + '\n\nApp: ' + APP_PUBLIC_URL });
     }
   } catch (e) {
     var msg = String(e && e.message ? e.message : e);

@@ -31,7 +31,7 @@ const sandbox = {
       { name: 'Code', type: 'SERVER_JS', source: 'old source' },
       { name: 'appsscript', type: 'JSON', source: '{"webapp":{"access":"ANYONE_ANONYMOUS"}}' } ] };
     else if (p === 'deployments' && method === 'get') body = sandbox.__deployments;
-    else if (p === 'deployments/DEP' && method === 'get') body = { deploymentId: 'DEP', deploymentConfig: { versionNumber: 7, description: 'Prod' } };
+    else if (p === 'deployments/DEP' && method === 'get') body = { deploymentId: 'DEP', deploymentConfig: { versionNumber: sandbox.__deployedVersion, description: 'Prod' } };
     else if (p === 'versions' && method === 'post') body = { versionNumber: 8 };
     if (p === 'deployments/DEP' && method === 'put') sandbox.__deployedVersion = JSON.parse(opts.payload).deploymentConfig.versionNumber;
     return { getResponseCode: () => 200, getContentText: () => JSON.stringify(body) };
@@ -103,11 +103,32 @@ const lagPuts = calls.filter((c) => c.method === 'put' && /deployments\/DEP$/.te
 check('old stamp for the first 3 answers, new on the 4th: no rollback (2026-10-26 v41 incident)',
   [lagErr, lagged && lagged.changed, lagPuts, sandbox.__slept], [null, true, [8], 3]);
 
-/* --- Canary fails: roll back ------------------------------------------------ */
-reset(); canary = { code: 200, body: '{"ok":true,"buildStamp":"' + running + '"}' };
-let err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
-const puts = calls.filter((c) => c.method === 'put' && /deployments\/DEP$/.test(c.url)).map((c) => c.payload.deploymentConfig.versionNumber);
-check('a web app still answering the old stamp after every try rolls the deployment back', [puts, /rolled the deployment back to version 7/i.test(err), /after 10 tries/.test(err)], [[8, 7], true, true]);
+/* --- Old stamp after every try: NOT a rollback (2026-10-26 v40/41/42) ---------
+ * The saved code is new (stamp === BUILD_STAMP, as after a write), the live
+ * web app keeps answering the previous build. The move stands, the next run
+ * re-checks without cutting another version, and only a long wait mails. */
+const OLD = '2000-01-01 00:00 UTC';
+const depPuts = () => calls.filter((c) => c.method === 'put' && /deployments\/DEP$/.test(c.url)).map((c) => c.payload.deploymentConfig.versionNumber);
+reset(); sandbox.__liveStamp = OLD; github = { code: 200, body: newSrc(running) }; canary = { code: 200, body: '{"ok":true,"buildStamp":"' + running + '"}' }; sandbox.__lag = 999;
+let err = null, pr = null; try { pr = sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
+check('old stamp after every try: no rollback, no error, marked pending', [err, depPuts(), pr.pending, pr.changed, JSON.parse(store.AUTO_UPDATE_PENDING).versionNumber], [null, [8], true, false, 8]);
+calls = [];
+pr = sandbox.updateFromGitHub();
+check('next run re-checks without cutting another version or moving the deployment', [pr.pending, cutVersion(), depPuts(), JSON.parse(store.AUTO_UPDATE_PENDING).runs], [true, false, [], 2]);
+sandbox.__lag = 0; calls = [];
+pr = sandbox.updateFromGitHub();
+check('once Google routes it, the pending update is confirmed and cleared', [pr.changed, cutVersion(), 'AUTO_UPDATE_PENDING' in store, /confirmed on run 3/.test(store.LAST_AUTO_UPDATE)], [true, false, false, true]);
+reset(); sandbox.__liveStamp = OLD; github = { code: 200, body: newSrc(running) }; canary = { code: 200, body: '{}' }; sandbox.__lag = 999;
+sandbox.updateFromGitHub(); sandbox.updateFromGitHub(); sandbox.updateFromGitHub();
+err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
+check('still old after 4 runs: says so, but rolls nothing back', [/still serves the previous build/.test(err), /Nothing was rolled back/.test(err), depPuts()], [true, true, [8]]);
+reset(); sandbox.__liveStamp = OLD; github = { code: 200, body: newSrc(running) }; sandbox.__lag = 999;
+sandbox.autoUpdateFromGitHub();
+check('a pending update sends no mail', mails.length, 0);
+reset(); github = { code: 200, body: newSrc('2099-01-01 00:00 UTC') };
+canary = { code: 200, body: '{"ok":true,"buildStamp":"1999-09-09 00:00 UTC"}' };
+err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
+check('a stamp that is neither old nor new rolls back', [depPuts(), /unexpected build stamp/.test(err)], [[8, 7], true]);
 
 reset(); canary = { code: 500, body: 'boom' };
 err = null; try { sandbox.updateFromGitHub(); } catch (e) { err = e.message; }
