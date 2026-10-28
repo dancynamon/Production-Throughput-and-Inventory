@@ -151,7 +151,7 @@ delete store['PIN:Joe'];
 const salt = 'abc123';
 const emp = { Alex: sandbox.clockPinHash('Alex', '8080', salt), Maria: sandbox.clockPinHash('Maria', '7070', salt) };
 sandbox.employeeSheetRow = (n) => { const k = Object.keys(emp).find((x) => x.toLowerCase() === String(n).toLowerCase()); return k ? { name: k, hash: emp[k] } : null; };
-check('managers default to Dan, John, John C (John Cosgrove), Alex', sandbox.managerNames(), ['Dan', 'John', 'John C', 'Alex']);
+check('managers default to Dan, John C (John Cosgrove), Alex', sandbox.managerNames(), ['Dan', 'John C', 'Alex']);
 const alexIn = authAs('', '8080');
 check('a manager\'s clock PIN logs them in', [alexIn.ok, alexIn.name, alexIn.personal], [true, 'Alex', true]);
 check('...and that token works', call({ action: 'stock', token: alexIn.token, mgrName: 'Alex' }).locked, undefined);

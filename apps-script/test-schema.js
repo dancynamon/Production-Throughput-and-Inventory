@@ -153,6 +153,21 @@ check('a Supplier column is appended to RawMaterials by the upgrade',
   matSheet.grid[0].indexOf('Supplier') !== -1, true);
 check('existing cells are untouched by the column add', matSheet.grid[1][3], -350.78);
 
+/* --- 3.03.2: the plain "John" is retired once John C has his own PIN ---------- */
+const pstore = { 'PIN:John': 'oldhash', 'VIEW:John': 'count', 'PIN:Alex': 'a' };
+const savedProps = sandbox.PropertiesService;
+sandbox.PropertiesService = { getScriptProperties: () => ({ getProperty: (k) => (k in pstore ? pstore[k] : null), setProperty: (k, v) => { pstore[k] = v; }, deleteProperty: (k) => { delete pstore[k]; }, getProperties: () => ({ ...pstore }) }) };
+sandbox.applySchemaUpgrades();
+check('without PIN:John C, old John is kept (never strand him)', ['PIN:John' in pstore, 'MIGRATED_OLDJOHN_3032' in pstore], [true, false]);
+pstore['PIN:John C'] = 'newhash';
+sandbox.applySchemaUpgrades();
+check('with PIN:John C, PIN:John and VIEW:John go, John C and others stay',
+  ['PIN:John' in pstore, 'VIEW:John' in pstore, pstore['PIN:John C'], pstore['PIN:Alex'], pstore.MIGRATED_OLDJOHN_3032], [false, false, 'newhash', 'a', '1']);
+pstore['PIN:John'] = 'set again by hand';
+sandbox.applySchemaUpgrades();
+check('it runs once: a PIN:John set again later is left alone', pstore['PIN:John'], 'set again by hand');
+sandbox.PropertiesService = savedProps;
+
 /* --- The catalogue itself -------------------------------------------------- */
 // A missing comma between two array literals parses as a member access and
 // silently swallows both rows, so the shape is asserted rather than trusted.
