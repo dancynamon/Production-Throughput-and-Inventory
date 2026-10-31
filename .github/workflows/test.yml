@@ -1,0 +1,42 @@
+# Runs the offline test suite on every push and PR. Separate from
+# deploy-apps-script.yml (manual), which this does not trigger or depend on.
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Every apps-script/test-*.js (the list in CLAUDE.md, picked up by glob so
+      # new files are covered). No dependencies: each loads Code.gs and the
+      # root *-core.js files into a vm sandbox. smoketest.js is left out; it
+      # needs a global Playwright and a browser.
+      - name: apps-script/test-*.js
+        run: |
+          failed=""
+          for f in apps-script/test-*.js; do
+            echo "::group::$f"
+            if node "$f"; then
+              echo "::endgroup::"
+            else
+              echo "::endgroup::"
+              echo "::error file=$f::$f failed"
+              failed="$failed $f"
+            fi
+          done
+          if [ -n "$failed" ]; then echo "Failed:$failed"; exit 1; fi
