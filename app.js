@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.03.0';
+  var APP_VERSION = '3.04.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -33,7 +33,7 @@
         cleanup();
         // The backend refused a manager action: our token is stale (a PIN was
         // changed) or missing. Drop to employee view and say why, once.
-        if (data && data.locked) lockOut('Manager PIN changed — tap the lock to unlock again.');
+        if (data && data.locked) lockOut('Logged out (a PIN changed or the 12-hour unlock ran out). Enter your PIN again.');
         resolve(data);
       };
       // Manager actions carry the token the unlock earned. Harmless on open

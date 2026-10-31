@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-28 15:40 UTC      version 3.03.2
+ *  BUILD:  2026-10-31 16:00 UTC      version 3.04.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -175,9 +175,44 @@ function pinOwners(pin) {
   return owners;
 }
 
+/* Manager unlock with a lockout (3.04.0). The /exec URL is public and a PIN
+ * is four digits, so without one the PIN is ten thousand requests away.
+ * Same idea as verifyClockPin: wrong PINs are counted in the script cache,
+ * per name typed (5 in 15 min locks that name for 15 min) and across every
+ * name at once (10 in 15 min locks the whole unlock for an hour), because
+ * the app's PIN-only login sends no name and an attacker would not either.
+ * A success clears that name's count, never the global one. No cache = no
+ * lockout, as before. */
+var AUTH_NAME_TRIES = 5, AUTH_NAME_LOCK_SECONDS = 900;
+var AUTH_GLOBAL_TRIES = 10, AUTH_GLOBAL_WINDOW_SECONDS = 900, AUTH_GLOBAL_LOCK_SECONDS = 3600;
 function checkPin(name, pin) {
   name = String(name || '').trim(); pin = String(pin || '');
   if (!pin) return { ok: false };
+  var cache = pinCache(), key = name.toLowerCase();
+  if (cache && (cache.get('authlock:*') || cache.get('authlock:' + key))) {
+    return { ok: false, lockedOut: true, error: 'Too many wrong PINs. Unlock is paused; try again later.' };
+  }
+  var r = checkPinOnce(name, pin);
+  if (!cache) return r;
+  try {
+    if (r.ok) { cache.put('authfail:' + key, '0', 1); return r; }
+    var fails = (Number(cache.get('authfail:' + key)) || 0) + 1;
+    var all = (Number(cache.get('authfail:*')) || 0) + 1;
+    cache.put('authfail:' + key, String(fails), AUTH_NAME_LOCK_SECONDS);
+    cache.put('authfail:*', String(all), AUTH_GLOBAL_WINDOW_SECONDS);
+    if (all >= AUTH_GLOBAL_TRIES) {
+      cache.put('authlock:*', String(Date.now() + AUTH_GLOBAL_LOCK_SECONDS * 1000), AUTH_GLOBAL_LOCK_SECONDS);
+      cache.put('authfail:*', '0', 1);
+      r.lockedOut = true; r.error = 'Too many wrong PINs. Unlock is paused for an hour.';
+    } else if (fails >= AUTH_NAME_TRIES) {
+      cache.put('authlock:' + key, String(Date.now() + AUTH_NAME_LOCK_SECONDS * 1000), AUTH_NAME_LOCK_SECONDS);
+      cache.put('authfail:' + key, '0', 1);
+      r.lockedOut = true; r.error = 'Too many wrong PINs. Locked for 15 minutes.';
+    }
+  } catch (e) { /* cache hiccup: answer without counting */ }
+  return r;
+}
+function checkPinOnce(name, pin) {
   if (!name) {
     var owners = pinOwners(pin);
     if (owners.length === 1) return withToken({ ok: true, name: owners[0], personal: true, view: personView(owners[0]) });
@@ -226,13 +261,25 @@ function credentialHash(name) {
   if (name) { try { stored = PropertiesService.getScriptProperties().getProperty('PIN:' + name); } catch (e) { stored = null; } }
   return stored || (name && managerClockHash(name)) || pinHash(managerPin());
 }
-function managerToken(name) {
+/* Tokens expire (3.04.0): "<expiry ms>.<signature>", the expiry inside what
+ * is signed, so it cannot be pushed out. A token from before 3.04.0 has no
+ * expiry and no longer opens anything; that phone asks for the PIN once. */
+var MANAGER_TOKEN_HOURS = 12;
+function signedToken(kind, name, cred, exp) {
+  return exp + '.' + pinHash(kind + '|' + tokenSecret() + '|' + name + '|' + cred + '|' + exp);
+}
+function tokenParts(token) {
+  var m = /^(\d{10,15})\.([0-9a-f]{64})$/.exec(String(token || ''));
+  return m && Number(m[1]) > Date.now() ? { exp: Number(m[1]) } : null;
+}
+function managerToken(name, exp) {
   name = String(name || '').trim();
-  return pinHash('tok|' + tokenSecret() + '|' + name + '|' + credentialHash(name));
+  return signedToken('tok', name, credentialHash(name), exp || Date.now() + MANAGER_TOKEN_HOURS * 3600000);
 }
 function tokenIsValid(name, token) {
-  if (!token) return false;
-  try { return String(token) === managerToken(name); } catch (e) { return false; }
+  var t = tokenParts(token);
+  if (!t) return false;
+  try { return String(token) === managerToken(name, t.exp); } catch (e) { return false; }
 }
 function withToken(r) {
   if (r.ok) { try { r.token = managerToken(r.name); } catch (e) { r.token = null; } }
@@ -298,12 +345,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.03.2';
+var BACKEND_VERSION = '3.04.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-28 15:40 UTC';
+var BUILD_STAMP = '2026-10-31 16:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1163,6 +1210,7 @@ function doGet(e) {
       // The app clears its unlock and asks for the PIN again when it sees this.
       result = { ok: false, locked: true, error: 'Manager PIN needed. Tap the lock and unlock again.' };
     }
+    else if ((result = openWriteRefusal(action, p))) { /* refused: answer as is */ }
     else if (action === 'config')    result = getConfig();
     else if (action === 'stock')     result = getStock();
     else if (action === 'inventory') result = getInventory(p);
@@ -2484,7 +2532,54 @@ function crewLogin(p) {
   if (!er) return { ok: false, error: name + ' is not on the crew list.' };
   var v = verifyClockPin(name, p.pin);
   if (!v.ok) return v;
-  return { ok: true, name: er.name || name };
+  var who = er.name || name, tok = null;
+  try { tok = crewToken(who); } catch (e) { tok = null; }
+  return { ok: true, name: who, crewToken: tok };
+}
+
+/* Crew token (3.04.0). submitDay, reverse and ship used to take any name and
+ * any date from anyone holding the public URL. Floor mode's login now hands
+ * back a token bound to that person and their clock PIN (a new PIN voids it),
+ * good for CREW_TOKEN_HOURS, and those three writes need it or a manager
+ * token. A crew token writes only as its own name. */
+var CREW_TOKEN_HOURS = 24 * 14, CREW_TOKEN_GRACE_HOURS = 48;
+var CREW_WRITE_ACTIONS = ['submitDay', 'reverse', 'ship'];
+function crewToken(name, exp) {
+  var er = employeeSheetRow(name);
+  if (!er || !er.hash) return null;
+  return signedToken('crew', er.name.toLowerCase(), er.hash, exp || Date.now() + CREW_TOKEN_HOURS * 3600000);
+}
+function crewTokenIsValid(name, token) {
+  var t = tokenParts(token);
+  if (!t || !String(name || '').trim()) return false;
+  try { return String(token) === crewToken(String(name).trim(), t.exp); } catch (e) { return false; }
+}
+/* Phones still running the pre-3.04.0 page send no crew token, and that page
+ * drops a refused entry. So for CREW_TOKEN_GRACE_HOURS after this code first
+ * runs, a write with NO token is still taken; a wrong one never is. Script
+ * Property CREW_TOKEN_ENFORCE_AT (ms) holds the moment; set it to 0 to
+ * enforce at once. */
+function crewTokenEnforced() {
+  var props = PropertiesService.getScriptProperties(), at = props.getProperty('CREW_TOKEN_ENFORCE_AT');
+  if (at === null || at === undefined || at === '') {
+    props.setProperty('CREW_TOKEN_ENFORCE_AT', String(Date.now() + CREW_TOKEN_GRACE_HOURS * 3600000));
+    return false;
+  }
+  return Date.now() >= Number(at);
+}
+/* null = go ahead. A manager may write for anyone on any day; the floor may
+ * write only as itself, and undo only today's entries. */
+function openWriteRefusal(action, p) {
+  if (CREW_WRITE_ACTIONS.indexOf(action) === -1) return null;
+  if (p.token) {
+    if (tokenIsValid(p.mgrName, p.token)) return null;
+    return { ok: false, locked: true, error: 'Manager PIN needed. Tap the lock and unlock again.' };
+  }
+  if (action === 'reverse' && fmtDate(p.workDate) !== fmtDate(new Date())) {
+    return { ok: false, error: 'Only today\'s entries can be undone here. A manager can reverse older ones from Summary.' };
+  }
+  if (p.crewToken ? crewTokenIsValid(p.employee, p.crewToken) : !crewTokenEnforced()) return null;
+  return { ok: false, locked: true, needLogin: true, error: 'Log in again: reload this page and enter your PIN.' };
 }
 function setClockPinFor(name, pin) {
   var er = employeeSheetRow(name);
@@ -4953,7 +5048,11 @@ function setColumnFormula(ss, tabName, col, template) {
   for (var r = 2; r <= last; r++) sh.getRange(r, col).setFormula(template.replace(/\{r\}/g, r));
 }
 
+/* A JSONP callback is a function name and nothing else: it is echoed into a
+ * script the browser runs, so anything else could carry code. 3.04.0. */
+var JSONP_CALLBACK_RE = /^[A-Za-z_$][\w$.]*$/;
 function respond(obj, callback) {
+  if (callback && !JSONP_CALLBACK_RE.test(String(callback))) { obj = { ok: false, error: 'Bad callback name.' }; callback = ''; }
   var json = JSON.stringify(obj);
   if (callback) return ContentService.createTextOutput(callback + '(' + json + ');')
     .setMimeType(ContentService.MimeType.JAVASCRIPT);

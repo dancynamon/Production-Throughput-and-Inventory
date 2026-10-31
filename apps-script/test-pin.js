@@ -84,8 +84,8 @@ check('what is stored is a hash, never the PIN', store['PIN:Dan'].indexOf('99001
 /* --- The lock lives on the server ------------------------------------------ */
 const call = (params) => noMs(JSON.parse(sandbox.doGet({ parameter: params }).getContent()));
 const tok = authAs('', '731905').token;
-check('a successful unlock returns a token, and it is not the PIN',
-  [typeof tok, tok.length, tok.indexOf('731905')], ['string', 64, -1]);
+check('a successful unlock returns a token ("<expiry>.<signature>" since 3.04.0), and it is not the PIN',
+  [typeof tok, /^\d+\.[0-9a-f]{64}$/.test(tok), tok.indexOf('731905')], ['string', true, -1]);
 check('a failed unlock returns no token', authAs('', '0000').token, undefined);
 check('a manager action with no token is refused as locked',
   [call({ action: 'stock' }).locked, call({ action: 'export', table: 'stagelog' }).locked], [true, true]);

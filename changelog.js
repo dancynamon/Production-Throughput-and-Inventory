@@ -2,6 +2,13 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.04.0', date: '2026-10-31', title: 'Tighter locks', items: [
+    { who: 'crew', text: 'Floor mode logs you in with a pass that lasts two weeks. When it runs out, Floor asks for your PIN again; anything you saved meanwhile stays on the phone and sends after you log in.' },
+    { who: 'crew', text: 'Undo in Floor mode works on today\'s entries. A manager reverses anything older from Summary.' },
+    { who: 'mgr',  text: 'A manager unlock lasts 12 hours, then the app asks for the PIN again. Every phone asks once after this update.' },
+    { who: 'mgr',  text: 'Wrong manager PINs lock out: 5 in 15 minutes locks that login for 15 minutes, and 10 from anyone in 15 minutes pauses all manager unlocks for an hour.' },
+    { who: 'mgr',  text: 'Logging production, undoing it and shipping now need either a manager unlock or the person\'s own Floor login, and only as that person. Phones still on the old page keep working for 48 hours after the sheet updates.' }
+  ]},
   { version: '3.03.2', date: '2026-10-28', title: 'One John', items: [
     { who: 'mgr',  text: 'The old "John" login is gone; John logs in as John C (his own manager PIN or his Floor mode PIN), which is what shows him the PINs tab and the manager guide.' }
   ]},

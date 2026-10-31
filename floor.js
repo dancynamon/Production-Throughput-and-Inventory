@@ -18,7 +18,8 @@
   ];
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
-  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue', prod: 'aq_floor_prod', cfg: 'aq_floor_cfg', pace: 'aq_floor_pace' };
+  var K = { name: 'aq_floor_login', queue: 'aq_floor_queue', prod: 'aq_floor_prod', cfg: 'aq_floor_cfg', pace: 'aq_floor_pace',
+            tok: 'aq_floor_tokens' };
   // Stages and products the pace strip counts; same lists as FLOOR_STAGES / FLOOR_PRODUCTS in Code.gs.
   var PACE_STAGES = ['Meshed', 'Patched', 'Boxed'], PACE_PRODUCTS = ['XRT50EXO', 'XRT40EXO', 'XRT50STD', 'XRT40STD'];
   var RETRY_MS = [3000, 6000, 15000, 30000];
@@ -293,6 +294,7 @@
       }
       el('flPin').hidden = true;
       S.name = r.name || who; ls(K.name, S.name);
+      setToken(S.name, r.crewToken || null);
       start();
       if (r.unchecked) toast('PIN not checked: the sheet is still updating.', { bad: true });
     }).catch(function (e) { PIN.busy = false; PIN.digits = ''; renderDots(); pinMsg(e.message, 'bad'); });
@@ -351,6 +353,8 @@
       ? q.length + ' saved on this phone. Sends itself when there is signal.'
       : q.length + ' sending…';
   }
+  // Tokens of people logged out whose entries have all gone.
+  function pruneTokens() { Object.keys(tokens()).forEach(function (n) { if (n !== S.name) setToken(n, null); }); }
   function dropQ(clientId) { writeQ(readQ().filter(function (x) { return x.clientId !== clientId; })); }
   function dupText(r) { return FloorCore.dupText(r.duplicates, S.name); }
   function payloadFor(stage, n) {
@@ -360,8 +364,17 @@
     return { action: 'submitDay', workDate: todayIso(), employee: S.name, productId: productFor(stage), counts: JSON.stringify(counts),
              notes: 'floor ' + id.slice(-6), clientId: 'fl-' + id, _label: n + ' ' + (j.label || stage) + (lbl ? ' ' + lbl : '') };
   }
+  /* Crew tokens (3.04.0), one per name: the sheet takes submitDay / reverse
+   * only with the token that person's login earned. Kept per name so entries
+   * still queued under someone who logged out can go once there is signal. */
+  function tokens() { try { return JSON.parse(ls(K.tok) || '{}') || {}; } catch (e) { return {}; } }
+  function setToken(name, tok) {
+    var t = tokens(); if (tok) t[name] = tok; else delete t[name];
+    ls(K.tok, Object.keys(t).length ? JSON.stringify(t) : null);
+  }
   function send(payload) {
-    var wire = Object.assign({}, payload); delete wire._label;
+    var wire = Object.assign({}, payload), tok = tokens()[payload.employee]; delete wire._label;
+    if (tok) wire.crewToken = tok;
     return api(wire, 20000);
   }
   function scheduleRetry() {
@@ -376,10 +389,18 @@
     var sent = 0;
     function next() {
       var q = readQ();
-      if (!q.length) { S.retry = 0; S.offline = false; showQ(q); if (sent) refresh(); return null; }
+      if (!q.length) { S.retry = 0; S.offline = false; showQ(q); pruneTokens(); if (sent) refresh(); return null; }
       var item = q[0]; S.inflight = item.clientId;
       return send(item).then(function (r) {
         S.inflight = ''; S.offline = false; S.retry = 0;
+        if (r && r.needLogin && (!S.name || item.employee === S.name)) {
+          // Token missing or expired: keep everything on the phone and ask for the PIN.
+          if (S.name) {
+            setToken(S.name, null); S.name = ''; ls(K.name, null); showPick();
+            toast('Log in again to send ' + q.length + ' saved on this phone.', { bad: true });
+          }
+          return null;
+        }
         if (r && (r.ok || r.replayed)) {
           sent++; dropQ(item.clientId);
           var dup = item.action === 'submitDay' ? dupText(r) : '', dn = el('flDup');
@@ -460,7 +481,10 @@
   }
 
   function wire() {
-    el('flNotYou').addEventListener('click', function () { S.name = ''; ls(K.name, null); S.pace = null; showPick(); });
+    el('flNotYou').addEventListener('click', function () {
+      if (!readQ().some(function (x) { return x.employee === S.name; })) setToken(S.name, null);
+      S.name = ''; ls(K.name, null); S.pace = null; showPick();
+    });
     el('flClock').addEventListener('click', onClock);
     buildPad();
     el('flPinCancel').addEventListener('click', function () { if (!PIN.busy) el('flPin').hidden = true; });

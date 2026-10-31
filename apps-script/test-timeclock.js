@@ -271,7 +271,9 @@ check('it is in the sheet menu', /installDailyTimeSummary/.test(fs.readFileSync(
 
 /* 3.01.1: log in on load. Clock PIN, same lockout, canonical name back. */
 setPin({ employee: 'Alex', pin: '4321' });
-check('login: right PIN, canonical name', JSON.stringify(sandbox.crewLogin({ name: 'alex', pin: '4321' })), JSON.stringify({ ok: true, name: 'Alex' }));
+const lg = sandbox.crewLogin({ name: 'alex', pin: '4321' });
+check('login: right PIN, canonical name, a crew token (3.04.0) and nothing else',
+  [Object.keys(lg), lg.ok, lg.name, /^\d+\.[0-9a-f]{64}$/.test(lg.crewToken)], [['ok', 'name', 'crewToken'], true, 'Alex', true]);
 check('login: wrong PIN refused', sandbox.crewLogin({ name: 'Alex', pin: '0000' }).ok, false);
 check('login: unknown name refused', sandbox.crewLogin({ name: 'Nobody', pin: '4321' }).ok, false);
 check('login: is an open action (no token)', body(sandbox.doGet({ parameter: { action: 'login', name: 'Alex', pin: '4321' } })).ok, true);
