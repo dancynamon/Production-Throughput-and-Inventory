@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.04.1', date: '2026-10-31', title: 'Faster Today, My pace and Undo', items: [
+    { who: 'crew', text: 'Today\'s totals, your own pace on the Floor tab, and Undo read only the days they need from the log instead of all of it, so they load faster as the log grows. The numbers are the same.' },
+    { who: 'mgr',  text: 'A reverse holds the sheet lock for a moment instead of while it reads the whole StageLog, so a submit at the same time no longer waits on it. The manager Floor view still loads the full log: its piles and Fix-ups need every row.' }
+  ]},
   { version: '3.04.0', date: '2026-10-31', title: 'Tighter locks', items: [
     { who: 'crew', text: 'Floor mode logs you in with a pass that lasts two weeks. When it runs out, Floor asks for your PIN again; anything you saved meanwhile stays on the phone and sends after you log in.' },
     { who: 'crew', text: 'Undo in Floor mode works on today\'s entries. A manager reverses anything older from Summary.' },

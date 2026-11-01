@@ -37,6 +37,8 @@ const FIX = {
   ]
 };
 sandbox.readObjects = (tab) => FIX[tab] || [];
+// The fixtures stand in for readObjects; the windowed reader filters the same rows.
+sandbox.readObjectsWhere = (tab, col, test) => sandbox.readObjects(tab).filter((r) => test(r[col]));
 
 let failures = 0;
 function check(label, actual, expected) {
