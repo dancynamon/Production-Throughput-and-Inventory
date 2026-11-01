@@ -12,6 +12,15 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 
+// The fixtures are dated September 2026 and getFinished looks back 30 days
+// from "now", so the clock is pinned there; on the real date the view went
+// empty once the fixtures aged out.
+const NOW = Date.parse('2026-09-25T12:00:00Z');
+class FakeDate extends Date {
+  constructor(...a) { if (a.length) super(...a); else super(NOW); }
+  static now() { return NOW; }
+}
+
 function fakeSheet(headers, rows) {
   const grid = [headers.slice(), ...rows.map((r) => r.slice())];
   return {
@@ -67,7 +76,7 @@ const sandbox = {
   PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k in store ? store[k] : null), setProperty: (k, v) => { store[k] = v; }, deleteProperty: (k) => { delete store[k]; } }) },
   Utilities: { getUuid: () => 'uuid-' + Math.random().toString(36).slice(2), DigestAlgorithm: {}, Charset: {}, computeDigest: () => [] },
   ScriptApp: { getProjectTriggers: () => [] },
-  Logger: { log() {} }, console, JSON, Math, Number, String, Object, Array, Date, isNaN, isFinite, RegExp, Error
+  Logger: { log() {} }, console, JSON, Math, Number, String, Object, Array, Date: FakeDate, isNaN, isFinite, RegExp, Error
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8'), sandbox);

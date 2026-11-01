@@ -174,7 +174,10 @@ node apps-script/test-floor.js      # floor mode: clock in/out, 6pm + 14 h auto-
 node apps-script/test-reorder.js    # reorder: due rules, never-counted skipped, qty rules, supplier grouping
 node apps-script/test-timeclock.js  # login, PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
 node apps-script/test-speed.js      # submitDay: one Products read, StageLog tail only; config cache + onEdit; one TimeLog read
+node apps-script/test-auth.js       # auth lockout, token expiry, JSONP callback, crew token on submitDay/reverse/ship, today-only undo
 ```
+
+Run them from the repo root (some read `apps-script/Code.gs` by relative path).
 
 `node --check` passes plenty of real bugs in this file — a missing comma
 between array literals parses as a member access. Evaluate the constants and
@@ -328,6 +331,16 @@ assert on them rather than trusting the parser.
   the first request after a deploy unless Script Property `OVERVIEW_SCHEDULE` = off). The
   ~1.5-2 s Apps Script floor per request is not ours to remove; it is hidden, not shortened.
   Clock punches stay server-confirmed (PIN + geofence); GPS starts when the PIN pad opens
+- **Auth hardening 3.04.0** (backend + app). `auth` locks out: 5 wrong in 15 min per name typed,
+  10 wrong across all names in 15 min pauses every manager unlock for an hour (`authfail:`/`authlock:`
+  script-cache keys; `lockedOut: true` in the reply). Manager tokens are `<expiry ms>.<sig>`, 12 h
+  (`MANAGER_TOKEN_HOURS`); pre-3.04.0 tokens open nothing. JSONP `callback` must match
+  `^[A-Za-z_$][\w$.]*$`. `login` (`crewLogin`) returns `crewToken` (14 days, bound to the name and
+  clock-PIN hash); `submitDay`/`reverse`/`ship` need a valid manager token or a crew token for
+  `employee` (`openWriteRefusal` in doGet), else `{locked, needLogin}`. Tokenless writes are taken for
+  48 h after the first one is seen (Script Property `CREW_TOKEN_ENFORCE_AT`, ms; `0` = enforce now);
+  a wrong token never is. Without a manager token, `reverse` is today's workDate only. Floor keeps
+  tokens per name in `aq_floor_tokens`, and on `needLogin` keeps the queue and asks for the PIN
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
