@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-31 18:00 UTC      version 3.04.1
+ *  BUILD:  2026-10-31 23:30 UTC      version 3.05.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -101,8 +101,10 @@ var WIP_FINISHED = '(finished)';
 // confounded by how many people worked and for how long; units per HOUR is a
 // rate you can multiply by planned staffing. It also finally gives the
 // Ideal/Floor rate columns something to be compared against.
+// ClientId (3.05.0): the phone's id for the submission, so a retry that
+// arrives after the replay cache has let go is still recognised.
 var STAGELOG_HEADERS = ['Timestamp', 'WorkDate', 'Employee', 'ProductID',
-                        'ProductName', 'Stage', 'Qty', 'Hours', 'Notes'];
+                        'ProductName', 'Stage', 'Qty', 'Hours', 'Notes', 'ClientId'];
 
 var COUNTLOG_HEADERS = ['Timestamp', 'MaterialID', 'MaterialName', 'Unit',
                         'EstimatedAtCount', 'CountedQty', 'Variance', 'VariancePct',
@@ -345,12 +347,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.04.1';
+var BACKEND_VERSION = '3.05.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-31 18:00 UTC';
+var BUILD_STAMP = '2026-10-31 23:30 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1108,6 +1110,7 @@ function applySchemaUpgrades() {
   else addColumns(TAB.timelog, TIMELOG_HEADERS);           // punch location + edit audit columns
   if (!ss.getSheetByName(TAB.timereq)) { writeTab(ss, TAB.timereq, TIMEREQ_HEADERS, []); did.push('created TimeRequests'); }
   addColumns(TAB.employees, ['PinHash']);                  // clock PIN, salted hash only
+  addColumns(TAB.stagelog, ['ClientId']);                  // durable replay guard (3.05.0)
 
   SpreadsheetApp.getActive().toast(
     did.length ? did.join('; ') + '. No existing values were changed.'
@@ -1199,6 +1202,32 @@ function ensureSchemaCurrent() {
   }
 }
 
+/* Errors that say "not now", not "no": the same request can succeed later.
+ * Lock timeouts, quota bursts, a Sheets hiccup, the 6-minute limit. */
+var TRANSIENT_ERROR_RE = /lock timeout|timed out|too many times|service (error|unavailable)|temporarily unavailable|try again later|exceeded maximum execution|internal error|server error/i;
+function transientError(msg) { return TRANSIENT_ERROR_RE.test(String(msg || '')); }
+
+/* Replay guard for the writes a phone retries: submitDay, reverse, ship,
+ * clock (3.05.0). The script cache answers a retry without touching the
+ * sheet, and is asked twice: before the lock (fast path) and again once the
+ * lock is held. The second look is the fix. A phone that gave up waiting on
+ * a busy floor resends while its first request is still queued on the lock;
+ * both missed the cache and both logged. The log row's ClientId (or ShipLog
+ * Key) is the durable check behind the cache, which can be evicted and only
+ * keeps six hours: a phone left in a locker overnight retries after that. */
+function replayCache() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
+function replaySeen(cache, key) {
+  if (!cache || !key) return null;
+  var seen = null;
+  try { seen = cache.get(key); } catch (e) { return null; }
+  if (!seen) return null;
+  try { var prior = JSON.parse(seen); prior.replayed = true; return prior; } catch (e2) { return null; }
+}
+function replayKeep(cache, key, result) {
+  if (!cache || !key) return;
+  try { cache.put(key, JSON.stringify(result), 21600); } catch (e) { /* best effort */ }
+}
+
 function doGet(e) {
   var t0 = Date.now();
   ensureSchemaCurrent();
@@ -1254,7 +1283,11 @@ function doGet(e) {
     else if (action === 'salesImport') result = salesImport(p);
     else result = { ok: false, error: 'Unknown action: ' + action };
   } catch (err) {
-    result = { ok: false, error: String(err && err.message ? err.message : err) };
+    var msg = String(err && err.message ? err.message : err);
+    // retry: true tells a phone's queue to keep the entry and send it again
+    // (3.05.0). A lock timeout on a busy floor used to read as a refusal and
+    // the entry was dropped.
+    result = { ok: false, error: msg, retry: transientError(msg) };
   }
   // Time spent inside doGet, so a slow phone can be told apart from a slow sheet.
   if (result && typeof result === 'object' && !Array.isArray(result)) result = Object.assign({}, result, { serverMs: Date.now() - t0 });
@@ -1706,13 +1739,9 @@ function submitDay(p) {
    * day twice. Six hours is long enough for any plausible retry and short
    * enough that the cache stays tiny. */
   var clientId = String(p.clientId || '').trim();
-  var cache = null;
-  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
-  if (cache && clientId) {
-    var seen = null;
-    try { seen = cache.get('day:' + clientId); } catch (e1) { seen = null; }
-    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
-  }
+  var cache = replayCache(), rkey = clientId ? 'day:' + clientId : '';
+  var prior = replaySeen(cache, rkey);
+  if (prior) return prior;
 
   /* Speed (3.02.0). Everything that does not change under us is read before
    * the lock, Products once (it used to be three reads), and the lock only
@@ -1733,15 +1762,19 @@ function submitDay(p) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    var again = replaySeen(cache, rkey);             // a twin that held the lock first
+    if (again) return again;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var logSheet = ss.getSheetByName(TAB.stagelog);
+    var tail = tailObjects(logSheet, DUP_TAIL_ROWS);
+    var onBooks = clientId ? tail.rows.filter(function (r) { return String(r.ClientId || '') === clientId; }) : [];
+    if (onBooks.length) return replayFromRows(onBooks, product);
+
     var matSheet = ss.getSheetByName(TAB.materials);
     var matRows  = matSheet.getDataRange().getValues();
     var rowOf = {};                                   // MaterialID -> sheet row index
     for (var i = 1; i < matRows.length; i++) rowOf[matRows[i][0]] = i;
     var matWrites = {};                               // sheet row index -> new OnHand, written once at the end
-
-    var logSheet = ss.getSheetByName(TAB.stagelog);
-    var tail = tailObjects(logSheet, DUP_TAIL_ROWS);
     /* What is already on the books for this product today, so a second entry
      * for the same stage can be called out. Not blocked — two batches in a day
      * is normal, and a shift handover legitimately produces two rows — but a
@@ -1778,7 +1811,7 @@ function submitDay(p) {
       newRows.push(rowByHeader(tail.headers, {
         Timestamp: now, WorkDate: workDate, Employee: employee,
         ProductID: productId, ProductName: product.ProductName,
-        Stage: stage, Qty: qty, Hours: hrs, Notes: note
+        Stage: stage, Qty: qty, Hours: hrs, Notes: note, ClientId: clientId
       }));
       logged.push({ stage: stage, qty: qty, hours: hrs === '' ? null : hrs, note: note || null });
 
@@ -1854,13 +1887,20 @@ function submitDay(p) {
       duplicates: duplicates,
       warnings: warnings
     };
-    if (cache && clientId) {
-      try { cache.put('day:' + clientId, JSON.stringify(result), 21600); } catch (e2) { /* best effort */ }
-    }
+    replayKeep(cache, rkey, result);
     return result;
   } finally {
     lock.releaseLock();
   }
+}
+/* The answer to a retry the cache no longer remembers: the rows it wrote are
+ * on the books, so say so and change nothing. */
+function replayFromRows(rows, product) {
+  var total = rows.reduce(function (a, r) { return a + (Number(r.Qty) || 0); }, 0);
+  return { ok: true, replayed: true,
+           message: 'Already logged ' + round2(total) + ' for ' + ((product && product.ProductName) || rows[0].ProductID) + ' on ' + fmtDate(rows[0].WorkDate),
+           logged: rows.map(function (r) { return { stage: r.Stage, qty: Number(r.Qty) || 0, hours: r.Hours === '' ? null : r.Hours, note: r.Notes || null }; }),
+           consumed: [], produced: [], stocked: [], duplicates: [], warnings: [] };
 }
 
 function receiveStock(p) {
@@ -2666,17 +2706,15 @@ function clockShift(p) {
   if (!geo.ok) return { ok: false, error: geo.error, needLocation: true };
 
   var clientId = String(p.clientId || '').trim();
-  var cache = null;
-  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
-  if (cache && clientId) {
-    var seen = null;
-    try { seen = cache.get('clock:' + clientId); } catch (e1) { seen = null; }
-    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
-  }
+  var cache = replayCache(), rkey = clientId ? 'clock:' + clientId : '';
+  var prior = replaySeen(cache, rkey);
+  if (prior) return prior;
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    var again = replaySeen(cache, rkey);
+    if (again) return again;
     var sh = floorTimeSheet();
     var now = new Date(), nowMs = now.getTime();
     var workDate = fmtDate(now);
@@ -2725,9 +2763,7 @@ function clockShift(p) {
     var st = shiftState(shifts, employee, workDate, nowMs);
     result.employee = employee; result.workDate = workDate;
     result.clockedIn = st.clockedIn; result.since = st.since; result.hoursToday = st.hoursToday;
-    if (cache && clientId) {
-      try { cache.put('clock:' + clientId, JSON.stringify(result), 21600); } catch (e2) { /* best effort */ }
-    }
+    replayKeep(cache, rkey, result);
     return result;
   } finally {
     lock.releaseLock();
@@ -3240,17 +3276,18 @@ function exportTable(p) {
 /* Replay-safe like submitDay (3.02.0): Floor mode queues an undo on the phone
  * and may send it twice when a reply is lost; the same clientId reverses once. */
 function reverseEntry(p) {
-  var clientId = String((p && p.clientId) || '').trim(), cache = null;
-  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
-  if (cache && clientId) {
-    var seen = null; try { seen = cache.get('rev:' + clientId); } catch (e1) { seen = null; }
-    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
-  }
-  var result = reverseEntryOnce(p);
-  if (cache && clientId && result && result.ok) { try { cache.put('rev:' + clientId, JSON.stringify(result), 21600); } catch (e2) {} }
+  var clientId = String((p && p.clientId) || '').trim();
+  var cache = replayCache(), rkey = clientId ? 'rev:' + clientId : '';
+  var prior = replaySeen(cache, rkey);
+  if (prior) return prior;
+  var result = reverseEntryOnce(p, function () { return replaySeen(cache, rkey); });
+  if (result && result.ok && !result.replayed) replayKeep(cache, rkey, result);
   return result;
 }
-function reverseEntryOnce(p) {
+/* recheck() runs once the lock is held: a twin of this request that got the
+ * lock first has answered by then. */
+function reverseEntryOnce(p, recheck) {
+  var clientId  = String(p.clientId || '').trim();
   var employee  = String(p.employee || '').trim();
   var by        = String(p.by || employee).trim();
   var productId = String(p.productId || '').trim();
@@ -3275,15 +3312,22 @@ function reverseEntryOnce(p) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
+    var again = recheck ? recheck() : null;
+    if (again) return again;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     // Can only take back what is actually on the books for that day.
-    var onBooks = 0;
+    var onBooks = 0, done = null;
     readObjectsWhere(TAB.stagelog, 'WorkDate', function (v) { return fmtDate(v) === workDate; }).forEach(function (r) {
+      if (clientId && String(r.ClientId || '') === clientId) done = r;
       if (r.ProductID === productId && r.Stage === stage && fmtDate(r.WorkDate) === workDate) {
         onBooks += Number(r.Qty) || 0;
       }
     });
+    if (done) {
+      return { ok: true, replayed: true, message: 'Already reversed ' + qty + ' ' + stage + ' for ' + product.ProductName + ' on ' + workDate,
+               nowOnBooks: round2(onBooks), restored: [], removed: null, unstocked: null, warnings: [] };
+    }
     if (qty > onBooks + 1e-9) {
       return { ok: false, error: 'Only ' + round2(onBooks) + ' logged for ' + stage + ' on ' + workDate + ' — cannot reverse ' + qty + '.' };
     }
@@ -3297,7 +3341,7 @@ function reverseEntryOnce(p) {
       Timestamp: new Date(), WorkDate: workDate, Employee: employee,
       ProductID: productId, ProductName: product.ProductName,
       Stage: stage, Qty: -qty, Hours: '',
-      Notes: 'REVERSED ' + qty + ' by ' + by + ': ' + reason
+      Notes: 'REVERSED ' + qty + ' by ' + by + ': ' + reason, ClientId: clientId
     });
 
     var restored = [], removed = null, warnings = [];
@@ -4304,25 +4348,30 @@ function shipOut(p) {
   if (CHANNELS.indexOf(channel) === -1) return { ok: false, error: 'Pick where it went: ' + CHANNELS.join(', ') + '.' };
   if (!isSellable(productId)) return { ok: false, error: productId + ' is not a finished product.' };
 
-  var clientId = String(p.clientId || '').trim(), cache = null;
-  try { cache = CacheService.getScriptCache(); } catch (e0) { cache = null; }
-  if (cache && clientId) {
-    var seen = null; try { seen = cache.get('ship:' + clientId); } catch (e1) { seen = null; }
-    if (seen) { var prior = JSON.parse(seen); prior.replayed = true; return prior; }
-  }
+  var clientId = String(p.clientId || '').trim();
+  var cache = replayCache(), rkey = clientId ? 'ship:' + clientId : '';
+  var prior = replaySeen(cache, rkey);
+  if (prior) return prior;
   var lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
+    var again = replaySeen(cache, rkey);
+    if (again) return again;
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
     var now = new Date();
     var key = 'manual|' + (clientId || Utilities.getUuid());
+    if (clientId) {
+      var shipped = readObjectsWhere(TAB.shiplog, 'Key', function (v) { return String(v) === key; });
+      if (shipped.length) return { ok: true, replayed: true, message: 'Already recorded: ' + shipped[0].Qty + ' ' + product.ProductName + ' via ' + shipped[0].Channel,
+                                   productId: productId, name: product.ProductName, qty: Number(shipped[0].Qty) || qty, channel: shipped[0].Channel, onHand: null, warnings: [] };
+    }
     appendByHeader(shipSheet(ss), { Timestamp: now, ShipDate: shipDate, ProductID: productId, ProductName: product.ProductName,
       Qty: qty, Channel: channel, Ref: ref, By: employee, Notes: notes, Key: key });
     var onHand = adjustFinished(ss, productId, -qty);
     var result = { ok: true, message: 'Shipped ' + qty + ' ' + product.ProductName + ' via ' + channel + (ref ? ' (' + ref + ')' : ''),
                    productId: productId, name: product.ProductName, qty: qty, channel: channel, onHand: onHand,
                    warnings: onHand !== null && onHand < 0 ? ['Storage now shows ' + onHand + ' — more shipped than was ever logged as finished. Count storage on the Inventory tab.'] : [] };
-    if (cache && clientId) { try { cache.put('ship:' + clientId, JSON.stringify(result), 21600); } catch (e2) {} }
+    replayKeep(cache, rkey, result);
     return result;
   } finally { lock.releaseLock(); }
 }

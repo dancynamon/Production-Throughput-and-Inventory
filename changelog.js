@@ -2,6 +2,15 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.05.0', date: '2026-10-31', title: 'Nothing lost, nothing twice on bad Wi-Fi', items: [
+    { who: 'crew', text: 'When the sheet is busy, Floor mode keeps your entry on the phone and sends it again a moment later. Before, a busy sheet could throw a saved entry away.' },
+    { who: 'crew', text: 'When your Floor login runs out, the PIN pad opens right on your screen. Your job, size and the number you typed stay put, and what you saved goes as soon as the PIN is in.' },
+    { who: 'crew', text: 'After midnight the strip shows a fresh day instead of yesterday\'s numbers, even with no signal.' },
+    { who: 'crew', text: 'Typing your PIN again after a clock punch got no answer no longer says "You are not clocked in": the sheet answers the first punch.' },
+    { who: 'mgr',  text: 'When the 12-hour unlock runs out, the login card shows over the screen you are on. After the PIN you are back on that screen with what you typed, and the save you tapped goes through.' },
+    { who: 'mgr',  text: 'A shipment or reverse tapped again after "no signal" is recorded once. The sheet now checks for a repeat after it has waited its turn, and the log row remembers it, so even a retry the next morning is caught.' },
+    { who: 'mgr',  text: 'A phone left open overnight moves the work date to today, and the Floor, Summary and Time screens reload when you come back to the phone after 5 minutes.' }
+  ]},
   { version: '3.04.1', date: '2026-10-31', title: 'Faster Today, My pace and Undo', items: [
     { who: 'crew', text: 'Today\'s totals, your own pace on the Floor tab, and Undo read only the days they need from the log instead of all of it, so they load faster as the log grows. The numbers are the same.' },
     { who: 'mgr',  text: 'A reverse holds the sheet lock for a moment instead of while it reads the whole StageLog, so a submit at the same time no longer waits on it. The manager Floor view still loads the full log: its piles and Fix-ups need every row.' }

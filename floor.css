@@ -83,3 +83,4 @@
 /* 3.01.8: no +12 box for chairs and shapes; +5 takes the full row */
 #fl12[hidden]{display:none}
 .fl-qty2--one{grid-template-columns:1fr}
+.fl-note--tap{border:2px solid var(--gold);font-weight:700;cursor:pointer}

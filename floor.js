@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.02.0';
+  var FLOOR_VERSION = '3.05.0';
   // Every tube job, in floor order (3.01.5). Cut and Glued log against the
   // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
   var JOBS = [
@@ -26,7 +26,7 @@
 
   var el = function (id) { return document.getElementById(id); };
   var S = { cfg: null, name: '', prod: 'TUBE', size: '50', std: false, stage: 'Boxed', busy: false, pace: null, undo: null,
-            flushing: null, inflight: '', retry: 0, retryTimer: null, offline: false };
+            flushing: null, inflight: '', retry: 0, retryTimer: null, offline: false, waitingFor: [] };
   // Round-trip times this session, newest last, for anyone measuring: window.__flPerf.
   var perf = window.__flPerf = [];
   function note(what, t0, r) { perf.push({ what: what, ms: Math.round(Date.now() - t0), serverMs: r && r.serverMs }); if (perf.length > 50) perf.shift(); }
@@ -36,29 +36,15 @@
     return null;
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
-  function todayIso() { var d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function todayIso() { return NetCore.localIso(); }
   function uid() { return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8); }
 
-  /* ---- JSONP (same shape as app.js) --------------------------------------- */
-  var seq = 0;
+  /* ---- JSONP (net-core.js, shared with app.js since 3.05.0) ------------------ */
+  var rawApi = NetCore.jsonp({ url: API, prefix: '__fl_cb_',
+    messages: { timeout: 'No answer. Check signal.', offline: 'No signal.', badReply: 'The sheet is busy. Try again in a minute.' } });
   function api(params, timeoutMs) {
-    return new Promise(function (resolve, reject) {
-      if (!API) { reject(new Error('API_URL is not set (edit config.js)')); return; }
-      var cb = '__fl_cb_' + (++seq), script = document.createElement('script');
-      var timer = setTimeout(function () { cleanup(); reject(new Error('No answer. Check signal.')); }, timeoutMs || 15000);
-      function cleanup() { clearTimeout(timer); delete window[cb]; if (script.parentNode) script.parentNode.removeChild(script); }
-      var t0 = Date.now();
-      window[cb] = function (data) { cleanup(); note(params.action, t0, data); resolve(data); };
-      var qs = Object.keys(params).filter(function (k) { return k !== '__retry'; })
-        .map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
-      script.src = API + '?' + qs + '&callback=' + cb;
-      script.onerror = function () {
-        cleanup();
-        if (!params.__retry) { setTimeout(function () { api(Object.assign({}, params, { __retry: 1 }), timeoutMs).then(resolve, reject); }, 1500); return; }
-        reject(new Error('No signal.'));
-      };
-      document.body.appendChild(script);
-    });
+    var t0 = Date.now();
+    return rawApi(params, timeoutMs).then(function (data) { note(params.action, t0, data); return data; });
   }
 
   /* ---- toast / undo -------------------------------------------------------- */
@@ -218,6 +204,9 @@
   }
   function openPin(dir) {
     PIN.dir = dir; PIN.digits = ''; PIN.busy = false; renderDots(); pinMsg('');
+    // One id for this punch, kept if the answer is lost and the PIN typed again:
+    // the sheet then hands back the first answer, not "You are not clocked in" (3.05.0).
+    PIN.cid = 'ck-' + uid();
     // Start the GPS fix while the PIN is typed: it used to start after the 4th digit (3.02.0).
     PIN.fix = dir === 'login' ? null : locate();
     el('flPinTitle').textContent = dir === 'login' ? PIN.who + ': enter your PIN'
@@ -254,7 +243,7 @@
     var dir = PIN.dir, pin = PIN.digits;
     (PIN.fix || locate()).then(function (fix) {
       pinMsg('Checking...', '', true);
-      var q = { action: 'clock', employee: S.name, dir: dir, pin: pin, clientId: uid(), workDate: todayIso() };
+      var q = { action: 'clock', employee: S.name, dir: dir, pin: pin, clientId: PIN.cid, workDate: todayIso() };
       if (fix) { q.lat = fix.lat; q.lng = fix.lng; q.accuracy = fix.accuracy; }
       return api(q, 20000);
     }).then(function (r) {
@@ -293,8 +282,17 @@
         return;
       }
       el('flPin').hidden = true;
+      var again = S.relogin && S.name === (r.name || who);
+      S.relogin = false;
       S.name = r.name || who; ls(K.name, S.name);
       setToken(S.name, r.crewToken || null);
+      if (again) {
+        // The login ran out under them: the screen, the typed number and the queue all stayed.
+        S.waitingFor = S.waitingFor.filter(function (n) { return n !== S.name; });
+        toast(readQ().length ? 'Logged in again. Sending what was saved.' : 'Logged in again.');
+        flush(); refresh();
+        return;
+      }
       start();
       if (r.unchecked) toast('PIN not checked: the sheet is still updating.', { bad: true });
     }).catch(function (e) { PIN.busy = false; PIN.digits = ''; renderDots(); pinMsg(e.message, 'bad'); });
@@ -328,9 +326,25 @@
     }).catch(function (e) { msg.className = 'fl-pinmsg bad'; msg.textContent = e.message; });
   }
 
+  /* After midnight the strip still shows yesterday until the sheet answers,
+   * and with no signal it never would: blank it instead, so nobody reads
+   * yesterday's total as today's (3.05.0). */
+  function rollDay() {
+    if (!S.pace || !S.pace.today || S.pace.today === todayIso()) return;
+    S.pace = null; ls(K.pace, null);
+    ['cellDay', 'cellWeek'].forEach(function (id) { el(id).className = 'fl-cell'; });
+    el('dayV').textContent = '-'; el('weekV').textContent = '-'; el('meV').textContent = '-';
+    el('dayS').textContent = 'New day. Loading...'; el('weekS').textContent = '';
+    renderClock(null);
+  }
+  var paceSeq = 0;
   function refresh() {
     if (!S.name) return Promise.resolve();
-    return api({ action: 'floorPace', employee: S.name, workDate: todayIso() }).then(function (r) {
+    rollDay();
+    var mine = ++paceSeq, who = S.name;
+    return api({ action: 'floorPace', employee: who, workDate: todayIso() }).then(function (r) {
+      // A slow answer must not paint over a newer one, or over the next person's screen.
+      if (mine !== paceSeq || who !== S.name) return;
       if (r && r.ok) { S.pace = withPending(r); renderPace(); savePace(); }
       else if (r && r.error) toast(r.error, { bad: true });
     }).catch(function () { /* stale numbers beat a scary error; the queue banner covers writes */ });
@@ -347,15 +361,20 @@
    * back, and on a backoff timer while anything is waiting. */
   function writeQ(q) { ls(K.queue, JSON.stringify(q)); showQ(q); }
   function showQ(q) {
-    q = q || readQ(); var b = el('flQueue');
+    q = q || readQ(); var b = el('flQueue'), w = S.waitingFor || [];
+    var mine = q.filter(function (x) { return x.employee === S.name && w.indexOf(x.employee) !== -1; }).length;
+    var held = q.filter(function (x) { return w.indexOf(x.employee) !== -1; });
+    var names = held.map(function (x) { return x.employee; }).filter(function (n, i, a) { return a.indexOf(n) === i; });
     b.hidden = !q.length;
-    b.textContent = !q.length ? '' : S.offline
-      ? q.length + ' saved on this phone. Sends itself when there is signal.'
+    b.classList.toggle('fl-note--tap', !!mine);
+    b.textContent = !q.length ? ''
+      : mine ? mine + ' saved on this phone. Your login ran out: tap here and enter your PIN to send.'
+      : held.length === q.length ? q.length + ' saved on this phone for ' + names.join(', ') + '. Sends when they log in again.'
+      : S.offline ? q.length + ' saved on this phone. Sends itself when there is signal.'
       : q.length + ' sending…';
   }
   // Tokens of people logged out whose entries have all gone.
   function pruneTokens() { Object.keys(tokens()).forEach(function (n) { if (n !== S.name) setToken(n, null); }); }
-  function dropQ(clientId) { writeQ(readQ().filter(function (x) { return x.clientId !== clientId; })); }
   function dupText(r) { return FloorCore.dupText(r.duplicates, S.name); }
   function payloadFor(stage, n) {
     var counts = {}; counts[stage] = n;
@@ -382,44 +401,57 @@
     var wait = RETRY_MS[Math.min(S.retry, RETRY_MS.length - 1)]; S.retry++;
     S.retryTimer = setTimeout(flush, wait);
   }
-  // One at a time, oldest first, so an undo never reaches the sheet before its entry.
+  /* One at a time, oldest first, so an undo never reaches the sheet before its
+   * entry (NetCore.drainQueue). Since 3.05.0:
+   *  - a lock timeout or an error page is "not now": the entry stays and the
+   *    backoff tries again. It used to read as a refusal and the entry was lost
+   *  - a login that ran out holds that person's entries only. For the person
+   *    at the phone the PIN pad opens on top of the screen; nothing they typed
+   *    goes. Someone who logged out earlier gets theirs sent at their next login */
   function flush() {
     if (S.flushing) return S.flushing;
     clearTimeout(S.retryTimer);
-    var sent = 0;
-    function next() {
-      var q = readQ();
-      if (!q.length) { S.retry = 0; S.offline = false; showQ(q); pruneTokens(); if (sent) refresh(); return null; }
-      var item = q[0]; S.inflight = item.clientId;
-      return send(item).then(function (r) {
-        S.inflight = ''; S.offline = false; S.retry = 0;
-        if (r && r.needLogin && (!S.name || item.employee === S.name)) {
-          // Token missing or expired: keep everything on the phone and ask for the PIN.
-          if (S.name) {
-            setToken(S.name, null); S.name = ''; ls(K.name, null); showPick();
-            toast('Log in again to send ' + q.length + ' saved on this phone.', { bad: true });
-          }
-          return null;
-        }
-        if (r && (r.ok || r.replayed)) {
-          sent++; dropQ(item.clientId);
-          var dup = item.action === 'submitDay' ? dupText(r) : '', dn = el('flDup');
-          if (dup) { dn.hidden = false; dn.textContent = dup; }
-          return next();
-        }
-        // Refused (bad product, nothing to reverse...): retrying cannot help.
-        dropQ(item.clientId);
+    var refused = false;
+    S.flushing = NetCore.drainQueue({
+      read: readQ, write: writeQ,
+      send: function (item) {
+        S.inflight = item.clientId;
+        return send(item).then(function (r) { S.inflight = ''; return r; }, function (e) { S.inflight = ''; throw e; });
+      },
+      onSent: function (item, r) {
+        var dup = item.action === 'submitDay' ? dupText(r) : '', dn = el('flDup');
+        if (dup) { dn.hidden = false; dn.textContent = dup; }
+      },
+      // Refused (bad product, nothing to reverse...): retrying cannot help.
+      onRefused: function (item, r) {
+        refused = true;
         toast('Not saved: ' + (item._label || item.action) + '. ' + ((r && r.error) || 'The sheet refused it.'), { bad: true });
-        return refresh().then(next);
-      }, function () {
-        S.inflight = ''; S.offline = true; showQ(); scheduleRetry();
-      });
-    }
-    // Anything saved while this run was finishing gets a run of its own.
-    function done() { S.flushing = null; if (readQ().length && !S.offline) flush(); }
-    S.flushing = Promise.resolve().then(next).then(done, done);
+      },
+      onNeedLogin: function (name) {
+        setToken(name, null);
+        if (name === S.name) askRelogin();
+      }
+    }).then(function (res) {
+      S.flushing = null;
+      S.waitingFor = res.waitingFor; S.offline = res.offline;
+      if (res.offline) scheduleRetry(); else S.retry = 0;
+      if (!readQ().length) pruneTokens();
+      showQ();
+      if (res.sent || refused) refresh();
+      return res;
+    });
     return S.flushing;
   }
+  /* The person at the phone has to type their PIN again: on top of the
+   * screen, so the job, size and number they had picked are still there. */
+  function askRelogin() {
+    if (!S.name || !el('flPin').hidden) return;
+    S.relogin = true; PIN.who = S.name; el('flPad').style.visibility = '';
+    openPin('login');
+    el('flPinTitle').textContent = S.name + ': your login ran out. Enter your PIN';
+  }
+  // Checked before anyone types: the token says when it runs out.
+  function checkLogin() { if (S.name && NetCore.tokenExpired(tokens()[S.name])) askRelogin(); }
 
   /* Saved means saved on the phone (3.02.0). The tap shows "Saved" and moves
    * the numbers at once; the sheet catches up in the background. The same
@@ -477,17 +509,18 @@
     // Last numbers this phone saw, today's only, painted before the network answers.
     var saved = null; try { saved = JSON.parse(ls(K.pace) || 'null'); } catch (e) { saved = null; }
     if (saved && saved.name === S.name && saved.pace && saved.pace.today === todayIso()) { S.pace = saved.pace; renderPace(); }
-    showQ(); refresh(); flush();
+    showQ(); refresh(); flush(); checkLogin();
   }
 
   function wire() {
     el('flNotYou').addEventListener('click', function () {
       if (!readQ().some(function (x) { return x.employee === S.name; })) setToken(S.name, null);
-      S.name = ''; ls(K.name, null); S.pace = null; showPick();
+      S.name = ''; S.relogin = false; ls(K.name, null); S.pace = null; showPick();
     });
     el('flClock').addEventListener('click', onClock);
     buildPad();
-    el('flPinCancel').addEventListener('click', function () { if (!PIN.busy) el('flPin').hidden = true; });
+    el('flPinCancel').addEventListener('click', function () { if (!PIN.busy) { el('flPin').hidden = true; S.relogin = false; showQ(); } });
+    el('flQueue').addEventListener('click', function () { if (S.waitingFor.indexOf(S.name) !== -1) askRelogin(); });
     el('flForgot').addEventListener('click', openForgot);
     el('flForCancel').addEventListener('click', function () { el('flFor').hidden = true; });
     el('flForGo').addEventListener('click', sendForgot);
@@ -529,8 +562,8 @@
     });
     window.addEventListener('online', function () { S.offline = false; showQ(); flush(); });
     window.addEventListener('offline', function () { S.offline = true; showQ(); });
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) { refresh(); flush(); } });
-    setInterval(function () { if (!document.hidden && S.name) refresh(); }, 60000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { refresh(); flush(); checkLogin(); } });
+    setInterval(function () { if (!document.hidden && S.name) { refresh(); checkLogin(); } }, 60000);
   }
 
   function boot() {
