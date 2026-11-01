@@ -5,7 +5,7 @@
 /* Bump this whenever any file in SHELL changes, and keep the number in step
  * with APP_VERSION in app.js — otherwise installed phones keep serving the old
  * shell and the footer version is how you'd find out. */
-var CACHE = 'aquamentor-prod-v60';
+var CACHE = 'aquamentor-prod-v61';
 var SHELL = [
   // Extensionless on purpose: Cloudflare answers /index.html and /floor.html
   // with a 307, and a cached redirect served for a page load is refused by
@@ -15,6 +15,7 @@ var SHELL = [
   './floor',
   './floor.css',
   './floor-core.js',
+  './net-core.js',
   './floor.js',
   './app.js',
   './report-core.js',

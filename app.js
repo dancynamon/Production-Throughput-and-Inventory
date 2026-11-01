@@ -13,51 +13,54 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.04.0';
+  var APP_VERSION = '3.05.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
   var TODAY = {};    // productId -> {stage: qty} already logged for the picked date
   var PLINE = {};    // productId -> line, from config
 
-  /* ---- JSONP ------------------------------------------------------------- */
-  var seq = 0;
+  /* ---- JSONP (net-core.js, shared with floor.js since 3.05.0) ------------- */
+  // A second onerror is the network, and the message says which host, so a
+  // DNS blocker or a captive Wi-Fi is recognisable from the toast.
+  var rawApi = NetCore.jsonp({ url: API, prefix: '__aq_cb_', messages: {
+    timeout: 'Request timed out.',
+    offline: 'Can\'t reach script.google.com from this phone or network. Try Wi-Fi off, or tap Connection test below.',
+    badReply: 'The sheet answered with an error page (busy, or over its daily quota). Try again in a minute.' } });
+  /* Requests the sheet refused because the unlock ran out (12 h) or a PIN
+   * changed. They wait while the PIN is typed on top of the screen and are
+   * sent again after, so the caller gets a real answer: the counts typed into
+   * the form, the open screen and the request itself all survive (3.05.0). */
+  var held = [];
   function api(params, timeoutMs) {
-    return new Promise(function (resolve, reject) {
-      if (!API) { reject(new Error('API_URL is not set (edit config.js)')); return; }
-      var cb = '__aq_cb_' + (++seq);
-      var script = document.createElement('script');
-      var timer = setTimeout(function () { cleanup(); reject(new Error('Request timed out.')); }, timeoutMs || 15000);
-      function cleanup() { clearTimeout(timer); delete window[cb]; if (script.parentNode) script.parentNode.removeChild(script); }
-      window[cb] = function (data) {
-        cleanup();
-        // The backend refused a manager action: our token is stale (a PIN was
-        // changed) or missing. Drop to employee view and say why, once.
-        if (data && data.locked) lockOut('Logged out (a PIN changed or the 12-hour unlock ran out). Enter your PIN again.');
-        resolve(data);
-      };
-      // Manager actions carry the token the unlock earned. Harmless on open
-      // actions; the backend ignores it there.
-      if (localStorage.getItem('aq_role') === 'mgr' && localStorage.getItem('aq_mgr_token') && !params.token) {
-        params = Object.assign({}, params, { token: localStorage.getItem('aq_mgr_token'),
-                                             mgrName: localStorage.getItem('aq_mgr_name') || '' });
+    // Manager actions carry the token the unlock earned. Harmless on open
+    // actions; the backend ignores it there. Read fresh on every send, so a
+    // held request goes again with the new token.
+    var sent = params;
+    if (localStorage.getItem('aq_role') === 'mgr' && localStorage.getItem('aq_mgr_token') && !params.token) {
+      sent = Object.assign({}, params, { token: localStorage.getItem('aq_mgr_token'),
+                                         mgrName: localStorage.getItem('aq_mgr_name') || '' });
+    }
+    return rawApi(sent, timeoutMs).then(function (data) {
+      // needPin is a crew clock-PIN lockout, not the unlock.
+      if (!data || !data.locked || data.needPin) return data;
+      if (sent.token) {
+        return new Promise(function (resolve, reject) {
+          held.push({ params: params, timeoutMs: timeoutMs, resolve: resolve, reject: reject });
+          lockOut('Your unlock ran out or a PIN changed. Enter your PIN to carry on.', true);
+        });
       }
-      var qs = Object.keys(params).filter(function (k) { return k !== '__retry'; }).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(params[k]); }).join('&');
-      script.src = API + '?' + qs + '&callback=' + cb;
-      // onerror means the script host never answered at all (not a slow sheet:
-      // that is the timeout above). One quiet retry covers a dropped packet;
-      // a second failure is the network, and the message says which host, so
-      // a DNS blocker or a captive Wi-Fi is recognisable from the toast.
-      script.onerror = function () {
-        cleanup();
-        if (!params.__retry) {
-          setTimeout(function () { api(Object.assign({}, params, { __retry: 1 }), timeoutMs).then(resolve, reject); }, 1500);
-          return;
-        }
-        reject(new Error('Can\'t reach script.google.com from this phone or network. Try Wi-Fi off, or tap Connection test below.'));
-      };
-      document.body.appendChild(script);
+      lockOut('Logged out (a PIN changed or the 12-hour unlock ran out). Enter your PIN again.');
+      return data;
     });
+  }
+  function releaseHeld() {
+    held.splice(0).forEach(function (h) { api(h.params, h.timeoutMs).then(h.resolve, h.reject); });
+  }
+  // One clientId per submission, kept when the same thing is sent again after a timeout.
+  var ids = NetCore.stableIds();
+  function refusal(d, fallback) {
+    var e = new Error((d && d.error) || fallback); e.transient = NetCore.transient(d); return e;
   }
 
   var toastTimer;
@@ -340,13 +343,15 @@
     if (total <= 0)         { toast('Enter at least one stage count'); return; }
 
     // Stamped once and kept with the entry, so a retry of this exact
-    // submission is recognised by the backend and not logged twice.
-    payload.clientId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    // submission is recognised by the backend and not logged twice. The same
+    // form sent again after an error keeps the same id (3.05.0).
+    payload.clientId = ids.take('day', payload);
 
     var btn = el('dayBtn'); btn.disabled = true; btn.textContent = 'Submitting…';
     el('dayResult').hidden = true;
-    api(payload).then(function (data) {
-      if (!data.ok) throw new Error(data.error || 'Submit failed');
+    api(payload, 20000).then(function (data) {
+      if (!data.ok) throw refusal(data, 'Submit failed');
+      ids.done('day');
       showDayResult(data);
       // Reset for the next product (keep employee + date so they can log another).
       el('product').selectedIndex = 0;
@@ -359,7 +364,7 @@
          * goes when the network is back. Whether the server actually got this
          * one before the line dropped does not matter — the clientId makes the
          * resend a no-op if it did. */
-        enqueueDay(payload);
+        enqueueDay(payload); ids.done('day');
         el('product').selectedIndex = 0; el('notes').value = ''; buildStageInputs();
         toast('No signal — saved on this phone, will send when back online');
       } else {
@@ -368,7 +373,10 @@
     }).then(function () { btn.disabled = false; btn.textContent = 'Submit My Day'; });
   });
 
-  function isNetworkError(err) { return /network|timed out/i.test(String(err && err.message)); }
+  // "Not now" (no answer, no signal, a busy sheet) rather than "no". 3.05.0: the
+  // old test missed the "Can't reach script.google.com" message, so a queued
+  // entry that met no signal at all was dropped.
+  function isNetworkError(err) { return NetCore.transient(err); }
 
   var QUEUE_KEY = 'aq_day_queue';
   function readQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch (e) { return []; } }
@@ -394,17 +402,18 @@
     flushing = true;
     var p = q[0];
     api(p, 20000).then(function (data) {
+      flushing = false;
+      // A busy sheet (lock timeout, quota) is "not now": keep it for the next try.
+      if (!data.ok && NetCore.transient(data)) { toast('Sheet busy, ' + q.length + ' still waiting to send'); return; }
       // Sent, or already there (a replay). Either way it is off this phone.
-      q.shift(); writeQueue(q);
+      q = readQueue().filter(function (x) { return x.clientId !== p.clientId; }); writeQueue(q);
       if (data.ok) toast('Sent: ' + (data.replayed ? 'already logged' : data.message));
       else toast('⚠ Server refused a queued entry: ' + (data.error || 'unknown'));
       loadToday();
-      flushing = false;
       flushQueue();
-    }).catch(function (err) {
+    }).catch(function () {
+      // Network still down: every entry stays; the next online / screen-on tries again.
       flushing = false;
-      if (!isNetworkError(err)) { q.shift(); writeQueue(q); toast('⚠ ' + err.message); flushQueue(); }
-      // Network still down: leave it and try again on the next online event.
     });
   }
   window.addEventListener('online', flushQueue);
@@ -563,14 +572,17 @@
     e.preventDefault();
     var payload = { action: 'ship', employee: el('shipEmployee').value, productId: el('shipProduct').value, qty: el('shipQty').value,
                     channel: el('shipChannel').value, ref: el('shipRef').value.trim(), notes: el('shipNotes').value.trim(),
-                    shipDate: el('shipDate').value, clientId: Math.random().toString(36).slice(2) + Date.now().toString(36) };
+                    shipDate: el('shipDate').value };
+    // The same shipment tapped again after a timeout keeps its id: recorded once (3.05.0).
+    payload.clientId = ids.take('ship', payload);
     if (!payload.employee)          { toast('Pick who you are'); return; }
     if (!payload.productId)         { toast('Pick a product'); return; }
     if (!(Number(payload.qty) > 0)) { toast('Enter how many'); return; }
     if (!payload.channel)           { toast('Pick where it went'); return; }
     var btn = el('shipBtn'); btn.disabled = true; btn.textContent = 'Recording…'; el('shipResult').hidden = true;
     api(payload, 30000).then(function (d) {
-      if (!d.ok) throw new Error(d.error || 'Could not record the shipment');
+      if (!d.ok) throw refusal(d, 'Could not record the shipment');
+      ids.done('ship');
       el('shipResult').innerHTML = '<div class="result__ok">✓ ' + escapeHtml(d.message) + '</div>'
         + (d.onHand !== null && d.onHand !== undefined ? '<div class="result__list"><li><span>' + escapeHtml(d.name) + ' in storage</span><span class="result__num">' + fmt(d.onHand) + '</span></li></div>' : '')
         + (d.warnings && d.warnings.length ? '<div class="result__warn">⚠ ' + d.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
@@ -578,7 +590,9 @@
       el('shipQty').value = ''; el('shipRef').value = ''; el('shipNotes').value = '';
       FG.data = null;
     }).catch(function (err) {
-      el('shipResult').innerHTML = '<div class="result__err">✗ ' + escapeHtml(err.message) + '</div>'; el('shipResult').hidden = false;
+      el('shipResult').innerHTML = '<div class="result__err">✗ ' + escapeHtml(err.message)
+        + (NetCore.transient(err) ? '<br>Tap Record Shipment again when there is signal. It will not be recorded twice.' : '') + '</div>';
+      el('shipResult').hidden = false;
     }).finally(function () { btn.disabled = false; btn.textContent = 'Record Shipment'; });
   });
 
@@ -727,15 +741,18 @@
     if (!(n > 0) || n > max) { toast('Enter 1 to ' + fmt(max)); return; }
     var reason = window.prompt('Why? (goes in the log)', 'double tap');
     if (reason === null || !reason.trim()) { toast('A reason is required'); return; }
-    api({ action: 'reverse', employee: who, by: localStorage.getItem('aq_mgr_name') || who, productId: pid, workDate: el('workDate').value,
-          stage: stage, qty: n, reason: reason.trim() }, 30000)
+    var rv = { action: 'reverse', employee: who, by: localStorage.getItem('aq_mgr_name') || who, productId: pid, workDate: el('workDate').value,
+               stage: stage, qty: n, reason: reason.trim() };
+    rv.clientId = ids.take('rev', rv);
+    api(rv, 30000)
       .then(function (d) {
-        if (!d.ok) throw new Error(d.error || 'Could not reverse');
+        if (!d.ok) throw refusal(d, 'Could not reverse');
+        ids.done('rev');
         var back = (d.restored || []).map(function (r) { return '+' + fmt(r.restored) + ' ' + r.name; }).join(', ');
         toast('Reversed ' + fmt(n) + ' ' + stage + (back ? ' · ' + back : ''));
         loadToday();
       })
-      .catch(function (err) { toast('⚠ ' + err.message); });
+      .catch(function (err) { toast('⚠ ' + err.message + (NetCore.transient(err) ? ' Try again: it will not be reversed twice.' : '')); });
   });
 
   /* ---- Role (employee vs manager) ---------------------------------------- */
@@ -780,17 +797,35 @@
 
   }
   var lockOutShown = false;
-  function lockOut(msg) {
+  /* resume (3.05.0): the unlock ran out under the manager rather than being
+   * locked on purpose. The screen they were on stays where it is under the
+   * login card (only hidden), and comes back as it was after the PIN. */
+  var resumeScreen = null;
+  function activeScreen() { var s = document.querySelector('.screen--active'); return s ? s.id.replace(/^screen-/, '') : null; }
+  function lockOut(msg, resume) {
     if (el('reorderBanner')) el('reorderBanner').hidden = true;
     var was = localStorage.getItem('aq_role') === 'mgr';
+    if (resume && was) resumeScreen = activeScreen();
     localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token'); localStorage.removeItem('aq_view');
     localStorage.removeItem('aq_pin_admin'); hidePin();
     applyRole();
     if (was && !lockOutShown) { lockOutShown = true; toast(msg); }
   }
   el('mgrBtn').addEventListener('click', function () {
-    if (localStorage.getItem('aq_role') === 'mgr') { lockOut(''); toast('Logged out'); }
+    if (localStorage.getItem('aq_role') === 'mgr') {
+      resumeScreen = null;
+      held.splice(0).forEach(function (h) { h.reject(new Error('Logged out')); });
+      lockOut(''); toast('Logged out');
+    }
   });
+  /* The token says when it runs out (12 h): ask for the PIN when the phone
+   * comes back to it, before anyone types into a form that would be refused. */
+  function checkUnlock(atLoad) {
+    if (isMgr() && NetCore.tokenExpired(localStorage.getItem('aq_mgr_token'))) {
+      // At load nothing is on screen yet: a plain lock, and the usual landing after the PIN.
+      lockOut('Your 12-hour unlock ran out. Enter your PIN to carry on.', !atLoad);
+    }
+  }
   el('loginForm').addEventListener('submit', function (e) {
     e.preventDefault();
     // PIN only (3.01.5): the server works out whose it is.
@@ -808,7 +843,15 @@
         lockOutShown = false;
         el('loginPin').value = '';
         applyRole();
-        selectScreen(countView() ? 'reconcile' : 'floor');
+        var back = resumeScreen; resumeScreen = null;
+        if (back && activeScreen() === back) {
+          // Back where they were, nothing reloaded, so nothing typed is lost.
+          if (held.length) toast('Logged in again. Sending what was waiting.');
+          releaseHeld();
+        } else {
+          releaseHeld();
+          selectScreen(countView() ? 'reconcile' : 'floor');
+        }
         loadReorderAlert();
         toast('Logged in' + (d.name ? ' as ' + d.name : '') + (d.personal ? '' : ' (shared PIN)'));
       } else { el('loginPin').value = ''; toast((d && d.error) || 'Wrong PIN'); }
@@ -1544,12 +1587,18 @@
           var d = open[Number(btn.getAttribute('data-fix'))];
           if (!window.confirm('Reverse ' + d.open + ' ' + d.stage + ' for ' + d.name + ' on ' + d.date + '?\n\nLogged ' + d.times + ' times by ' + d.who + '. One stays, ' + d.open + ' comes off and the materials go back.')) return;
           btn.disabled = true; btn.textContent = 'Reversing…';
-          api({ action: 'reverse', employee: d.who, by: localStorage.getItem('aq_mgr_name') || d.who, productId: d.pid, workDate: d.date,
-                stage: d.stage, qty: d.open, reason: 'Duplicate entry — logged ' + d.times + ' times' }, 30000).then(function (res) {
-            if (!res.ok) throw new Error(res.error || 'Could not reverse');
+          var rv = { action: 'reverse', employee: d.who, by: localStorage.getItem('aq_mgr_name') || d.who, productId: d.pid, workDate: d.date,
+                     stage: d.stage, qty: d.open, reason: 'Duplicate entry — logged ' + d.times + ' times' };
+          rv.clientId = ids.take('rev', rv);
+          api(rv, 30000).then(function (res) {
+            if (!res.ok) throw refusal(res, 'Could not reverse');
+            ids.done('rev');
             toast('Reversed ' + fmt(d.open) + ' ' + d.stage);
             FLOOR.tables = null; loadFloorThen(go);
-          }).catch(function (err) { btn.disabled = false; btn.textContent = 'Reverse ' + fmt(d.open); toast('⚠ ' + err.message); });
+          }).catch(function (err) {
+            btn.disabled = false; btn.textContent = 'Reverse ' + fmt(d.open);
+            toast('⚠ ' + err.message + (NetCore.transient(err) ? ' Tap again: it will not be reversed twice.' : ''));
+          });
         });
       });
     };
@@ -2445,11 +2494,39 @@
     }).catch(function () {});
   }
 
+  /* ---- Coming back to the phone (3.05.0) ---------------------------------- */
+  /* A phone left open overnight kept yesterday as the work date, so the first
+   * entry of the morning was logged against yesterday. The date moves only if
+   * it is still the one this page filled in; one a person picked stays. */
+  var autoDate = NetCore.localIso();
+  function rollDate() {
+    var now = NetCore.localIso();
+    if (now === autoDate) return;
+    if (el('workDate').value === autoDate) { el('workDate').value = now; loadToday(); }
+    if (el('shipDate') && el('shipDate').value === autoDate) el('shipDate').value = now;
+    autoDate = now;
+  }
+  /* Read-only screens left in the background are reloaded when the phone
+   * comes back after STALE_MS. Screens with typing (counts, walks) are never
+   * reloaded under the person's fingers. */
+  var STALE_MS = 5 * 60000, hiddenAt = 0;
+  function refreshIfStale() {
+    if (!isMgr() || !hiddenAt || Date.now() - hiddenAt < STALE_MS) return;
+    var s = activeScreen();
+    if (s === 'floor') { FLOOR.tables = null; loadFloor(true); }
+    else if (s === 'summary') { loadSummary(); loadFixups(); }
+    else if (s === 'time') loadTime();
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    rollDate(); checkUnlock(); refreshIfStale(); flushQueue();
+    hiddenAt = 0;
+  });
+  setInterval(function () { if (!document.hidden) { rollDate(); checkUnlock(); } }, 60000);
+
   /* ---- Go ---------------------------------------------------------------- */
-  (function initDate() {
-    var d = new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
-    el('workDate').value = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
-  })();
+  el('workDate').value = autoDate;
+  checkUnlock(true);
   applyRole();
   if (isMgr()) { selectScreen(countView() ? 'reconcile' : 'floor'); loadReorderAlert(); checkPinAdmin(); }
   // A plain link to the backend, for when the toast says it cannot be reached:

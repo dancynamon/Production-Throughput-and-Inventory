@@ -175,7 +175,16 @@ node apps-script/test-reorder.js    # reorder: due rules, never-counted skipped,
 node apps-script/test-timeclock.js  # login, PIN + lockout, geofence, requests/approval audit, edits, flags, timeExport, summary
 node apps-script/test-speed.js      # submitDay: one Products read, StageLog tail only; config cache + onEdit; one TimeLog read
 node apps-script/test-auth.js       # auth lockout, token expiry, JSONP callback, crew token on submitDay/reverse/ship, today-only undo
+node apps-script/test-dedupe.js     # replay guard: retry racing on the lock, evicted cache (ClientId / ShipLog Key), retry: true
+node apps-script/test-net.js        # net-core.js: JSONP failures, transient vs refusal, Floor queue drain, stable ids, token expiry
+node apps-script/test-frontend.js   # both pages in headless Chromium at 390 px against a mock backend; SKIPs without Playwright
 ```
+
+`test-frontend.js` needs Playwright: a global install, or `PLAYWRIGHT=<path to
+node_modules/playwright-core>`. It finds a cached `chromium_headless_shell-*`
+under `ms-playwright` when the package's own revision is not downloaded. It
+never calls the live `/exec`: every request to script.google.com is answered
+by a mock in the test.
 
 Run them from the repo root (some read `apps-script/Code.gs` by relative path).
 
@@ -341,6 +350,23 @@ assert on them rather than trusting the parser.
   48 h after the first one is seen (Script Property `CREW_TOKEN_ENFORCE_AT`, ms; `0` = enforce now);
   a wrong token never is. Without a manager token, `reverse` is today's workDate only. Floor keeps
   tokens per name in `aq_floor_tokens`, and on `needLogin` keeps the queue and asks for the PIN
+- **Network robustness 3.05.0** (backend + app). Both pages talk through `net-core.js` (`NetCore`,
+  UMD like floor-core.js, in the SW shell): JSONP that rejects with `err.transient` for no answer,
+  no signal, or an HTML error page (script loaded, callback never called: rejected at once, not
+  after the timeout); late replies hit a no-op callback. Backend `doGet` marks lock timeouts /
+  quota / Sheets hiccups `retry: true`; Floor's queue (`NetCore.drainQueue`) and the full app's
+  queue KEEP those entries (they used to be dropped as refusals). Replay guard on submitDay,
+  reverse, ship, clock: cache checked again once the lock is held (a resend racing its original
+  on the lock used to log twice), plus a durable check on `StageLog.ClientId` (new column, added by
+  upgradeSchema) and `ShipLog.Key`. Full app: a `{locked}` reply to a request sent with a manager
+  token is HELD, the login card shows over the current screen, and after the PIN the request is
+  sent again with the new token and the screen is left as it was; `checkUnlock()` reads the token's
+  expiry on load / screen-on / every minute. Ship and reverse reuse their clientId when the same
+  form is sent again (`NetCore.stableIds`). Floor: crew token running out opens the PIN pad over
+  the screen (`askRelogin`), holds only that person's queue entries, and checks expiry before
+  anyone types; clock punches keep one clientId per PIN-pad opening. Day rollover: Floor blanks
+  yesterday's strip after midnight; the full app moves an untouched work date to today and reloads
+  Floor/Summary/Time after 5 min in the background
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`
