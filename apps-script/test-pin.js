@@ -38,6 +38,8 @@ const sandbox = {
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8'), sandbox);
 sandbox.readObjects = () => [];
+// The fixtures stand in for readObjects; the windowed reader filters the same rows.
+sandbox.readObjectsWhere = (tab, col, test) => sandbox.readObjects(tab).filter((r) => test(r[col]));
 
 let failures = 0;
 function check(label, actual, expected) {

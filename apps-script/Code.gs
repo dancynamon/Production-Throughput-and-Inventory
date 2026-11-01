@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-10-31 16:00 UTC      version 3.04.0
+ *  BUILD:  2026-10-31 18:00 UTC      version 3.04.1
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -345,12 +345,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.04.0';
+var BACKEND_VERSION = '3.04.1';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-10-31 16:00 UTC';
+var BUILD_STAMP = '2026-10-31 18:00 UTC';
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
 // the sheet is the source of truth — setup() preserves whatever is in it (see
@@ -1633,7 +1633,7 @@ function getToday(p) {
   var workDate = String(p.workDate || '').trim();
   if (!workDate) return { ok: false, error: 'No work date' };
   var lineMap = productLineMap(), byProduct = {}, byPerson = {}, notes = [];
-  readObjects(TAB.stagelog).forEach(function (r) {
+  readObjectsWhere(TAB.stagelog, 'WorkDate', function (v) { return fmtDate(v) === workDate; }).forEach(function (r) {
     if (fmtDate(r.WorkDate) !== workDate) return;
     var pid = r.ProductID;
     var noteText = String(r.Notes || '').trim();
@@ -2257,23 +2257,35 @@ var EXPORTABLE = { stagelog: 'stagelog', countlog: 'countlog', receiving: 'recei
 /* Everything the Floor tab and the Floor Report need, as plain rows. The
  * math lives in report-core.js, shared by the app and the report, so the
  * backend only hands over the tables. Timestamps go out as ISO so the phone
- * never has to guess a locale. */
+ * never has to guess a locale.
+ *
+ * StageLog still goes out whole, on purpose: report-core builds each pile
+ * from every row since that product's opening count (all of history for a
+ * product never walked) and Fix-ups lists duplicates from any date, so a
+ * date window would change the numbers, not just the speed. */
+function floorIso(v) { return v instanceof Date ? v.toISOString() : String(v || ''); }
+function floorRefTables() {
+  return {
+    products: readObjects(TAB.products).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
+      .map(function (r) { return { ProductID: r.ProductID, ProductName: r.ProductName, Line: r.Line || 'Blank', Active: 'YES',
+                                   FeedsFrom: r.FeedsFrom || '', Family: String(r.Family || '').trim() || 'Other' }; }),
+    stages: readObjects(TAB.stages).map(function (r) {
+      return { Line: r.Line, Order: r.Order, Stage: r.Stage, FloorRate_perHr: r.FloorRate_perHr, IdealRate_perHr: r.IdealRate_perHr }; }),
+    planning: readObjects(TAB.planning).map(function (r) { return { ProductID: r.ProductID, Stage: r.Stage, DailyTarget: r.DailyTarget }; })
+  };
+}
+function floorLogRow(r) {
+  return { Timestamp: floorIso(r.Timestamp), WorkDate: fmtDate(r.WorkDate), Employee: r.Employee, ProductID: r.ProductID,
+           Stage: r.Stage, Qty: r.Qty, Notes: r.Notes || '', Hours: (r.Hours === '' || r.Hours === null || r.Hours === undefined) ? '' : r.Hours };
+}
 function getFloorData() {
-  var iso = function (v) { return v instanceof Date ? v.toISOString() : String(v || ''); };
-  var products = readObjects(TAB.products).filter(function (r) { return String(r.Active).toUpperCase() !== 'NO'; })
-    .map(function (r) { return { ProductID: r.ProductID, ProductName: r.ProductName, Line: r.Line || 'Blank', Active: 'YES',
-                                 FeedsFrom: r.FeedsFrom || '', Family: String(r.Family || '').trim() || 'Other' }; });
-  var stages = readObjects(TAB.stages).map(function (r) {
-    return { Line: r.Line, Order: r.Order, Stage: r.Stage, FloorRate_perHr: r.FloorRate_perHr, IdealRate_perHr: r.IdealRate_perHr }; });
-  var planning = readObjects(TAB.planning).map(function (r) { return { ProductID: r.ProductID, Stage: r.Stage, DailyTarget: r.DailyTarget }; });
-  var stagelog = readObjects(TAB.stagelog).map(function (r) {
-    return { Timestamp: iso(r.Timestamp), WorkDate: fmtDate(r.WorkDate), Employee: r.Employee, ProductID: r.ProductID,
-             Stage: r.Stage, Qty: r.Qty, Notes: r.Notes || '', Hours: (r.Hours === '' || r.Hours === null || r.Hours === undefined) ? '' : r.Hours }; });
+  var ref = floorRefTables();
+  var stagelog = readObjects(TAB.stagelog).map(floorLogRow);
   var wipbase = readObjects(TAB.wipbase).map(function (r) {
-    return { Timestamp: iso(r.Timestamp), ProductID: r.ProductID, ProductName: r.ProductName, Stage: r.Stage,
+    return { Timestamp: floorIso(r.Timestamp), ProductID: r.ProductID, ProductName: r.ProductName, Stage: r.Stage,
              WaitingBefore: r.WaitingBefore, CountedBy: r.CountedBy || '' }; });
-  return { ok: true, generatedAt: iso(new Date()),
-           tables: { products: products, stages: stages, planning: planning, stagelog: stagelog, wipbase: wipbase } };
+  return { ok: true, generatedAt: floorIso(new Date()),
+           tables: { products: ref.products, stages: ref.stages, planning: ref.planning, stagelog: stagelog, wipbase: wipbase } };
 }
 
 /* One person's own log, last 30 days, in floorData's shape so the same
@@ -2321,14 +2333,17 @@ function getMyPace(p) {
     .map(function (r) { return String(r.Name || '').trim(); });
   var match = known.filter(function (n) { return n.toLowerCase() === name.toLowerCase(); })[0];
   if (!match) return { ok: false, error: name + ' is not on the Employees tab.' };
-  var all = getFloorData().tables;
+  /* Its own read (3.04.1): it used to build the whole floor, every StageLog
+   * row and the opening counts, to keep a month of one person's rows. */
+  var ref = floorRefTables(), generatedAt = floorIso(new Date());
   var since = new Date(); since.setDate(since.getDate() - 30);
   var sinceIso = fmtDate(since);
-  var mine = all.stagelog.filter(function (r) {
-    return String(r.Employee || '').trim().toLowerCase() === match.toLowerCase() && String(r.WorkDate) >= sinceIso;
-  });
-  return { ok: true, name: match, since: sinceIso, generatedAt: all.generatedAt,
-           tables: { products: all.products, stages: all.stages, planning: all.planning, stagelog: mine, wipbase: [] } };
+  var mine = readObjectsWhere(TAB.stagelog, 'WorkDate', function (v) { return fmtDate(v) >= sinceIso; }).map(floorLogRow)
+    .filter(function (r) {
+      return String(r.Employee || '').trim().toLowerCase() === match.toLowerCase() && String(r.WorkDate) >= sinceIso;
+    });
+  return { ok: true, name: match, since: sinceIso, generatedAt: generatedAt,
+           tables: { products: ref.products, stages: ref.stages, planning: ref.planning, stagelog: mine, wipbase: [] } };
 }
 
 /* ============================================================================
@@ -3250,16 +3265,21 @@ function reverseEntryOnce(p) {
   var valid = stagesForLine(productLineMap()[productId] || 'Blank');
   if (valid.indexOf(stage) === -1) return { ok: false, error: 'Unknown stage ' + stage + ' for ' + productId };
 
+  /* The lock covers only what a concurrent write could change (3.04.1):
+   * Products and BOM are read before it, and StageLog only for the one day
+   * being reversed. */
+  var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
+  if (!product) return { ok: false, error: 'Unknown product: ' + productId };
+  var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId && r.Stage === stage; });
+
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var product = readObjects(TAB.products).filter(function (r) { return r.ProductID === productId; })[0];
-    if (!product) return { ok: false, error: 'Unknown product: ' + productId };
 
     // Can only take back what is actually on the books for that day.
     var onBooks = 0;
-    readObjects(TAB.stagelog).forEach(function (r) {
+    readObjectsWhere(TAB.stagelog, 'WorkDate', function (v) { return fmtDate(v) === workDate; }).forEach(function (r) {
       if (r.ProductID === productId && r.Stage === stage && fmtDate(r.WorkDate) === workDate) {
         onBooks += Number(r.Qty) || 0;
       }
@@ -3272,7 +3292,6 @@ function reverseEntryOnce(p) {
     var matRows  = matSheet.getDataRange().getValues();
     var rowOf = {};
     for (var i = 1; i < matRows.length; i++) rowOf[matRows[i][0]] = i;
-    var bom = readObjects(TAB.bom).filter(function (r) { return r.ProductID === productId && r.Stage === stage; });
 
     appendByHeader(ss.getSheetByName(TAB.stagelog), {
       Timestamp: new Date(), WorkDate: workDate, Employee: employee,
@@ -5020,6 +5039,32 @@ function tailObjects(sh, n) {
     if (v.join('') === '') return;
     var o = {}; for (var c = 0; c < headers.length; c++) o[headers[c]] = v[c];
     out.rows.push(o);
+  });
+  return out;
+}
+
+/* readObjects(tab).filter(test on one column), without reading the whole
+ * tab (3.04.1). One read of that column finds the first and last row that
+ * passes; a second reads only that span. Nothing is assumed about the order
+ * of the log, so a back-dated or hand-inserted row is still found: it just
+ * widens the span. Same rows, same order, as the full read. `test` gets the
+ * raw cell. */
+function readObjectsWhere(tabName, col, test) {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tabName);
+  if (!sh) return [];
+  var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+  if (lastRow < 2 || !lastCol) return [];
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var ci = headers.indexOf(col);
+  if (ci === -1) return readObjects(tabName).filter(function (r) { return test(r[col]); });
+  var keys = sh.getRange(2, ci + 1, lastRow - 1, 1).getValues(), first = -1, last = -1;
+  for (var i = 0; i < keys.length; i++) if (test(keys[i][0])) { if (first === -1) first = i; last = i; }
+  if (first === -1) return [];
+  var out = [];
+  sh.getRange(first + 2, 1, last - first + 1, lastCol).getValues().forEach(function (v) {
+    if (v.join('') === '' || !test(v[ci])) return;
+    var o = {}; for (var c = 0; c < headers.length; c++) o[headers[c]] = v[c];
+    out.push(o);
   });
   return out;
 }

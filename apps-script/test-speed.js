@@ -10,20 +10,33 @@
  *   • a clock-in reads TimeLog once; floorPace reads it once
  *   • every reply carries serverMs
  *
+ * 3.04.1: today, myPace and reverse read StageLog through readObjectsWhere
+ * (one column, then only the span of matching rows), not the whole tab:
+ *   • on a log with hand-inserted, back-dated, future-dated, blank, Date and
+ *     odd-string WorkDates, every answer equals the full-sheet read's,
+ *     including rows a day either side of a window's edge
+ *   • myPace no longer builds the whole floor; reverse reads Products and BOM
+ *     before the lock and only that day's span under it
+ *   • a before/after cell count is printed for an append-ordered log
+ *
  * Run:  node apps-script/test-speed.js
  */
 process.env.TZ = 'UTC';
 const fs = require('fs'); const vm = require('vm'); const path = require('path');
 
-const reads = {};
+const reads = {}, cells = {}, lockedCells = {}, lock = { held: false };
+function countCells(name, n) {
+  cells[name] = (cells[name] || 0) + n;
+  if (lock.held) lockedCells[name] = (lockedCells[name] || 0) + n;
+}
 function fakeSheet(name, headers, rows) {
   const grid = [headers.slice(), ...rows.map((r) => r.slice())];
   const writes = [];
   return { name, writes, grid, getName: () => name,
     getLastColumn: () => grid[0].length, getLastRow: () => grid.length,
-    getDataRange: () => ({ getValues: () => { reads[name] = (reads[name] || 0) + 1; return grid.map((r) => r.slice()); } }),
+    getDataRange: () => ({ getValues: () => { reads[name] = (reads[name] || 0) + 1; countCells(name, grid.length * grid[0].length); return grid.map((r) => r.slice()); } }),
     getRange(r, c, nr, nc) { return {
-      getValues: () => { const o = []; for (let i = 0; i < (nr || 1); i++) o.push(grid[r - 1 + i].slice(c - 1, c - 1 + (nc || 1))); return o; },
+      getValues: () => { const o = []; for (let i = 0; i < (nr || 1); i++) o.push(grid[r - 1 + i].slice(c - 1, c - 1 + (nc || 1))); countCells(name, (nr || 1) * (nc || 1)); return o; },
       setValue: (v) => { writes.push([r, c, v]); grid[r - 1][c - 1] = v; } }; },
     appendRow(row) { grid.push(row.slice()); } };
 }
@@ -56,7 +69,7 @@ const sandbox = {
   ContentService: { MimeType: { JAVASCRIPT: 'js', JSON: 'json' }, createTextOutput: (t) => ({ t, setMimeType() { return this; } }) },
   SpreadsheetApp: { getActiveSpreadsheet: () => ({ getName: () => 'S', getId: () => 'ID', getSheetByName: (n) => sheets[n] || null }),
     getActive: () => ({ toast() {} }), getUi: () => ({}) },
-  LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) }, Logger: { log() {} },
+  LockService: { getScriptLock: () => ({ waitLock() { lock.held = true; }, releaseLock() { lock.held = false; } }) }, Logger: { log() {} },
   Utilities: { computeDigest: (alg, t) => Array.from(require('crypto').createHash('sha256').update(t, 'utf8').digest()).map((b) => (b > 127 ? b - 256 : b)), getUuid: () => 'abcd', DigestAlgorithm: { SHA_256: 1 }, Charset: { UTF_8: 1 } },
   console, JSON, Math, Number, String, Object, Array, Date: FakeDate, isNaN, isFinite, RegExp
 };
@@ -120,6 +133,111 @@ check('floorPace reads TimeLog once and StageLog never whole', [fp.ok, reads.Tim
 // ---- serverMs -----------------------------------------------------------------
 const out = sandbox.doGet({ parameter: { action: 'config', callback: 'cb' } });
 check('replies carry serverMs', /"serverMs":\d+/.test(out.t), true);
+
+// ---- windowed StageLog reads (3.04.1) ------------------------------------------
+// The answer the 3.04.0 code gave: the whole tab, then the same filter.
+const fullRead = (tab, col, test) => sandbox.readObjects(tab).filter((r) => test(r[col]));
+const windowed = sandbox.readObjectsWhere;
+function both(fn) {
+  sandbox.readObjectsWhere = fullRead; const before = fn();
+  sandbox.readObjectsWhere = windowed; const after = fn();
+  return [before, after];
+}
+const D = (s) => new FakeDate(s + 'T12:00:00Z');        // the sandbox's Date, so fmtDate sees a Date
+const row = (wd, who, qty, notes) => [D('2026-09-01'), wd, who, 'STRAP6', 'Strap', 'Made', qty, '', notes || ''];
+clock.t = Date.parse('2026-09-29T15:00:00Z');        // myPace since = 2026-08-30
+const tricky = [];
+for (let i = 0; i < 400; i++) tricky.push(row(i % 2 ? '2026-07-15' : D('2026-07-16'), i % 3 ? 'Joe' : 'Alex', 1));
+tricky.splice(5, 0, row('2026-09-29', 'joe', 4, 'hand-inserted near the top'));
+tricky.splice(9, 0, row('2026-08-30', 'Joe', 6, 'first day in the window, also high up'));
+tricky.push(row('2026-08-29', 'Joe', 7, 'one day before the window'));
+tricky.push(row(D('2026-08-30'), 'JOE', 8, 'first day in the window, as a Date'));
+tricky.push(['', '', '', '', '', '', '', '', '']);
+tricky.push(row('9/15/2026', 'Joe', 9, 'typed by hand, not ISO'));
+tricky.push(row('2026-09-28', 'Alex', 10));
+tricky.push(row(D('2026-09-29'), 'Joe', 11, 'today'));
+tricky.push(row('2026-09-29', 'Alex', 12));
+tricky.push(row('2026-07-15', 'Joe', -1, 'REVERSED 1 by Dan: back-dated, at the bottom'));
+tricky.push(row('2026-10-02', 'Joe', 13, 'future-dated'));
+sheets.StageLog = fakeSheet('StageLog', LOG_H, tricky);
+
+const dates = ['2026-07-14', '2026-07-15', '2026-07-16', '2026-08-29', '2026-08-30', '2026-08-31', '2026-09-15', '9/15/2026',
+               '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-02', '2026-10-03', ''];
+let same = 0;
+dates.forEach((d) => {
+  const eq = (v) => sandbox.fmtDate(v) === d, ge = (v) => sandbox.fmtDate(v) >= d;
+  if (JSON.stringify(windowed('StageLog', 'WorkDate', eq)) === JSON.stringify(fullRead('StageLog', 'WorkDate', eq))) same++;
+  if (JSON.stringify(windowed('StageLog', 'WorkDate', ge)) === JSON.stringify(fullRead('StageLog', 'WorkDate', ge))) same++;
+});
+check('readObjectsWhere returns the full read\'s rows, in order, for = and >= on every date either side of each edge', same, dates.length * 2);
+const noCol = [windowed('StageLog', 'NoSuchCol', (v) => v === undefined), fullRead('StageLog', 'NoSuchCol', (v) => v === undefined)];
+check('a column the tab does not have falls back to the full read', [noCol[0].length, JSON.stringify(noCol[0]) === JSON.stringify(noCol[1])], [tricky.length - 1, true]);
+check('a missing tab is empty', windowed('NoSuchTab', 'WorkDate', () => true), []);
+
+['2026-09-29', '2026-08-29', '2026-08-30', '2026-07-15', '2026-10-02', '9/15/2026', '2026-01-01'].forEach((d) => {
+  const [a, b] = both(() => sandbox.getToday({ workDate: d }));
+  check('today ' + d + ' matches the full read', [JSON.stringify(b) === JSON.stringify(a), b.products.length], [true, a.products.length]);
+});
+const t29 = sandbox.getToday({ workDate: '2026-09-29' });
+check('today 2026-09-29 counts the hand-inserted row too', t29.products[0].rows[0].qty, 4 + 11 + 12);
+
+// 3.04.0's getMyPace body. Its generatedAt read getFloorData().tables.generatedAt,
+// which does not exist, so it never went out; 3.04.1 sends the real one (the app
+// stores it as FLOOR.at and reads it nowhere). Everything else must match.
+const oldMyPace = (name) => {
+  const all = sandbox.getFloorData().tables;
+  const since = new FakeDate(); since.setDate(since.getDate() - 30);
+  const sinceIso = sandbox.fmtDate(since);
+  const mine = all.stagelog.filter((r) => String(r.Employee || '').trim().toLowerCase() === name.toLowerCase() && String(r.WorkDate) >= sinceIso);
+  return { ok: true, name, since: sinceIso, generatedAt: all.generatedAt,
+           tables: { products: all.products, stages: all.stages, planning: all.planning, stagelog: mine, wipbase: [] } };
+};
+['Joe', 'joe', 'Alex'].forEach((n) => {
+  const now = sandbox.getMyPace({ name: n });
+  const was = oldMyPace(now.name);
+  const sameBut = JSON.stringify(Object.assign({}, now, { generatedAt: undefined })) === JSON.stringify(was);
+  check('myPace ' + n + ' equals the 3.04.0 answer (plus a real generatedAt)', [sameBut, now.tables.stagelog.length, now.generatedAt], [true, was.tables.stagelog.length, '2026-09-29T15:00:00.000Z']);
+});
+const mp = sandbox.getMyPace({ name: 'Joe' });
+check('myPace keeps 08-30 (string and Date), drops 08-29, keeps the hand-typed and future rows',
+  mp.tables.stagelog.map((r) => r.Qty), [4, 6, 8, 9, 11, 13]);
+
+const tooMuch = (d) => sandbox.reverseEntryOnce({ employee: 'Joe', productId: 'STRAP6', workDate: d, stage: 'Made', qty: 1e6, reason: 'probe' }).error;
+['2026-09-29', '2026-08-29', '2026-07-15', '2026-07-16', '2026-10-02', '2026-01-01'].forEach((d) => {
+  const [a, b] = both(() => tooMuch(d));
+  check('reverse ' + d + ' sees the same on-the-books total', b, a);
+});
+
+// Read size on an append-ordered log: 20,000 rows, the last 40 of them today.
+const ordered = [];
+for (let i = 0; i < 20000; i++) {
+  const day = new FakeDate(Date.parse('2026-05-01T12:00:00Z') + Math.floor(i / 40) * 864e5 * 0.3);
+  ordered.push(row(i >= 19960 ? '2026-09-29' : sandbox.fmtDate(day), i % 2 ? 'Joe' : 'Alex', 1));
+}
+sheets.StageLog = fakeSheet('StageLog', LOG_H, ordered);
+const measure = (fn) => { Object.keys(cells).forEach((k) => delete cells[k]); Object.keys(lockedCells).forEach((k) => delete lockedCells[k]); fn(); return [cells.StageLog || 0, lockedCells.StageLog || 0]; };
+const size = {};
+[['today', () => sandbox.getToday({ workDate: '2026-09-29' })],
+ ['myPace', () => sandbox.getMyPace({ name: 'Joe' })],
+ ['reverse', () => tooMuch('2026-09-29')]].forEach(([k, fn]) => {
+  sandbox.readObjectsWhere = fullRead; const before = measure(fn);
+  sandbox.readObjectsWhere = windowed; const after = measure(fn);
+  size[k] = { before, after };
+});
+const mpOld = measure(() => oldMyPace('Joe'))[0];
+console.log('      StageLog cells read, 20,000 rows x 9 columns (before -> after; under lock for reverse):');
+console.log('        today    ' + size.today.before[0] + ' -> ' + size.today.after[0]);
+console.log('        myPace   ' + mpOld + ' -> ' + size.myPace.after[0] + '   (span = rows since ' + mp.since + ')');
+console.log('        reverse  ' + size.reverse.before[1] + ' -> ' + size.reverse.after[1] + ' under the lock');
+check('today reads one column plus today\'s span, not the tab', size.today.after[0] < size.today.before[0] / 5, true);
+check('myPace reads less than the whole floor did', size.myPace.after[0] < mpOld, true);
+check('reverse holds the lock over one column plus a day, not the tab', size.reverse.after[1] < size.reverse.before[1] / 5, true);
+reset();
+sandbox.getToday({ workDate: '2026-09-29' }); sandbox.getMyPace({ name: 'Joe' }); tooMuch('2026-09-29');
+check('none of the three calls getDataRange on StageLog', reads.StageLog || 0, 0);
+Object.keys(lockedCells).forEach((k) => delete lockedCells[k]);
+tooMuch('2026-09-29');
+check('reverse reads Products and BOM before the lock', [lockedCells.Products || 0, lockedCells.BOM || 0], [0, 0]);
 
 console.log(failures ? failures + ' FAILURE(S)' : 'All checks passed.');
 process.exit(failures ? 1 : 0);
