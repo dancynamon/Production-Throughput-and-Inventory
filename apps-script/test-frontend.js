@@ -295,6 +295,47 @@ const floorStorage = (tok) => ({ aq_floor_epoch: '3.01.2', aq_floor_login: 'Ann'
     check('full app: after the PIN the SAME shipment is sent again, with the new token', [ships.length, ships[0].clientId === ships[1].clientId, ships[1].token !== ships[0].token], [2, true, true]);
     check('full app: back on the same screen with the answer', [await page.evaluate(() => document.querySelector('.screen--active').id), (await page.textContent('#shipResult')).includes('ship ok')], ['screen-ship', true]);
 
+    /* ---- Full app: expiration dates (3.06.0) --------------------------------------------------------- */
+    M.plan.receiving = () => ({ ok: true, total: 1, deliveries: [{ at: '2024-12-01', by: 'John C', id: 'M011', name: 'Cliqflow', qty: 6, notes: '', expires: '2026-12-01', onShelf: true }] });
+    M.plan.receive = () => ({ ok: true, message: 'Dated 6 lb of Cliqflow, expires 2026-12-01', warnings: ['Count it'], material: { id: 'M011', name: 'Cliqflow', unit: 'lb', onHand: 6 } });
+    check('full app: Receive is on the bar', await page.isVisible('.tab[data-screen="receive"]'), true);
+    await page.click('.tab[data-screen="receive"]');
+    await until(async () => (await page.textContent('#rcvList')).includes('Cliqflow'));
+    check('receive: received date starts on today', await page.inputValue('#recvOn'), await page.evaluate(() => NetCore.localIso()));
+    check('receive: a dated lot on the shelf reads as that, with no plus sign',
+      [(await page.textContent('#rcvList')).includes('expires 2026-12-01'), (await page.textContent('.rcv-row__qty')).trim()], [true, 'on shelf 6']);
+    await page.evaluate(() => { const s = document.getElementById('recvMaterial'); s.add(new Option('Cliqflow', 'M011')); s.value = 'M011'; });
+    await page.selectOption('#recvEmployee', 'Ann'); await page.fill('#recvQty', '6'); await page.fill('#recvOn', '2024-12-01');
+    await page.check('#recvOnShelf');
+    await page.click('#recvBtn'); await wait(100);
+    check('receive: on the shelf with no expiration is stopped before it is sent', M.count('receive'), 0);
+    await page.fill('#recvExpires', '2026-12-01');
+    check('receive: the form fits a phone', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await page.click('#recvBtn');
+    await page.waitForSelector('#recvResult:not([hidden])');
+    const sent = M.of('receive')[0];
+    check('receive: both dates and the shelf flag are sent', [sent.receivedOn, sent.expiresOn, sent.onShelf, sent.qty], ['2024-12-01', '2026-12-01', '1', '6']);
+    check('receive: the warning shows and the form resets to today',
+      [(await page.textContent('#recvResult')).includes('Count it'), await page.isChecked('#recvOnShelf'), await page.inputValue('#recvExpires'), await page.inputValue('#recvOn')],
+      [true, false, '', await page.evaluate(() => NetCore.localIso())]);
+    M.plan.inventory = () => ({ ok: true, countNext: [], summary: { materials: 2, neverCounted: 0, negative: 0, stocktake: 0, low: 1, expiring: 1, drifting: 0, stale30: 0, lastCountAt: null },
+      materials: [
+        { id: 'M011', name: 'Cliqflow', unit: 'lb', onHand: 10, counted: true, reorderPoint: 2, low: true, goodStock: 1, usable: 8, expiredQty: 2, pastHalfQty: 7, nextExpires: '2026-12-01', lots: [{ expires: '2026-12-01' }], history: [], countsRecorded: 0, lastCountedAt: '2026-11-01', daysSinceCount: 4, lastVariance: null },
+        { id: 'M012', name: 'Webbing', unit: 'yd', onHand: 30, counted: true, reorderPoint: 2, low: false, goodStock: 30, usable: 30, expiredQty: 0, pastHalfQty: 0, nextExpires: '', lots: [], history: [], countsRecorded: 0, lastCountedAt: '2026-11-01', daysSinceCount: 4, lastVariance: null }
+      ] });
+    await page.click('.tab[data-screen="inventory"]');
+    await page.waitForSelector('[data-row="M011"]');
+    const dated = await page.textContent('[data-row="M011"]');
+    check('inventory: a dated material shows good stock, expired and past halfway',
+      [dated.includes('1 good'), dated.includes('next expires 2026-12-01'), dated.includes('2 expired'), dated.includes('7 past halfway')], [true, true, true, true]);
+    check('inventory: an undated material shows none of it', (await page.textContent('[data-row="M012"]')).includes('good'), false);
+    await page.click('#invFilters [data-filter="expiring"]');
+    check('inventory: the Expiring filter keeps only dated trouble', [await page.isVisible('[data-row="M011"]'), await page.locator('[data-row="M012"]').count()], [true, 0]);
+    await page.click('#invFilters [data-filter="all"]');
+    await page.evaluate(() => { document.querySelectorAll('.screen').forEach((s) => s.classList.remove('screen--active')); document.getElementById('screen-ship').classList.add('screen--active'); });
+    // A delivery reloads config, which refills the pickers, so the next block picks again.
+    await page.selectOption('#shipEmployee', 'Ann'); await page.selectOption('#shipProduct', 'XRT50EXO'); await page.selectOption('#shipChannel', 'Shopify');
+
     /* ---- Full app: ship tapped again after no signal ------------------------------------------------- */
     M.plan.ship = () => ({ abort: true });
     await page.fill('#shipQty', '3');

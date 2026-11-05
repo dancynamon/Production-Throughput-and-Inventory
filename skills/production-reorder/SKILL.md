@@ -17,7 +17,8 @@ skill for this; that is a different inventory.
 ## Columns (Reorder tab)
 
 `Generated, MaterialID, MaterialName, Unit, OnHand, ReorderPoint, Committed,
-DailyUse, OrderBy, Supplier, LeadDays, QBOItem, ReorderQty, SuggestedQty, Reason`
+DailyUse, OrderBy, Supplier, LeadDays, QBOItem, ReorderQty, SuggestedQty, Reason,
+GoodStock, NextExpires`
 
 - One row per material that is due. A single row reading "Nothing to reorder"
   means the list is empty.
@@ -32,7 +33,7 @@ DailyUse, OrderBy, Supplier, LeadDays, QBOItem, ReorderQty, SuggestedQty, Reason
 ## Steps
 
 1. **Read the tab with the Sheets API** (google-workspace skill, range
-   `Reorder!A1:O200`). The Drive file reader truncates to ~11 rows per tab;
+   `Reorder!A1:Q200`). The Drive file reader truncates to ~11 rows per tab;
    don't trust it for this. If `Generated` is older than 8 days, say so and
    ask Dan to run Maintenance → Rebuild the Reorder tab now (or note it under
    FLAGGED and continue with the stale list, stamped stale).

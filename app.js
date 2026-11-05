@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.05.0';
+  var APP_VERSION = '3.06.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -654,18 +654,22 @@
   el('recvForm').addEventListener('submit', function (e) {
     e.preventDefault();
     var payload = { action: 'receive', employee: el('recvEmployee').value, materialId: el('recvMaterial').value,
-                    qty: el('recvQty').value, notes: el('recvNotes').value };
+                    qty: el('recvQty').value, notes: el('recvNotes').value,
+                    receivedOn: el('recvOn').value, expiresOn: el('recvExpires').value,
+                    onShelf: el('recvOnShelf').checked ? '1' : '' };
     if (!payload.employee)          { toast('Pick who you are'); return; }
     if (!payload.materialId)        { toast('Pick a material'); return; }
     if (!(Number(payload.qty) > 0)) { toast('Enter a quantity'); return; }
+    if (payload.onShelf && !payload.expiresOn) { toast('Enter the expiration date'); return; }
     var btn = el('recvBtn'); btn.disabled = true; btn.textContent = 'Adding…'; el('recvResult').hidden = true;
     api(payload).then(function (data) {
       if (!data.ok) throw new Error(data.error || 'Receive failed');
       var m = data.material || {};
       el('recvResult').innerHTML = '<div class="result__ok">✓ ' + escapeHtml(data.message) + '</div>'
         + '<div class="result__list"><li><span>' + escapeHtml(m.name || '') + '</span>'
-        + '<span class="result__num">now ' + fmt(m.onHand) + ' ' + escapeHtml(m.unit || '') + '</span></li></div>';
-      el('recvResult').hidden = false; el('recvForm').reset();
+        + '<span class="result__num">now ' + fmt(m.onHand) + ' ' + escapeHtml(m.unit || '') + '</span></li></div>'
+        + (data.warnings && data.warnings.length ? '<div class="result__warn">⚠ ' + data.warnings.map(escapeHtml).join('<br>') + '</div>' : '');
+      el('recvResult').hidden = false; el('recvForm').reset(); el('recvOn').value = NetCore.localIso();
       loadConfig();
       loadReceiving();
     }).catch(function (err) { toast('⚠ ' + err.message); })
@@ -767,7 +771,7 @@
     // Inventory only; everything else stays on the bar for other managers.
     document.querySelectorAll('.tab').forEach(function (t) {
       var s = t.getAttribute('data-screen');
-      if (count) t.style.display = (s === 'reconcile' || s === 'inventory' || s === 'time' || s === 'pins') ? '' : 'none';
+      if (count) t.style.display = (s === 'reconcile' || s === 'inventory' || s === 'receive' || s === 'time' || s === 'pins') ? '' : 'none';
       // PINs: the server is the gate; this only hides a tab that would refuse.
       if (t.hasAttribute('data-pinadmin') && !(mgr && localStorage.getItem('aq_pin_admin') === '1')) t.style.display = 'none';
     });
@@ -871,7 +875,7 @@
     if (name === 'guide') loadGuide();
     if (name === 'overview') loadOverview();
     if (name === 'capacity') { loadCapacity(); loadCrew(); }
-    if (name === 'receive') loadReceiving();
+    if (name === 'receive') { if (!el('recvOn').value) el('recvOn').value = NetCore.localIso(); loadReceiving(); }
     if (name === 'inventory') { loadInventory(); loadFinished(); }
     if (name === 'buy') loadBuy();
     if (name === 'wip') { buildWipRows(); if (countView() && !WALK.on) el('walkToggle').click(); }
@@ -947,7 +951,8 @@
       { key: 'never',    n: s.neverCounted, label: 'never counted', warn: s.neverCounted > 0 },
       { key: 'negative', n: s.negative,     label: 'negative',      warn: s.negative > 0 },
       { key: 'low',      n: s.low,          label: 'below reorder', warn: s.low > 0 },
-      { key: 'drift',    n: s.drifting,     label: 'drifting',      warn: s.drifting > 0 },
+      { key: 'expiring', n: s.expiring,     label: 'expiring',      warn: s.expiring > 0 },
+      { key: 'drift',   n: s.drifting,     label: 'drifting',      warn: s.drifting > 0 },
       { key: 'next',     n: (INV.countNext || []).length, label: 'count next', warn: false }
     ];
     var html = stats.map(function (st) {
@@ -974,7 +979,8 @@
         case 'stocktake': return !m.lastCountedAt || m.onHand < 0;
         case 'negative': return m.onHand < 0;
         case 'low':      return !!m.low;
-        case 'drift':    return !!m.drifting;
+        case 'expiring': return m.expiredQty > 0 || m.pastHalfQty > 0;
+        case 'drift':   return !!m.drifting;
         case 'edited':   return INV.edits[m.id] !== undefined && INV.edits[m.id] !== '';
         case 'next':     return (INV.countNext || []).indexOf(m.id) !== -1;
         default:         return true;
@@ -1016,8 +1022,14 @@
     if (m.supplier) meta.push('from ' + escapeHtml(m.supplier));
     if (m.lastReceivedAt) meta.push('received +' + fmt(m.lastReceivedQty) + ' on ' + escapeHtml(m.lastReceivedAt));
     if (m.reorderPoint) meta.push('reorder at ' + fmt(m.reorderPoint));
+    // The virtual number: what is left that has not expired or passed halfway.
+    if (m.lots && m.lots.length) {
+      meta.push('<b>' + fmt(m.goodStock) + ' good</b>' + (m.nextExpires ? ', next expires ' + escapeHtml(m.nextExpires) : ''));
+    }
 
     var flags = '';
+    if (m.expiredQty > 0) flags += '<span class="inv-flag inv-flag--low">' + fmt(m.expiredQty) + ' expired</span>';
+    if (m.pastHalfQty > 0) flags += '<span class="inv-flag inv-flag--low">' + fmt(m.pastHalfQty) + ' past halfway</span>';
     if (m.drifting) flags += '<span class="inv-flag inv-flag--drift">' + fmt(m.driftRun)
       + ' counts the same way</span>';
     if (m.low)      flags += '<span class="inv-flag inv-flag--low">low</span>';
@@ -1980,8 +1992,9 @@
       wrap.innerHTML = d.deliveries.map(function (r) {
         return '<div class="rcv-row"><span class="rcv-row__at">' + escapeHtml(r.at) + '</span>'
           + '<span class="rcv-row__what">' + escapeHtml(r.name)
-          + '<small>' + escapeHtml(r.by) + (r.notes ? ' · ' + escapeHtml(r.notes) : '') + '</small></span>'
-          + '<span class="rcv-row__qty">+' + fmt(r.qty) + '</span></div>';
+          + '<small>' + escapeHtml(r.by) + (r.expires ? ' · expires ' + escapeHtml(r.expires) : '')
+          + (r.notes ? ' · ' + escapeHtml(r.notes) : '') + '</small></span>'
+          + '<span class="rcv-row__qty">' + (r.onShelf ? 'on shelf ' : '+') + fmt(r.qty) + '</span></div>';
       }).join('')
       + (d.total > d.deliveries.length
           ? '<div class="rcv-more">Showing ' + d.deliveries.length + ' of ' + d.total + '. Export the full log from the Summary tab.</div>' : '');
@@ -2504,6 +2517,7 @@
     if (now === autoDate) return;
     if (el('workDate').value === autoDate) { el('workDate').value = now; loadToday(); }
     if (el('shipDate') && el('shipDate').value === autoDate) el('shipDate').value = now;
+    if (el('recvOn').value === autoDate) el('recvOn').value = now;
     autoDate = now;
   }
   /* Read-only screens left in the background are reloaded when the phone

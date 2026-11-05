@@ -111,6 +111,8 @@ select:focus,input:focus{outline:none; border-color:var(--navy-light); box-shado
 /* Two-up row (date + employee) */
 .row2{display:flex; gap:12px}
 .row2 .field{flex:1; min-width:0}
+.field--check{display:flex; gap:10px; align-items:flex-start}
+.field--check input{width:auto; flex:none; margin-top:3px}
 
 .section-label{font-weight:700; color:var(--navy); font-size:.95rem; margin:18px 0 10px}
 

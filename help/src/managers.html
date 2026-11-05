@@ -42,6 +42,7 @@
       <tr><td><b>Time</b></td><td>Who worked when, and what needs a look?</td><td>Approve forgot-to-punch requests, edit shifts, read flags, set clock PINs and the shop location.</td></tr>
       <tr><td><b>Reconcile</b></td><td>Which count is due, and how did the entries hold up against the last one?</td><td>Three buttons (floor, shelf, storage), then read the cards. The weekly loop.</td></tr>
       <tr><td><b>Inventory</b></td><td>What's on the shelf, what's in storage, what's drifting?</td><td>Count materials and finished goods. Type the real number, leave the rest blank, record.</td></tr>
+      <tr><td><b>Receive</b></td><td>What came in, and when does it expire?</td><td>Log a delivery with its received and expiration dates. Date stock already on the shelf.</td></tr>
     </tbody>
   </table></div>
   <div class="callout"><b>The count-only view.</b> Dan can set a person to see only Reconcile, Inventory and Time (sheet menu → Settings → Set a person's view).</div>
@@ -147,6 +148,14 @@
     <li><p>Record.</p><p>The estimate restarts from your number. Materials that miss the same way every time are the ones whose recipe is wrong; tell Dan.</p></li>
   </ol>
   <div class="callout"><b>Count next</b> on Inventory picks the five materials whose count is worth the most right now: never counted, negative, or drifting. Start there on Monday.</div>
+
+  <h2>Expiration dates</h2>
+  <ol class="steps">
+    <li><p>A delivery: Receive tab, pick the material, enter how much, the received date and the expiration date.</p><p>Leave the expiration blank if it doesn't expire. The amount goes onto on hand.</p></li>
+    <li><p>Stock already here: same form, tick <b>Already on the shelf</b>.</p><p>That records the dates and leaves on hand alone. Enter what is left of that delivery now, with the date it really came in. Count the material first if its number is wrong or blank.</p></li>
+    <li><p>Read it on Inventory: the <b>Expiring</b> filter.</p><p><b>Good</b> is what is left that hasn't expired or passed halfway to expiring. Nobody logs which delivery a batch came from, so the app assumes the oldest got used first.</p></li>
+  </ol>
+  <div class="callout"><b>Halfway is the reorder line.</b> Stock past halfway from received to expires counts as already gone: when what's left of the good stock is at or under the reorder point, it shows on Time to reorder. A fresh delivery clears it. Expired stock can't feed the floor, and after you throw it out, count the material so the number drops.</div>
 </section>
 
 <section id="faq">

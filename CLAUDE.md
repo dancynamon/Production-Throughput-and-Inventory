@@ -157,6 +157,7 @@ node apps-script/test-summary.js    # shop-level vs line-level counting
 node apps-script/test-capacity.js   # bottleneck, Little's Law, confidence
 node apps-script/test-pin.js        # PIN from Script Properties, never code
 node apps-script/test-receiving.js  # deliveries newest-first, last-received map
+node apps-script/test-expiry.js     # lots oldest-first, good/usable numbers, halfway reorder, receive date rules
 node apps-script/test-crew.js       # per-person rate only from hours-bearing rows
 node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
@@ -367,6 +368,16 @@ assert on them rather than trusting the parser.
   anyone types; clock punches keep one clientId per PIN-pad opening. Day rollover: Floor blanks
   yesterday's strip after midnight; the full app moves an untouched work date to today and reloads
   Floor/Summary/Time after 5 min in the background
+- **Expiration 3.06.0** (backend + app). Dan, 2026-11-04: track a virtual inventory number from how
+  much is left vs when it expires, and halfway to expiring counts as a reorder. `ReceivingLog` gains
+  `ReceivedOn`, `ExpiresOn`, `OnShelf` (YES = dates stock already in on hand, QtyAdded not added).
+  Receive tab back on the bar. `computeExpiry` (pure) walks deliveries newest first and fills them
+  from on hand, so stock is used oldest first without logging lots per batch; a shelf count
+  re-baselines it. `getStock` adds `usable` (on hand less expired), `goodStock` (usable less past
+  halfway), `expiredQty`, `pastHalfQty`, `nextExpires`, `lots`; `low` runs on `goodStock`. Buy's `after`
+  and runway run on `usable`. `computeReorder` lists a material with expired or past-halfway stock
+  when `goodStock` <= ReorderPoint, so a fresh lot stops the nagging. No dates = behaves as before.
+  Dan's "reorder at 50% left of any order" is NOT built, separate from this
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

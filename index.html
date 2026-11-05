@@ -49,6 +49,8 @@
        the finished-goods panel; Inventory is where shelf counts are entered. -->
   <button class="tab" data-screen="reconcile" data-mgr="1">Reconcile</button>
   <button class="tab" data-screen="inventory" data-mgr="1">Inventory</button>
+  <!-- 3.06.0: back on the bar, it is where received and expiration dates go in. -->
+  <button class="tab" data-screen="receive" data-mgr="1">Receive</button>
   <!-- 3.03.0: PIN admins only (PIN_ADMINS, unlocked with their own PIN). -->
   <button class="tab" data-screen="pins" data-mgr="1" data-pinadmin="1">PINs</button>
 </nav>
@@ -223,6 +225,11 @@
       <label class="field"><span>Which material arrived?</span><select id="recvMaterial" required></select></label>
       <label class="field"><span>How much? (in the material's unit)</span>
         <input id="recvQty" type="number" inputmode="decimal" min="0" step="any" placeholder="e.g. 200" required></label>
+      <div class="row2">
+        <label class="field"><span>Received on</span><input id="recvOn" type="date"></label>
+        <label class="field"><span>Expires on (blank if it doesn't)</span><input id="recvExpires" type="date"></label>
+      </div>
+      <label class="field field--check"><input id="recvOnShelf" type="checkbox"> <span>Already on the shelf: just record its dates, don't add to stock</span></label>
       <label class="field"><span>Notes (optional)</span><input id="recvNotes" type="text" placeholder="Supplier, PO #, lot…"></label>
       <button type="submit" id="recvBtn" class="btn-primary">Add to Stock</button>
     </form>
@@ -257,6 +264,7 @@
         <button type="button" class="inv-chip" data-filter="never">Never counted</button>
         <button type="button" class="inv-chip" data-filter="negative">Negative</button>
         <button type="button" class="inv-chip" data-filter="low">Below reorder</button>
+        <button type="button" class="inv-chip" data-filter="expiring">Expiring</button>
         <button type="button" class="inv-chip" data-filter="drift">Drifting</button>
         <button type="button" class="inv-chip" data-filter="next">Count next</button>
         <button type="button" class="inv-chip" data-filter="edited">Entered</button>

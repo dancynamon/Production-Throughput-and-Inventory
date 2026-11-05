@@ -2,6 +2,12 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.06.0', date: '2026-11-05', title: 'Expiration dates', items: [
+    { who: 'mgr',  text: 'The Receive tab is back on the top bar. Each delivery can carry the date it came in and the date it expires. Leave the expiration blank for anything that does not expire.' },
+    { who: 'mgr',  text: 'For stock already on the shelf, tick "Already on the shelf" and enter its dates. That records the dates and leaves on hand alone.' },
+    { who: 'mgr',  text: 'Inventory shows how much of a dated material is good, how much is past halfway to expiring, and how much has expired. The Expiring filter lists them. Stock is taken as used oldest first.' },
+    { who: 'mgr',  text: 'Reorder treats stock past halfway to expiring as already gone: once what is left is at or under the reorder point, it shows on Time to reorder and the Reorder tab. Expired stock no longer counts toward what the floor can use.' }
+  ]},
   { version: '3.05.0', date: '2026-10-31', title: 'Nothing lost, nothing twice on bad Wi-Fi', items: [
     { who: 'crew', text: 'When the sheet is busy, Floor mode keeps your entry on the phone and sends it again a moment later. Before, a busy sheet could throw a saved entry away.' },
     { who: 'crew', text: 'When your Floor login runs out, the PIN pad opens right on your screen. Your job, size and the number you typed stay put, and what you saved goes as soon as the PIN is in.' },
