@@ -17,7 +17,7 @@
  *  See README.md for click-by-click deployment.
  *
  *  ---------------------------------------------------------------------------
- *  BUILD:  2026-11-06 15:00 UTC      version 3.07.0
+ *  BUILD:  2026-11-06 18:00 UTC      version 3.08.0
  *  ---------------------------------------------------------------------------
  *  Stamped on every change so you can tell at a glance which paste is sitting
  *  in the editor. Compare against the BUILD line on GitHub before wondering
@@ -347,12 +347,12 @@ function setManagerPin() {
 // phone is actually talking to. Bump this when you change this file, and
 // remember it only reaches the app after Deploy > Manage deployments >
 // Edit > New version.
-var BACKEND_VERSION = '3.07.0';
+var BACKEND_VERSION = '3.08.0';
 
 // Matches the BUILD line in the header comment above. Version numbers say what
 // changed; this says WHEN this exact text was generated, which is the faster
 // answer to "did my paste actually take?".
-var BUILD_STAMP = '2026-11-06 15:00 UTC';
+var BUILD_STAMP = '2026-11-06 18:00 UTC';
 var RECEIVING_DATE_COLUMNS = ['ReceivedOn', 'ExpiresOn', 'OnShelf'];
 
 // Roster seeded on a FIRST-TIME build only. Day to day, the Employees tab in
@@ -716,8 +716,7 @@ function setup() {
   // = not yet counted). M034–M037 come from the COGS build (foam, adhesive,
   // paint, ink) — they aren't on the count sheet yet, so count/receive them.
   seed(TAB.materials, MATERIAL_HEADERS, MATERIAL_ROWS);
-  setColumnFormula(ss, TAB.materials, 6 /*F*/,
-    '=IF(D{r}="","",IF(D{r}<=E{r},"⚠ REORDER","OK"))');
+  setColumnFormula(ss, TAB.materials, 6 /*F*/, materialStatusFormula(MATERIAL_HEADERS));
 
   // ---- BOM: stage-aware recipe. (ProductID, Stage, MaterialID, QtyPerUnit) --
   // Seeded from the COGS "COGS Model" tab plus Dan's conversions (6/2026):
@@ -1047,6 +1046,20 @@ function applySchemaUpgrades() {
   addColumns(TAB.materials, ['Active']);     // NO = retired, hidden from the app (3.01.5)
   addColumns(TAB.materials, ['ReorderQty', 'QBOItem']);  // usual order size, QBO item name for POs (3.01.9)
 
+  // 3.08.0, once: the sheet's own Status column follows the app's reorder point,
+  // so a blank ReorderPoint reads half the usual order there too.
+  try {
+    var sprops = PropertiesService.getScriptProperties();
+    if (!sprops.getProperty('STATUS_FORMULA_3080')) {
+      var msh = ss.getSheetByName(TAB.materials);
+      if (msh) {
+        var mh = msh.getRange(1, 1, 1, msh.getLastColumn()).getValues()[0];
+        var sc = mh.indexOf('Status');
+        if (sc >= 0) { setColumnFormula(ss, TAB.materials, sc + 1, materialStatusFormula(mh)); did.push('Status on ' + TAB.materials + ' reads half the usual order when ReorderPoint is blank'); }
+      }
+      sprops.setProperty('STATUS_FORMULA_3080', '1');
+    }
+  } catch (eSt) {}
   // 3.01.5, once: John and Alex are full managers, not the count-only view.
   try {
     var mprops = PropertiesService.getScriptProperties();
@@ -3677,7 +3690,7 @@ function setTarget(p) {
  * Recipients live in Script Properties (DIGEST_TO, comma-separated); with
  * none set it goes to whoever installed the trigger.
  */
-function buildDigestHtml(sum, buy, inv, appUrl, fg) {
+function buildDigestHtml(sum, buy, inv, appUrl, fg, reorder) {
   var p = sum.production, pipe = sum.pipeline, st = sum.inventory, t = sum.trust;
   var esc = function (x) { return String(x === null || x === undefined ? '' : x)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
@@ -3701,7 +3714,22 @@ function buildDigestHtml(sum, buy, inv, appUrl, fg) {
   var short = (buy.materials || []).filter(function (m) { return m.counted && m.after < 0; })
     .sort(function (a, b) { return a.after - b.after; }).slice(0, 8);
   h.push('<h3 style="margin:18px 0 6px;color:#0c1f3f">To order</h3>');
-  if (!short.length) h.push('<p style="color:#5d6a7d">Nothing counted is short of what the pipeline needs.</p>');
+  // 3.08.0: the same list as the Reorder tab and the app's banner, when there is one.
+  var due = reorder && reorder.items ? reorder.items.slice(0, 12) : null;
+  if (due && !due.length) h.push('<p style="color:#5d6a7d">Nothing to reorder.</p>');
+  else if (due) {
+    h.push('<table cellpadding="6" style="border-collapse:collapse;width:100%">');
+    due.forEach(function (m) {
+      h.push('<tr><td style="border-bottom:1px solid #eae7e0">' + esc(m.name)
+        + (m.supplier ? ' <span style="color:#5d6a7d">· ' + esc(m.supplier) + '</span>' : '')
+        + '<br><span style="color:#5d6a7d;font-size:13px">' + esc(m.reason) + '</span></td>'
+        + '<td style="border-bottom:1px solid #eae7e0;text-align:right;white-space:nowrap">'
+        + (m.suggestedQty ? '<b>order ' + n(m.suggestedQty) + ' ' + esc(m.unit) + '</b>' : '<span style="color:#a92e2a">how many?</span>') + '</td></tr>');
+    });
+    h.push('</table>');
+    if (reorder.items.length > due.length) h.push('<p style="color:#5d6a7d">And ' + (reorder.items.length - due.length) + ' more on the Reorder tab.</p>');
+  }
+  else if (!short.length) h.push('<p style="color:#5d6a7d">Nothing counted is short of what the pipeline needs.</p>');
   else {
     h.push('<table cellpadding="6" style="border-collapse:collapse;width:100%">');
     short.forEach(function (m) {
@@ -3874,9 +3902,10 @@ function sendWeeklyDigest() {
   if (!to) throw new Error('No recipient: set DIGEST_TO from the Aquamentor menu.');
   var sum = getSummary(), buy = computePurchasing(), inv = getInventory({ history: 1 });
   var fg = null; try { fg = getFinished({ days: 7 }); } catch (e) { fg = null; }
-  var html = buildDigestHtml(sum, buy, inv, APP_PUBLIC_URL, fg);
+  var ro = null; try { ro = computeReorder(buy); } catch (e2) { ro = null; }
+  var html = buildDigestHtml(sum, buy, inv, APP_PUBLIC_URL, fg, ro);
   var subject = 'Aquamentor week to ' + sum.generatedAt + ' — ' + round2(sum.production.finished)
-    + ' finished, ' + (sum.buying.short || 0) + ' to order';
+    + ' finished, ' + (ro ? ro.items.length : (sum.buying.short || 0)) + ' to order';
   MailApp.sendEmail({ to: to, subject: subject, htmlBody: html,
     body: 'This digest is HTML; open it in a mail client that shows HTML.' });
   return { to: to, subject: subject };
@@ -5319,6 +5348,21 @@ function freshSheet(ss, tabName) {
   return sh;
 }
 
+/* The RawMaterials Status formula. Matches the app's reorder point (3.07.0)
+ * as far as a formula can: the typed ReorderPoint, else REORDER_FRACTION of
+ * ReorderQty. The last-delivery fallback and expiration live only in the app;
+ * the Reorder tab is the full answer. Columns found by header. */
+function materialStatusFormula(headers) {
+  var L = function (name) { var i = headers.indexOf(name); return i < 0 ? '' : columnLetter(i + 1); };
+  var d = L('OnHand'), e = L('ReorderPoint'), o = L('ReorderQty'), f = reorderFraction();
+  var point = o && f > 0 ? 'IF(N(' + e + '{r})>0,' + e + '{r},N(' + o + '{r})*' + f + ')' : e + '{r}';
+  return '=IF(' + d + '{r}="","",IF(' + d + '{r}<=' + point + ',"⚠ REORDER","OK"))';
+}
+function columnLetter(n) {
+  var out = '';
+  while (n > 0) { var m = (n - 1) % 26; out = String.fromCharCode(65 + m) + out; n = Math.floor((n - 1) / 26); }
+  return out;
+}
 function setColumnFormula(ss, tabName, col, template) {
   var sh = ss.getSheetByName(tabName), last = sh.getLastRow();
   for (var r = 2; r <= last; r++) sh.getRange(r, col).setFormula(template.replace(/\{r\}/g, r));

@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.08.0', date: '2026-11-06', title: 'One reorder list everywhere', items: [
+    { who: 'mgr',  text: 'The weekly digest\'s "To order" is now the same list as the Reorder tab and the app\'s banner, with the reason and how many to order. Before, it only listed what the floor was short of.' },
+    { who: 'mgr',  text: 'The Status column on the sheet\'s RawMaterials tab uses half the usual order when the reorder point is blank, like the app. Expiration dates still show only in the app and on the Reorder tab.' }
+  ]},
   { version: '3.07.0', date: '2026-11-06', title: 'Reorder at half an order', items: [
     { who: 'mgr',  text: 'A material with no reorder point on the sheet now gets one: half its usual order (ReorderQty), or half its last delivery. A reorder point typed on RawMaterials still wins. Inventory says which one it is using.' },
     { who: 'mgr',  text: 'For something that expires, Reorder checks how much the floor gets through before a new lot would be halfway to expiring. A suggested order bigger than that is cut down, and a typed usual order gets a note that a smaller order would do.' }

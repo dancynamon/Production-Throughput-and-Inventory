@@ -82,6 +82,19 @@ check('expiring: a typed usual order is kept, with a note',
 check('the cut never goes below what the floor is owed', by('F').suggestedQty, 30);
 check('Reorder tab headers end with UsedBeforeHalfway', sandbox.REORDER_HEADERS.slice(-1), ['UsedBeforeHalfway']);
 
+/* ---- the sheet's Status formula (3.08.0) ---------------------------- */
+{
+  const H = ['MaterialID', 'MaterialName', 'Unit', 'OnHand', 'ReorderPoint', 'Status', 'Category', 'Notes', 'LastCounted', 'LastCountedAt',
+             'LastVariance', 'Supplier', 'LeadDays', 'Active', 'ReorderQty', 'QBOItem'];
+  check('Status reads half of ReorderQty (column O) when ReorderPoint is blank',
+    sandbox.materialStatusFormula(H), '=IF(D{r}="","",IF(D{r}<=IF(N(E{r})>0,E{r},N(O{r})*0.5),"⚠ REORDER","OK"))');
+  check('no ReorderQty column: the old formula', sandbox.materialStatusFormula(H.slice(0, 8)), '=IF(D{r}="","",IF(D{r}<=E{r},"⚠ REORDER","OK"))');
+  props.REORDER_FRACTION = 'off';
+  check('REORDER_FRACTION off: the old formula', sandbox.materialStatusFormula(H), '=IF(D{r}="","",IF(D{r}<=E{r},"⚠ REORDER","OK"))');
+  delete props.REORDER_FRACTION;
+  check('column letters past Z', [sandbox.columnLetter(1), sandbox.columnLetter(26), sandbox.columnLetter(27), sandbox.columnLetter(52)], ['A', 'Z', 'AA', 'AZ']);
+}
+
 /* ---- getStock end to end -------------------------------------------- */
 {
   const realGetStock = vm.runInContext(`(${SRC.match(/function getStock\(\) \{[\s\S]*?\n\}\n/)[0]})`, sandbox);

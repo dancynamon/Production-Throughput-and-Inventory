@@ -386,7 +386,13 @@ assert on them rather than trusting the parser.
   `set` / `usual order` / `last delivery` and Inventory says which. John's worry (Cliqflow sat 2 years):
   `computeReorder` takes the newest dated lot's shelf life, `usedBeforeHalfway` = daily use x working
   days to half of it; a computed SuggestedQty above it is cut (never below what the floor is owed),
-  a typed ReorderQty is kept with a note. New Reorder column `UsedBeforeHalfway`
+  a typed ReorderQty is kept with a note. New Reorder column `UsedBeforeHalfway`.
+  2026-11-06: typed ReorderPoint cleared on M002, M014, M015, M019, M030, M036, M040, M041 (Dan's OK;
+  old values 2, 1000, 1000, 1000, 50, 10, 40, 60) so the half rule covers them
+- **3.08.0 (backend; app bumped for the changelog only):** one reorder list everywhere. Weekly digest "To order" = `computeReorder`
+  items (reason + SuggestedQty), subject counts them; RawMaterials `Status` formula
+  (`materialStatusFormula`, rewritten once by upgradeSchema under `STATUS_FORMULA_3080`) falls back to
+  REORDER_FRACTION x ReorderQty. Last-delivery fallback and expiry are app/Reorder-tab only
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

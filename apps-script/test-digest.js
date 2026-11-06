@@ -42,13 +42,27 @@ check('count-next names the never-counted', /4# Foam <span[^>]*>\(never\)<\/span
 check('the trust line is present', /0 of 44 materials counted/.test(html), true);
 check('the app link is included', /href="https:\/\/app.example"/.test(html), true);
 
+/* 3.08.0: To order is the Reorder tab's list when there is one. */
+{
+  const ro = { items: [
+    { name: 'Nylon Mesh', supplier: 'Fiber Dynamics', unit: 'Boxes', suggestedQty: 40, reason: 'at or under reorder point (13.84 of 20, half the usual order of 40)' },
+    { name: 'Mystery', supplier: '', unit: 'ea', suggestedQty: null, reason: 'order by 2026-11-10' } ] };
+  const h2 = sandbox.buildDigestHtml(sum, buy, inv, '', null, ro);
+  check('reorder items listed with supplier, reason and quantity',
+    /Nylon Mesh.*Fiber Dynamics.*half the usual order of 40.*order 40 Boxes/.test(h2), true);
+  check('no quantity asks how many', /Mystery[\s\S]*how many\?/.test(h2), true);
+  check('the floor-short list is replaced, not added to', /short 30 Boxes/.test(h2), false);
+  check('an empty reorder list says so', /Nothing to reorder/.test(sandbox.buildDigestHtml(sum, buy, inv, '', null, { items: [] })), true);
+}
+
 /* --- Sending ------------------------------------------------------------- */
+sandbox.computeReorder = () => ({ items: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] });
 sandbox.getSummary = () => ({ ...sum, buying: { short: 2 } });
 sandbox.computePurchasing = () => buy;
 sandbox.getInventory = () => inv;
 const r1 = sandbox.sendWeeklyDigest();
 check('with no DIGEST_TO the digest goes to the effective user', sent.to, 'owner@example.com');
-check('subject carries finished and to-order counts', r1.subject, 'Aquamentor week to 2026-09-13 — 2 finished, 2 to order');
+check('subject carries finished and to-order counts', r1.subject, 'Aquamentor week to 2026-09-13 — 2 finished, 3 to order');
 check('an HTML body is sent', typeof sent.htmlBody === 'string' && sent.htmlBody.length > 200, true);
 props.DIGEST_TO = 'dan@example.com, john@example.com';
 sandbox.sendWeeklyDigest();
