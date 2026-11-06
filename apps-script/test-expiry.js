@@ -75,7 +75,7 @@ check('a fresh lot above the reorder point stops the old one asking', !!by('B'),
 check('expired stock with no reorder point is still due', [!!by('C'), /3 expired/.test(by('C').reason)], [true, true]);
 check('a material with no dates is judged as before', !!by('D'), false);
 check('suggested quantity runs on good stock, not the shelf (back to 2x reorder point)', by('A').suggestedQty, 4);
-check('Reorder tab headers match the row', sandbox.REORDER_HEADERS.slice(-2), ['GoodStock', 'NextExpires']);
+check('Reorder tab headers match the row', sandbox.REORDER_HEADERS.slice(-3, -1), ['GoodStock', 'NextExpires']);
 
 /* ---- receiveStock ----------------------------------------------------- */
 function harness(onHand) {

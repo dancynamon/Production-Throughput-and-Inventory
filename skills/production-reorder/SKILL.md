@@ -18,13 +18,19 @@ skill for this; that is a different inventory.
 
 `Generated, MaterialID, MaterialName, Unit, OnHand, ReorderPoint, Committed,
 DailyUse, OrderBy, Supplier, LeadDays, QBOItem, ReorderQty, SuggestedQty, Reason,
-GoodStock, NextExpires`
+GoodStock, NextExpires, UsedBeforeHalfway`
 
 - One row per material that is due. A single row reading "Nothing to reorder"
   means the list is empty.
 - `SuggestedQty` = `ReorderQty` (Dan's usual order size, typed on RawMaterials)
   or, when blank, 4 weeks of observed use plus what the floor is owed, or back
   to twice the reorder point, whichever is larger. Blank = no basis; ask.
+- `ReorderPoint` is the typed one, or (blank on RawMaterials) half of
+  `ReorderQty` or of the last delivery; `Reason` says which.
+- `UsedBeforeHalfway`: for a material that expires, how much the floor uses
+  before a new lot would be halfway to expiring. A computed `SuggestedQty` is
+  already cut to it; when `ReorderQty` is bigger, `Reason` says so. Mention it
+  under FLAGGED so Dan can order less.
 - `Supplier` is the QBO vendor display name. `QBOItem` is the QBO item name;
   blank means use `MaterialName` and confirm the match in QBO.
 - Materials that were never counted are NOT on the list (the backend can't
@@ -33,7 +39,7 @@ GoodStock, NextExpires`
 ## Steps
 
 1. **Read the tab with the Sheets API** (google-workspace skill, range
-   `Reorder!A1:Q200`). The Drive file reader truncates to ~11 rows per tab;
+   `Reorder!A1:R200`). The Drive file reader truncates to ~11 rows per tab;
    don't trust it for this. If `Generated` is older than 8 days, say so and
    ask Dan to run Maintenance → Rebuild the Reorder tab now (or note it under
    FLAGGED and continue with the stale list, stamped stale).

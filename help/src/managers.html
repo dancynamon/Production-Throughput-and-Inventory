@@ -156,6 +156,10 @@
     <li><p>Read it on Inventory: the <b>Expiring</b> filter.</p><p><b>Good</b> is what is left that hasn't expired or passed halfway to expiring. Nobody logs which delivery a batch came from, so the app assumes the oldest got used first.</p></li>
   </ol>
   <div class="callout"><b>Halfway is the reorder line.</b> Stock past halfway from received to expires counts as already gone: when what's left of the good stock is at or under the reorder point, it shows on Time to reorder. A fresh delivery clears it. Expired stock can't feed the floor, and after you throw it out, count the material so the number drops.</div>
+
+  <h2>Reorder points</h2>
+  <p>Type a reorder point on the RawMaterials tab and the app uses it. Leave it blank and the app uses half the usual order (the <b>ReorderQty</b> column), or half the last delivery if there is no usual order. Inventory says "half the usual order" or "half the last delivery" next to a reorder point it worked out. A material that has never had a delivery logged and has no reorder point typed is never flagged.</p>
+  <div class="callout"><b>Smaller orders for things that expire.</b> If the floor won't use a whole order before a new lot would be halfway to expiring, Reorder cuts the suggested amount to what gets used by then. If a usual order is typed, it keeps that amount and says a smaller order would do.</div>
 </section>
 
 <section id="faq">

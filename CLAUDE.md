@@ -158,6 +158,7 @@ node apps-script/test-capacity.js   # bottleneck, Little's Law, confidence
 node apps-script/test-pin.js        # PIN from Script Properties, never code
 node apps-script/test-receiving.js  # deliveries newest-first, last-received map
 node apps-script/test-expiry.js     # lots oldest-first, good/usable numbers, halfway reorder, receive date rules
+node apps-script/test-reorderpoint.js # half-an-order reorder points, smaller orders for things that expire
 node apps-script/test-crew.js       # per-person rate only from hours-bearing rows
 node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
@@ -377,7 +378,15 @@ assert on them rather than trusting the parser.
   halfway), `expiredQty`, `pastHalfQty`, `nextExpires`, `lots`; `low` runs on `goodStock`. Buy's `after`
   and runway run on `usable`. `computeReorder` lists a material with expired or past-halfway stock
   when `goodStock` <= ReorderPoint, so a fresh lot stops the nagging. No dates = behaves as before.
-  Dan's "reorder at 50% left of any order" is NOT built, separate from this
+  Dan's "reorder at 50% left of any order" came in 3.07.0, below
+- **Reorder points 3.07.0** (backend + app). Dan, 2026-11-03: "establish good reorder points, let's
+  say 50% left of any order". `effectiveReorderPoint` in `getStock`: typed `ReorderPoint` (> 0) wins;
+  blank/0 = `REORDER_FRACTION` (Script Property, default 0.5, `off` disables) x `ReorderQty`, else x the
+  last real delivery (OnShelf rows skipped); no order on record = no point. `reorderPointFrom` is
+  `set` / `usual order` / `last delivery` and Inventory says which. John's worry (Cliqflow sat 2 years):
+  `computeReorder` takes the newest dated lot's shelf life, `usedBeforeHalfway` = daily use x working
+  days to half of it; a computed SuggestedQty above it is cut (never below what the floor is owed),
+  a typed ReorderQty is kept with a note. New Reorder column `UsedBeforeHalfway`
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

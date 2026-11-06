@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.06.0';
+  var APP_VERSION = '3.07.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -1021,7 +1021,12 @@
     }
     if (m.supplier) meta.push('from ' + escapeHtml(m.supplier));
     if (m.lastReceivedAt) meta.push('received +' + fmt(m.lastReceivedQty) + ' on ' + escapeHtml(m.lastReceivedAt));
-    if (m.reorderPoint) meta.push('reorder at ' + fmt(m.reorderPoint));
+    if (m.reorderPoint) {
+      // Not typed on the sheet: half the usual order, or of the last delivery (3.07.0).
+      var rpFrom = m.reorderPointFrom === 'usual order' ? ' (half the usual order)'
+        : m.reorderPointFrom === 'last delivery' ? ' (half the last delivery)' : '';
+      meta.push('reorder at ' + fmt(m.reorderPoint) + rpFrom);
+    }
     // The virtual number: what is left that has not expired or passed halfway.
     if (m.lots && m.lots.length) {
       meta.push('<b>' + fmt(m.goodStock) + ' good</b>' + (m.nextExpires ? ', next expires ' + escapeHtml(m.nextExpires) : ''));

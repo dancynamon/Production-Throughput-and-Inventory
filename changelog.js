@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.07.0', date: '2026-11-06', title: 'Reorder at half an order', items: [
+    { who: 'mgr',  text: 'A material with no reorder point on the sheet now gets one: half its usual order (ReorderQty), or half its last delivery. A reorder point typed on RawMaterials still wins. Inventory says which one it is using.' },
+    { who: 'mgr',  text: 'For something that expires, Reorder checks how much the floor gets through before a new lot would be halfway to expiring. A suggested order bigger than that is cut down, and a typed usual order gets a note that a smaller order would do.' }
+  ]},
   { version: '3.06.0', date: '2026-11-05', title: 'Expiration dates', items: [
     { who: 'mgr',  text: 'The Receive tab is back on the top bar. Each delivery can carry the date it came in and the date it expires. Leave the expiration blank for anything that does not expire.' },
     { who: 'mgr',  text: 'For stock already on the shelf, tick "Already on the shelf" and enter its dates. That records the dates and leaves on hand alone.' },
