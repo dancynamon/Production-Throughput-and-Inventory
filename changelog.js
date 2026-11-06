@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.09.0', date: '2026-11-06', title: 'Reorder alerts and suggested POs', items: [
+    { who: 'mgr',  text: 'A reorder alert email goes out at 7am when a material newly reaches its reorder line, with how much to order. Nothing new, no email. It goes to the digest recipients. Turn it off under Schedules on the sheet menu.' },
+    { who: 'mgr',  text: 'A new SuggestedPOs tab on the sheet lists, per supplier, how much of each material gets the shelf back to a full order, even before it is due. Full means the usual order, else the last delivery. The Monday digest shows the same list.' }
+  ]},
   { version: '3.08.0', date: '2026-11-06', title: 'One reorder list everywhere', items: [
     { who: 'mgr',  text: 'The weekly digest\'s "To order" is now the same list as the Reorder tab and the app\'s banner, with the reason and how many to order. Before, it only listed what the floor was short of.' },
     { who: 'mgr',  text: 'The Status column on the sheet\'s RawMaterials tab uses half the usual order when the reorder point is blank, like the app. Expiration dates still show only in the app and on the Reorder tab.' }

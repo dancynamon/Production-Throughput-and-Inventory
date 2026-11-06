@@ -159,6 +159,7 @@ node apps-script/test-pin.js        # PIN from Script Properties, never code
 node apps-script/test-receiving.js  # deliveries newest-first, last-received map
 node apps-script/test-expiry.js     # lots oldest-first, good/usable numbers, halfway reorder, receive date rules
 node apps-script/test-reorderpoint.js # half-an-order reorder points, smaller orders for things that expire
+node apps-script/test-suggested.js  # suggested POs to 100%, daily alert mails only what is new, schedule toggle
 node apps-script/test-crew.js       # per-person rate only from hours-bearing rows
 node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
@@ -393,6 +394,17 @@ assert on them rather than trusting the parser.
   items (reason + SuggestedQty), subject counts them; RawMaterials `Status` formula
   (`materialStatusFormula`, rewritten once by upgradeSchema under `STATUS_FORMULA_3080`) falls back to
   REORDER_FRACTION x ReorderQty. Last-delivery fallback and expiry are app/Reorder-tab only
+- **3.09.0 (backend; app bumped for the changelog only): alerts + suggested POs.** Dan, 2026-11-06:
+  reorder alerts to his email, and a PO "which the value gets changed weekly with how much more
+  inventory we need to get to 100%". `SuggestedPOs` tab (`computeSuggestedPOs`, written by
+  `writeReorderTab`): counted materials below full; full = ReorderQty, else last real delivery
+  (`getStock.lastOrderQty`), else 2x reorder point; TopUpQty = ceil(full + committed - good), cut by
+  `usedBeforeHalfway` for dated stock. Monday digest gets a per-supplier block. `reorderAlertCheck`
+  daily 7am New York (auto-installed by ensureSchemaCurrent unless `REORDER_ALERTS` = off; menu
+  Schedules → Daily 7am reorder alert email): rebuilds both tabs, mails digestRecipients() only the
+  ids not in Script Property `REORDER_ALERTED`, then stores the current set. The `reorder` action strips
+  `purch` before replying. Cowork side: `skills/production-reorder` "Standing POs" keeps one unsent QBO
+  PO per supplier (memo `Standing reorder PO (production app)`) matching the tab; skill not installed yet
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

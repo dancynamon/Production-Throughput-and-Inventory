@@ -159,6 +159,8 @@
 
   <h2>Reorder points</h2>
   <p>Type a reorder point on the RawMaterials tab and the app uses it. Leave it blank and the app uses half the usual order (the <b>ReorderQty</b> column), or half the last delivery if there is no usual order. Inventory says "half the usual order" or "half the last delivery" next to a reorder point it worked out. A material that has never had a delivery logged and has no reorder point typed is never flagged.</p>
+  <p><b>Reorder alert.</b> At 7am the sheet emails the digest recipients when a material newly reaches its reorder line, with how much to order. If nothing new is due, no email. Sheet menu → Schedules → Daily 7am reorder alert email switches it off or on.</p>
+  <p><b>Suggested POs.</b> The SuggestedPOs tab on the sheet lists, per supplier, how much of each counted material gets the shelf back to a full order (the usual order, else the last delivery), even before it is due. The Monday digest shows the same list.</p>
   <div class="callout"><b>Smaller orders for things that expire.</b> If the floor won't use a whole order before a new lot would be halfway to expiring, Reorder cuts the suggested amount to what gets used by then. If a usual order is typed, it keeps that amount and says a smaller order would do.</div>
 </section>
 

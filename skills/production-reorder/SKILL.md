@@ -1,6 +1,6 @@
 ---
 name: production-reorder
-description: Read the Reorder tab of the "Aquamentor Production" Google Sheet (materials at or under reorder point, floor work outrunning the shelf, or order-by date within 5 working days), group by supplier, build one DRAFT QBO purchase order per supplier with the suggested quantities, render the branded PO PDF, draft the vendor email, and stop at the send gate. Trigger when Dan says "run reorders", "what do I need to order", "build POs for what's low", "reorder run", "anything under reorder point", "Alex/John says we're low on X", or on the Monday-morning reorder schedule after the weekly counts. Never sends a PO or an email.
+description: Read the Reorder tab of the "Aquamentor Production" Google Sheet (materials at or under reorder point, floor work outrunning the shelf, or order-by date within 5 working days), group by supplier, build one DRAFT QBO purchase order per supplier with the suggested quantities, render the branded PO PDF, draft the vendor email, and stop at the send gate. Trigger when Dan says "run reorders", "what do I need to order", "build POs for what's low", "reorder run", "anything under reorder point", "Alex/John says we're low on X", or on the Monday-morning reorder schedule after the weekly counts. Also keeps one standing (unsent) QBO PO per supplier topped up to a full order from the SuggestedPOs tab: trigger on "update the standing POs", "refresh suggested POs", "top up POs", or the weekly standing-PO schedule. Never sends a PO or an email.
 ---
 
 # Production reorder run
@@ -76,8 +76,42 @@ FLAGGED: <rows skipped: no supplier / no QBO item / no qty / already on PO #>
 Then one table row per PO: supplier, PO number with QBO deep link, lines
 (material x qty), total, Gmail draft link.
 
+## Standing POs (weekly top-up)
+
+Dan, 2026-11-06: keep a PO per supplier "which the value gets changed weekly with
+how much more inventory we need to get to 100%", even before a reorder point.
+
+Source: the **SuggestedPOs** tab (rebuilt with the Reorder tab), range
+`SuggestedPOs!A1:K300`. Columns `Generated, Supplier, MaterialID, MaterialName,
+Unit, QBOItem, GoodStock, FullLevel, TopUpQty, DueNow, Note`. FullLevel is a full
+order (ReorderQty, else the last delivery, else twice the reorder point);
+TopUpQty is what gets the shelf back there, already cut for things that expire.
+`DueNow` = YES means it is also on the Reorder tab.
+
+1. Read the tab with the Sheets API; stale (`Generated` > 8 days) = say so.
+2. QBO alive check, as in step 2 above.
+3. Per supplier (skip blank / "(no supplier)", list them under FLAGGED), find
+   the **standing PO**: an open, NOT emailed QBO PO to that vendor whose memo
+   starts `Standing reorder PO (production app)`.
+   - Found: make its lines match the tab exactly (QBOItem x TopUpQty, last
+     purchase cost), drop lines no longer on the tab, and set the memo to
+     `Standing reorder PO (production app), updated <date>`. Use the
+     `expect_*` preconditions on update.
+   - Not found: create it the same way as step 5, with that memo.
+   - Supplier has no lines left: leave its standing PO as it is, memo
+     `... nothing needed as of <date>`, and say so. Never delete or void it.
+4. A PO that was emailed or partly received is a real order now: never edit
+   it. Its open lines count as already ordered, so leave those materials off
+   the new standing PO (duplicate guard, step 4 above).
+5. No PDF and no vendor email in this mode. When Dan says to send a supplier's
+   standing PO, run steps 6 and 7 for it and stop at the send gate.
+6. Report: `DID: standing POs updated for <suppliers> (<n> lines, $<total>)`,
+   then one row per supplier with the PO number, deep link, lines and total, and
+   what changed since last week.
+
 ## Hard stops
 
 - Never send a PO or an email. Never mark a PO sent. Drafts only.
+- Never edit a PO that was emailed or received, and never delete or void one.
 - Never change ReorderPoint, ReorderQty, Supplier or QBOItem without asking.
 - An unreachable sheet or QBO session is never reported as "nothing to order".
