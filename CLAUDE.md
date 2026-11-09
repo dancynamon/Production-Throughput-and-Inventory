@@ -160,6 +160,7 @@ node apps-script/test-receiving.js  # deliveries newest-first, last-received map
 node apps-script/test-expiry.js     # lots oldest-first, good/usable numbers, halfway reorder, receive date rules
 node apps-script/test-reorderpoint.js # half-an-order reorder points, smaller orders for things that expire
 node apps-script/test-suggested.js  # suggested POs to 100%, daily alert mails only what is new, schedule toggle
+node apps-script/test-buildpo.js    # QBO POs: vendor match, unmatched refuses, open-PO check, replay, token refresh, callback state
 node apps-script/test-crew.js       # per-person rate only from hours-bearing rows
 node apps-script/test-export.js     # tab-as-rows, ISO dates, allow-list
 node apps-script/test-reverse.js    # negative row, recipe in reverse, bounded
@@ -405,6 +406,11 @@ assert on them rather than trusting the parser.
   ids not in Script Property `REORDER_ALERTED`, then stores the current set. The `reorder` action strips
   `purch` before replying. Cowork side: `skills/production-reorder` "Standing POs" keeps one unsent QBO
   PO per supplier (memo `Standing reorder PO (production app)`) matching the tab; skill not installed yet
+- **3.10.0 (app + backend): Build POs.** Reorder banner / Inventory → *Review and build POs* (`#poReview`, manager action
+  `poReview`) shows `computeSuggestedPOs` with a qty box per line; `buildPO` (`buildQboPO`) creates an unsent QBO PO by REST with the
+  script's own Intuit OAuth (menu Settings → *Connect QuickBooks…*; `QBO_*` Script Properties; redirect URI = the `/exec` URL, handled at the top of
+  `doGet` by `isQboCallback`). `matchVendor` handles legal-suffix differences and refuses ties; items are exact on `QBOItem`, else MaterialName. Unmatched = nothing built.
+  Open-PO check asks first (`allowDup=1`). Uses the document lock, not the crew's script lock. `qboKeepAlive` runs from the daily reorder alert
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

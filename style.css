@@ -779,3 +779,9 @@ body.locked .tabs, body.locked .screen, body.locked #pinBanner{ display:none !im
 .reorder-banner__h{display:flex;justify-content:space-between;align-items:center;gap:8px}
 body.locked .reorder-banner{display:none !important}
 .reorder-banner p{text-align:left;margin:4px 0}
+.po-sup{margin-top:10px;padding-top:8px;border-top:1px solid #e3b27a}
+.po-sup h4{margin:0 0 4px}
+.po-line{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:6px 0;font-weight:400}
+.po-line input{width:84px;flex:none;margin:0}
+.po-bad{color:#a92e2a}
+.po-review p.muted{padding:0;max-width:none}

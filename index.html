@@ -67,6 +67,8 @@
   </section>
   <!-- 3.01.9: materials due for reorder, managers only. Filled by loadReorderAlert(). -->
   <div id="reorderBanner" class="reorder-banner" hidden></div>
+  <!-- 3.10.0: suggested POs to review and build in QuickBooks. Filled by openPoReview(). -->
+  <div id="poReview" class="reorder-banner po-review" hidden></div>
   <!-- In flow, not fixed: a fixed banner would sit on top of the Inventory
        tab's Record Count bar, which is the one control a manager most needs. -->
   <div id="pinBanner" class="pin-banner" hidden>
@@ -254,6 +256,7 @@
       misses the same way every time can be traced back to its recipe.</p>
 
     <div id="fgPanel"></div>
+    <p><button type="button" class="inv-mini" id="poReviewOpen">Review and build POs</button></p>
     <div id="invSummary" class="inv-summary"></div>
 
     <div class="inv-toolbar">

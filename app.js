@@ -13,7 +13,7 @@
   // style.css / config.js, and bump CACHE in sw.js to the same number —
   // otherwise the service worker keeps serving the old shell and this number
   // is how you'll notice.
-  var APP_VERSION = '3.09.0';
+  var APP_VERSION = '3.10.0';
 
   var el = function (id) { return document.getElementById(id); };
   var LINES = {};    // line -> [stage names], from config
@@ -190,11 +190,84 @@
       b.innerHTML = '<div class="reorder-banner__h"><strong>Time to reorder: ' + d.items.length + ' material' + (d.items.length === 1 ? '' : 's') + '</strong>'
         + '<button type="button" class="inv-mini" id="reorderHide">Hide</button></div><ul>' + list + '</ul>'
         + (d.items.length > 8 ? '<p class="muted small">…and ' + (d.items.length - 8) + ' more on the sheet\'s Reorder tab.</p>' : '')
-        + '<p class="muted small">Tell Dan if a PO hasn\'t gone out.</p>';
+        + '<p><button type="button" class="inv-mini" id="reorderReview">Review and build POs</button></p>';
       b.hidden = false;
       el('reorderHide').addEventListener('click', function () { b.hidden = true; });
+      el('reorderReview').addEventListener('click', openPoReview);
     }).catch(function () { b.hidden = true; });
   }
+
+  /* Review and build POs (3.10.0): the SuggestedPOs list, a quantity box per
+   * line, one Build PO per supplier. POs are created in QuickBooks unsent. */
+  var poData = null;
+  function poNote(i, html, bad) {
+    var n = el('poNote' + i); if (!n) return;
+    n.innerHTML = html; n.className = 'small' + (bad ? ' po-bad' : '');
+  }
+  function openPoReview() {
+    var p = el('poReview'); if (!p) return;
+    p.innerHTML = '<p class="muted small">Loading suggested POs…</p>';
+    p.hidden = false;
+    p.scrollIntoView({ block: 'start' });
+    api({ action: 'poReview' }, 60000).then(function (d) {
+      if (!d || !d.ok) { p.innerHTML = '<p class="po-bad small">' + escapeHtml((d && d.error) || 'Could not load the list.') + '</p>'; return; }
+      poData = d;
+      var h = '<div class="reorder-banner__h"><strong>Suggested POs</strong><button type="button" class="inv-mini" data-po-close="1">Close</button></div>';
+      if (!d.suppliers.length) h += '<p class="small">Everything counted is at or above a full order.</p>';
+      else h += d.connected ? '<p class="muted small">Each quantity gets the shelf back to a full order. Change any of them; 0 leaves a line off. POs are created unsent.</p>'
+                            : '<p class="po-bad small">QuickBooks is not connected yet. On the sheet: Aquamentor menu → Settings → Connect QuickBooks.</p>';
+      d.suppliers.forEach(function (s, i) {
+        var named = s.supplier !== '(no supplier)', made = (d.built || {})[s.supplier];
+        h += '<div class="po-sup"><h4>' + escapeHtml(s.supplier) + (s.due ? ' <small>' + s.due + ' due now</small>' : '') + '</h4>';
+        s.lines.forEach(function (l) {
+          h += '<label class="po-line"><span><b>' + escapeHtml(l.name) + '</b><br><small>' + escapeHtml(String(l.goodStock)) + ' good of ' + escapeHtml(String(l.full))
+            + ' ' + escapeHtml(l.unit) + (l.due ? ' · due now' : '') + '</small></span>'
+            + '<input type="number" min="0" step="any" inputmode="decimal" data-po-id="' + escapeHtml(l.id) + '" value="' + escapeHtml(String(l.topUp)) + '"></label>';
+        });
+        if (named && d.connected) h += '<p><button type="button" class="btn-primary" data-po-build="' + i + '">Build PO</button></p>';
+        else if (!named) h += '<p class="muted small">Add a supplier on RawMaterials to build these.</p>';
+        h += '<p id="poNote' + i + '" class="small">' + (made ? 'Last built: <a target="_blank" rel="noopener" href="' + escapeHtml(made.url) + '">PO ' + escapeHtml(String(made.doc)) + '</a> on ' + escapeHtml(made.on) : '') + '</p></div>';
+      });
+      p.innerHTML = h;
+    }).catch(function () { p.innerHTML = '<p class="po-bad small">No answer from the sheet. Try again in a minute.</p>'; });
+  }
+  function buildPo(i, btn, allowDup) {
+    var s = poData.suppliers[i], box = btn.closest('.po-sup');
+    var lines = [].map.call(box.querySelectorAll('[data-po-id]'), function (x) { return { id: x.getAttribute('data-po-id'), qty: Number(x.value) }; })
+      .filter(function (l) { return l.qty > 0; });
+    if (!lines.length) { poNote(i, 'Every quantity is 0, so there is nothing to build.', true); return; }
+    var fields = { supplier: s.supplier, lines: JSON.stringify(lines) };
+    var clientId = ids.take('po' + i, fields);
+    btn.disabled = true; btn.textContent = 'Building…';
+    var again = function () { btn.disabled = false; btn.textContent = 'Build PO'; };
+    api(Object.assign({ action: 'buildPO', clientId: clientId, allowDup: allowDup ? '1' : '' }, fields), 90000).then(function (d) {
+      again();
+      if (d && d.ok) {
+        ids.done('po' + i);
+        poNote(i, 'PO ' + escapeHtml(String(d.docNumber)) + ' built for ' + escapeHtml(d.vendor) + ': ' + d.lines + ' line' + (d.lines === 1 ? '' : 's') + ', $' + escapeHtml(Number(d.total || 0).toFixed(2))
+          + '. Not sent. <a target="_blank" rel="noopener" href="' + escapeHtml(d.url) + '">Open in QuickBooks</a>'
+          + (d.noCost && d.noCost.length ? '<br>No cost on file, entered at $0: ' + escapeHtml(d.noCost.join(', ')) : ''));
+        return;
+      }
+      if (d && d.already && d.already.length) {
+        var list = d.already.map(function (a) { return a.name + ' (PO ' + a.doc + ')'; }).join(', ');
+        if (window.confirm('Already on an open PO: ' + list + '. Build another anyway?')) buildPo(i, btn, true);
+        else poNote(i, 'Not built. Already on an open PO: ' + escapeHtml(list), true);
+        return;
+      }
+      poNote(i, escapeHtml((d && d.error) || 'QuickBooks did not answer.'), true);
+    }).catch(function () { again(); poNote(i, 'No answer from the sheet. Tap Build PO again; it will not build twice.', true); });
+  }
+  (function () {
+    var p = el('poReview'), open = el('poReviewOpen');
+    if (open) open.addEventListener('click', openPoReview);
+    if (!p) return;
+    p.addEventListener('click', function (e) {
+      if (e.target.closest('[data-po-close]')) { p.hidden = true; return; }
+      var b = e.target.closest('[data-po-build]');
+      if (b) buildPo(Number(b.getAttribute('data-po-build')), b);
+    });
+  }());
 
   function showPinNag() {
     el('pinBanner').hidden = !(buildFacts.pinIsDefault && localStorage.getItem('aq_role') === 'mgr');
@@ -808,6 +881,7 @@
   function activeScreen() { var s = document.querySelector('.screen--active'); return s ? s.id.replace(/^screen-/, '') : null; }
   function lockOut(msg, resume) {
     if (el('reorderBanner')) el('reorderBanner').hidden = true;
+    if (el('poReview')) el('poReview').hidden = true;
     var was = localStorage.getItem('aq_role') === 'mgr';
     if (resume && was) resumeScreen = activeScreen();
     localStorage.removeItem('aq_role'); localStorage.removeItem('aq_mgr_name'); localStorage.removeItem('aq_mgr_token'); localStorage.removeItem('aq_view');

@@ -359,6 +359,40 @@ const floorStorage = (tok) => ({ aq_floor_epoch: '3.01.2', aq_floor_login: 'Ann'
     check('full app: coming back after the 12 h ran out asks for the PIN first', await page.isVisible('#lockedCard'), true);
     await page.context().close();
 
+    /* ---- Full app: review and build POs (3.10.0) ------------------------------------------------------- */
+    M = mockSheet();
+    const poList = { ok: true, connected: true, built: {}, noBasis: [], suppliers: [
+      { supplier: 'Fiber Dynamics', due: 1, lines: [{ id: 'M002', name: 'Nylon Mesh', unit: 'Boxes', goodStock: 13, full: 40, topUp: 27, due: true }, { id: 'M014', name: 'Red <webbing>', unit: 'Yards', goodStock: 3700, full: 4000, topUp: 300, due: false }] },
+      { supplier: '(no supplier)', due: 0, lines: [{ id: 'M098', name: 'Loose', unit: 'ea', goodStock: 0, full: 1, topUp: 1, due: false }] }] };
+    M.plan.reorder = () => ({ ok: true, items: [{ id: 'M002', name: 'Nylon Mesh', unit: 'Boxes', onHand: 13, suggestedQty: 27, supplier: 'Fiber Dynamics', reason: 'low' }] });
+    M.plan.poReview = () => poList;
+    let dupAsked = false;
+    M.plan.buildPO = (q) => (q.allowDup === '1' || !dupAsked ? (dupAsked = true, q.allowDup === '1'
+      ? { ok: true, docNumber: '8704', vendor: 'FIBER DYNAMICS', lines: 1, total: 121.5, url: 'https://qbo.intuit.com/app/purchaseorder?txnId=900', noCost: ['Nylon Mesh'] }
+      : { ok: false, already: [{ name: 'Nylon Mesh', doc: '8703' }], error: 'x' }) : { ok: false, error: 'x' });
+    page = await newPage(browser, M, { storage: Object.assign({}, mgr, { aq_mgr_token: token(3600000) }) });
+    await page.goto(base + '/?full=1'); await page.waitForSelector('#reorderReview');
+    await page.click('#reorderReview'); await page.waitForSelector('[data-po-build="0"]');
+    check('POs: the list shows each supplier with editable quantities', [await page.inputValue('[data-po-id="M002"]'), await page.inputValue('[data-po-id="M014"]')], ['27', '300']);
+    check('POs: a name is shown as text, not markup', (await page.textContent('#poReview')).includes('Red <webbing>'), true);
+    check('POs: no supplier, no button', await page.locator('[data-po-build="1"]').count(), 0);
+    await page.fill('[data-po-id="M014"]', '0');
+    let dialog = '';
+    page.once('dialog', (d) => { dialog = d.message(); d.accept(); });
+    await page.click('[data-po-build="0"]');
+    await until(async () => (await page.textContent('#poNote0')).includes('8704'));
+    const poSent = M.of('buildPO');
+    check('POs: a line set to 0 is left off', JSON.parse(poSent[0].lines), [{ id: 'M002', qty: 27 }]);
+    check('POs: already on an open PO asks, then goes on with the same id', [/PO 8703/.test(dialog), poSent.length, poSent[1].allowDup, poSent[0].clientId === poSent[1].clientId], [true, 2, '1', true]);
+    const poWords = await page.textContent('#poNote0');
+    check('POs: says built, not sent, and links it', [poWords.includes('Not sent'), await page.getAttribute('#poNote0 a', 'href')], [true, 'https://qbo.intuit.com/app/purchaseorder?txnId=900']);
+    check('POs: says what went in at $0', poWords.includes('entered at $0: Nylon Mesh'), true);
+    check('POs: no page errors, no sideways scroll at 390 px', [page.errors, await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)], [[], true]);
+    await page.screenshot({ path: process.env.PO_SHOT || '/dev/null', type: 'png' }).catch(() => {});
+    await page.click('[data-po-close]');
+    check('POs: Close hides the list', await page.isVisible('#poReview'), false);
+    await page.context().close();
+
     /* ---- Full app: overnight work date --------------------------------------------------------------- */
     M = mockSheet();
     page = await newPage(browser, M, { time: new Date(2026, 9, 31, 23, 59, 30), storage: Object.assign({}, mgr, { aq_mgr_token: token(30 * 86400000) }) });
