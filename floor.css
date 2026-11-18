@@ -84,3 +84,24 @@
 #fl12[hidden]{display:none}
 .fl-qty2--one{grid-template-columns:1fr}
 .fl-note--tap{border:2px solid var(--gold);font-weight:700;cursor:pointer}
+
+/* 3.11.0: Count on Floor */
+.fl-countbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:64px;margin-top:16px;font-size:1.3rem;font-weight:800;color:var(--navy);background:var(--surface);border:2px solid var(--navy);border-radius:var(--radius)}
+.fl-badge{background:var(--low);color:#fff;border-radius:20px;padding:2px 10px;font-size:.95rem}
+.fl-badge[hidden],#flCount[hidden],#flCountList[hidden],#flCountItem[hidden],.fl-countbtn[hidden]{display:none}
+.fl-back{background:none;border:none;color:var(--navy);font-size:1.05rem;font-weight:700;padding:8px 0;margin-bottom:4px}
+.fl-sub{color:var(--muted);margin:-6px 0 12px}
+.fl-h2{font-size:1rem;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:18px 0 8px}
+.fl-todo{display:grid;gap:8px}
+.fl-todo button{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;min-height:60px;text-align:left;padding:10px 14px;font-size:1.1rem;font-weight:700;color:var(--navy);background:var(--surface);border:2px solid var(--border);border-radius:var(--radius)}
+.fl-todo button small{font-size:.8rem;font-weight:600;color:var(--muted);white-space:nowrap}
+.fl-todo button small.never{color:var(--low)}
+.fl-todo--done button{opacity:.7;border-style:dashed}
+.fl-todo:empty::before{content:'Nothing to count here.';color:var(--muted)}
+.fl-ci__k{font-size:.85rem;font-weight:700;text-transform:uppercase;color:var(--muted)}
+.fl-cirow{display:grid;grid-template-columns:1fr 120px;gap:10px;align-items:center;margin-bottom:10px}
+.fl-cirow span{font-size:1.1rem;font-weight:700;color:var(--navy)}
+.fl-cirow input{height:64px;text-align:center;font-size:1.8rem;font-weight:800;padding:0}
+.fl-cirow--one{grid-template-columns:1fr}
+.fl-cirow--one input{height:84px;font-size:2.6rem}
+.fl-todo--done:empty::before{content:none}

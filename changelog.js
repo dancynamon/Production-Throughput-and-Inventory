@@ -2,6 +2,10 @@
  * Read by the app's "What's new" tab and by help/build.js for the site page.
  * Newest first. `who`: crew = everyone sees it, mgr = behind the lock. */
 window.AQ_CHANGELOG = [
+  { version: '3.11.0', date: '2026-11-13', title: 'Count stock from Floor mode', items: [
+    { who: 'crew', text: 'New Count stock button at the bottom of Floor mode. It lists the shelf materials and floor piles that need counting. Tap one, count it, Save. It goes to the next one by itself, and counts with no signal are saved on the phone and sent later.' },
+    { who: 'mgr',  text: 'Floor counts re-baseline OnHand and WIP just like counts from Inventory and the WIP walk. They are signed with the person\'s name and the note "floor count". The crew never sees the app\'s estimate. Reconcile scores their counts like yours.' }
+  ]},
   { version: '3.10.0', date: '2026-11-09', title: 'Build POs from the app', items: [
     { who: 'mgr',  text: 'Review and build POs, on the reorder banner and on Inventory, lists what gets each supplier back to a full order. Change any quantity, 0 leaves a line off, then tap Build PO.' },
     { who: 'mgr',  text: 'The PO is created in QuickBooks unsent, with a link to open it. If an item is already on an open PO, the app asks first. A supplier or item it cannot match is named and nothing is built.' }
