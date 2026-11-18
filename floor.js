@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var API = (window.AEGIS_CONFIG && window.AEGIS_CONFIG.API_URL || '').trim();
-  var FLOOR_VERSION = '3.05.0';
+  var FLOOR_VERSION = '3.11.0';
   // Every tube job, in floor order (3.01.5). Cut and Glued log against the
   // blank (BLANK50/40), the rest against the tube, Strap against STRAP6.
   var JOBS = [
@@ -19,7 +19,7 @@
   var UNDO_MS = 120000;
   // 3.01.1: new key, so every phone logs in with a PIN once; aq_floor_name (tap-only) is ignored.
   var K = { name: 'aq_floor_login', queue: 'aq_floor_queue', prod: 'aq_floor_prod', cfg: 'aq_floor_cfg', pace: 'aq_floor_pace',
-            tok: 'aq_floor_tokens' };
+            tok: 'aq_floor_tokens', count: 'aq_floor_count', counted: 'aq_floor_counted' };
   // Stages and products the pace strip counts; same lists as FLOOR_STAGES / FLOOR_PRODUCTS in Code.gs.
   var PACE_STAGES = ['Meshed', 'Patched', 'Boxed'], PACE_PRODUCTS = ['XRT50EXO', 'XRT40EXO', 'XRT50STD', 'XRT40STD'];
   var RETRY_MS = [3000, 6000, 15000, 30000];
@@ -487,9 +487,143 @@
     toast('Undone: ' + u.label);
   }
 
+  /* ---- count (3.11.0) ------------------------------------------------------------
+   * The shelf and floor counts nobody had taken. The list comes from the sheet
+   * (countList) and is blind: names and why, never the app's number, so people
+   * count what is there. A saved count goes into the same queue as a log entry
+   * (floorCount for the shelf, wipWalk for one product's floor piles), so it
+   * survives no signal and a dead battery, and is sent once. */
+  var C = { list: null, cur: null, skipped: [] };
+  function countList() { try { return JSON.parse(ls(K.count) || 'null'); } catch (e) { return null; } }
+  function countedToday() {
+    var d = null; try { d = JSON.parse(ls(K.counted) || 'null'); } catch (e) { d = null; }
+    return d && d.date === todayIso() ? d.items : [];
+  }
+  function markCounted(item) {
+    var items = countedToday().filter(function (x) { return x.key !== item.key; });
+    items.unshift(item); ls(K.counted, JSON.stringify({ date: todayIso(), items: items }));
+  }
+  function todo() {
+    var l = C.list; if (!l) return [];
+    var done = {}; countedToday().forEach(function (x) { done[x.key] = true; });
+    var all = (l.shelf || []).map(function (m) { return Object.assign({ kind: 'shelf', key: 'm:' + m.id }, m); })
+      .concat((l.floor || []).map(function (p) { return Object.assign({ kind: 'floor', key: 'p:' + p.id }, p); }))
+      .filter(function (x) { return !done[x.key]; });
+    // Skipped ones go to the back of the line, not off it.
+    return all.filter(function (x) { return C.skipped.indexOf(x.key) === -1; })
+      .concat(all.filter(function (x) { return C.skipped.indexOf(x.key) !== -1; }));
+  }
+  function renderCountBadge() {
+    var n = todo().length, b = el('flCountN');
+    b.hidden = !C.list || !n; b.textContent = n + ' to do';
+  }
+  function todoButton(x) {
+    var b = document.createElement('button'); b.type = 'button';
+    var t = document.createElement('span'); t.textContent = x.name + (x.kind === 'shelf' && x.unit ? ' (' + x.unit + ')' : '');
+    var w = document.createElement('small'); w.textContent = x.why || ''; if (/never/.test(x.why || '')) w.className = 'never';
+    b.appendChild(t); b.appendChild(w);
+    b.addEventListener('click', function () { showItem(x); });
+    return b;
+  }
+  function renderCountList() {
+    el('flCountItem').hidden = true; el('flCountList').hidden = false;
+    el('flCountBack').innerHTML = '&larr; Back to logging';
+    var list = todo();
+    var shelf = el('flShelf'), floor = el('flFloorTodo'), done = el('flDone');
+    shelf.innerHTML = ''; floor.innerHTML = ''; done.innerHTML = '';
+    if (!C.list) { shelf.textContent = 'Loading...'; return; }
+    list.forEach(function (x) { (x.kind === 'shelf' ? shelf : floor).appendChild(todoButton(x)); });
+    var d = countedToday();
+    el('flDoneH').hidden = !d.length;
+    d.forEach(function (x) { done.appendChild(todoButton(Object.assign({}, x, { why: 'counted' }))); });
+    renderCountBadge();
+  }
+  function countMsg(text) { var m = el('flCountMsg'); m.hidden = !text; m.textContent = text || ''; }
+  function loadCountList() {
+    return api({ action: 'countList' }, 30000).then(function (r) {
+      if (r && r.ok) {
+        var keep = { today: r.today, shelf: r.shelf, floor: r.floor };
+        C.list = keep; ls(K.count, JSON.stringify(keep)); countMsg('');
+      } else if (r && /Unknown action/i.test(r.error || '')) {
+        countMsg('Counting is not on the sheet yet. It updates itself within half an hour: try again then.');
+      } else countMsg((r && r.error) || 'Could not load the list.');
+    }).catch(function (e) { countMsg(C.list ? 'No signal: this is the last list this phone saw.' : e.message); })
+      .then(function () { if (!el('flCount').hidden && !el('flCountList').hidden) renderCountList(); renderCountBadge(); });
+  }
+  function openCount() {
+    el('flApp').hidden = true; el('flCount').hidden = false; C.skipped = [];
+    window.scrollTo(0, 0);
+    renderCountList(); loadCountList();
+  }
+  function closeCount() { el('flCount').hidden = true; el('flApp').hidden = false; renderCountBadge(); }
+  function countInput(label, key, one) {
+    var row = document.createElement('label'); row.className = 'fl-cirow' + (one ? ' fl-cirow--one' : '');
+    if (label) { var sp = document.createElement('span'); sp.textContent = label; row.appendChild(sp); }
+    var inp = document.createElement('input');
+    inp.type = 'number'; inp.inputMode = 'decimal'; inp.min = '0'; inp.step = 'any'; inp.placeholder = one ? '' : '0';
+    inp.dataset.key = key; row.appendChild(inp);
+    return row;
+  }
+  function showItem(x) {
+    C.cur = x;
+    el('flCountList').hidden = true; el('flCountItem').hidden = false; el('ciMsg').textContent = '';
+    el('flCountBack').innerHTML = '&larr; Back to the list';
+    window.scrollTo(0, 0);
+    el('ciKind').textContent = x.kind === 'shelf' ? 'Shelf' + (x.category ? ' · ' + x.category : '') : 'Floor · ' + (x.family || '');
+    el('ciName').textContent = x.name;
+    var rows = el('ciRows'); rows.innerHTML = '';
+    if (x.kind === 'shelf') {
+      el('ciWhy').textContent = 'How many ' + (x.unit || 'units') + ' are there? Type 0 if there are none.';
+      rows.appendChild(countInput('', x.id, true));
+    } else {
+      el('ciWhy').textContent = 'How many are sitting at each point right now? Leave a box empty for none.';
+      (x.piles || []).forEach(function (p) { rows.appendChild(countInput(p.label, p.key, false)); });
+    }
+    var first = rows.querySelector('input'); if (first) first.focus();
+  }
+  function nextItem() {
+    var list = todo();
+    if (list.length) showItem(list[0]);
+    else { renderCountList(); toast('All counted. Thank you.'); }
+  }
+  function saveItem() {
+    var x = C.cur; if (!x) return;
+    var payload, id = uid();
+    if (x.kind === 'shelf') {
+      var raw = el('ciRows').querySelector('input').value.trim(), n = Number(raw);
+      if (raw === '' || !isFinite(n) || n < 0) { el('ciMsg').textContent = 'Type the number you counted (0 if none).'; return; }
+      var counts = {}; counts[x.id] = n;
+      payload = { action: 'floorCount', employee: S.name, counts: JSON.stringify(counts), clientId: 'fc-' + id,
+                  _label: 'count ' + x.name };
+    } else {
+      var piles = {}, badPile = false;
+      el('ciRows').querySelectorAll('input').forEach(function (inp) {
+        var v = inp.value.trim(), q = v === '' ? 0 : Number(v);
+        if (!isFinite(q) || q < 0) badPile = true;
+        piles[inp.dataset.key] = q;
+      });
+      if (badPile) { el('ciMsg').textContent = 'Every number has to be 0 or more.'; return; }
+      var walk = {}; walk[x.id] = piles;
+      payload = { action: 'wipWalk', employee: S.name, walk: JSON.stringify(walk), notes: 'floor count', clientId: 'fw-' + id,
+                  _label: 'floor count ' + x.name };
+    }
+    var q = readQ(); q.push(payload); writeQ(q);
+    markCounted({ key: x.key, kind: x.kind, id: x.id, name: x.name, unit: x.unit, category: x.category, family: x.family, piles: x.piles });
+    C.skipped = C.skipped.filter(function (k) { return k !== x.key; });
+    toast('Saved: ' + x.name);
+    flush();
+    nextItem();
+  }
+  function skipItem() {
+    var x = C.cur; if (!x) return;
+    if (C.skipped.indexOf(x.key) === -1) C.skipped.push(x.key);
+    var list = todo();
+    if (list.length && list[0].key !== x.key) showItem(list[0]); else renderCountList();
+  }
+
   /* ---- who am I ----------------------------------------------------------------- */
   function showPick() {
-    el('flApp').hidden = true; el('flPick').hidden = false; el('flNotYou').hidden = true; el('flWho').textContent = 'Floor';
+    el('flApp').hidden = true; el('flCount').hidden = true; el('flPick').hidden = false; el('flNotYou').hidden = true; el('flWho').textContent = 'Floor';
     var box = el('flNames'); box.innerHTML = '';
     var names = (S.cfg && S.cfg.employees) || [];
     if (!names.length) box.textContent = 'Loading names...';
@@ -500,7 +634,8 @@
     });
   }
   function start() {
-    el('flPick').hidden = true; el('flApp').hidden = false; el('flNotYou').hidden = false;
+    el('flPick').hidden = true; el('flCount').hidden = true; el('flApp').hidden = false; el('flNotYou').hidden = false;
+    C.list = countList(); renderCountBadge();
     el('flNotYou').textContent = 'log out';
     el('flWho').textContent = S.name;
     S.prod = ls(K.prod) || 'TUBE'; renderProducts();
@@ -554,6 +689,13 @@
     el('flQty').addEventListener('input', function () { el('flSubmit').disabled = qty() <= 0; });
     el('flSubmit').addEventListener('click', function () { submit(S.stage, qty()); });
     el('flUndo').addEventListener('click', onUndo);
+    el('flCountBtn').addEventListener('click', openCount);
+    el('flCountBack').addEventListener('click', function () {
+      if (!el('flCountItem').hidden) renderCountList(); else closeCount();
+    });
+    el('ciSave').addEventListener('click', saveItem);
+    el('ciSkip').addEventListener('click', skipItem);
+    el('ciRows').addEventListener('keydown', function (e) { if (e.key === 'Enter') saveItem(); });
     el('flAskSkip').addEventListener('click', function () { el('flAsk').hidden = true; });
     el('flAskGo').addEventListener('click', function () {
       var n = Math.floor(Number(el('flAskQty').value));

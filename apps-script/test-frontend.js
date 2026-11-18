@@ -109,7 +109,11 @@ function mockSheet() {
     if (a === 'floorPace') return { ok: true, today: q.workDate, target: { dailyBoxed: 64, weeklyBoxed: 320, parPerHour: 8 }, par: { today: 10, week: 50 },
       crew: { today: zero(), week: zero(), hoursToday: 2, boxedPerHourToday: 0 }, me: { name: q.employee, today: zero(), week: zero(), hoursToday: 1, clockedIn: true, since: Date.now() - 3600000 } };
     if (a === 'clock') return Object.assign(record(), { clockedIn: q.dir === 'in', since: Date.now(), hoursToday: 1, shiftHours: 1, atShop: true });
-    if (['submitDay', 'reverse', 'ship'].includes(a)) return record();
+    if (['submitDay', 'reverse', 'ship', 'floorCount', 'wipWalk'].includes(a)) return record();
+    if (a === 'countList') return { ok: true, today: '2026-11-13',
+      shelf: [{ id: 'M014', name: 'Red webbing', unit: 'yd', why: 'never counted' }, { id: 'M034', name: 'EVA foam', unit: 'sheet', why: 'below zero' }],
+      floor: [{ id: 'XRT50EXO', name: 'XRT-50 Exo', family: 'Tubes', why: 'never counted',
+                piles: [{ key: 'Patched', label: 'Waiting for Patched' }, { key: '(finished)', label: 'Finished, past Boxed' }] }] };
     if (a === 'today') return { ok: true, products: {} };
     return { ok: false, error: 'Unknown action: ' + a };
   };
@@ -216,6 +220,45 @@ const floorStorage = (tok) => ({ aq_floor_epoch: '3.01.2', aq_floor_login: 'Ann'
     check('floor: all 200 go when signal is back', M.count('submitDay'), 204);
     // "Unexpected token '<'" is the simulated HTML error page above, loaded as a script: expected.
     check('floor: no page errors', page.errors.filter((e) => !/Unexpected token '<'/.test(e)), []);
+    await page.context().close();
+
+    /* ---- Floor: Count (3.11.0) ---------------------------------------------------------------- */
+    M = mockSheet(); page = await newPage(browser, M);
+    await floorLogin(page, base);
+    await page.click('#flCountBtn');
+    await page.waitForSelector('#flShelf button');
+    const shot = async (n) => { if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, n + '.png'), fullPage: true }); };
+    await shot('floor-count-list');
+    check('count: the to-do lists shelf and floor', await page.evaluate(() => [document.querySelectorAll('#flShelf button').length, document.querySelectorAll('#flFloorTodo button').length]), [2, 1]);
+    check('count: the list is blind (no number from the app on the screen)', await page.evaluate(() => /\d+ (yd|sheet)/.test(document.getElementById('flCount').textContent)), false);
+    await page.click('#flShelf button');
+    await shot('floor-count-item');
+    await page.click('#ciSave');
+    check('count: an empty box is not saved', [await page.evaluate(() => document.getElementById('ciMsg').textContent !== ''), M.of('floorCount').length], [true, 0]);
+    await page.fill('#ciRows input', '0');
+    await page.click('#ciSave');
+    await until(async () => M.count('floorCount') === 1);
+    check('count: 0 is a count, saved with the crew token', [JSON.parse(M.of('floorCount')[0].counts), M.of('floorCount')[0].crewToken.endsWith(SIG)], [{ M014: 0 }, true]);
+    check('count: it moves on to the next one by itself', await page.evaluate(() => document.getElementById('ciName').textContent), 'EVA foam');
+    await page.click('#ciSkip');
+    await shot('floor-count-wip');
+    check('count: skip goes on to the floor product', await page.evaluate(() => document.getElementById('ciName').textContent), 'XRT-50 Exo');
+    await page.fill('#ciRows input >> nth=0', '12');
+    M.plan.wipWalk = () => ({ abortAfter: true });       // logged, reply lost: the queue resends
+    await page.click('#ciSave');
+    await until(async () => M.of('wipWalk').length >= 2, 15000);
+    M.plan.wipWalk = null;
+    await until(async () => (await queueLen(page)) === 0, 15000);
+    const walks = M.of('wipWalk');
+    check('count: a floor count is one product\'s walk, blank piles sent as 0', JSON.parse(walks[0].walk), { XRT50EXO: { Patched: 12, '(finished)': 0 } });
+    check('count: resent with the same id, logged once', [new Set(walks.map((w) => w.clientId)).size, M.count('wipWalk')], [1, 1]);
+    check('count: skipped one comes back last', await page.evaluate(() => document.getElementById('ciName').textContent), 'EVA foam');
+    await page.click('#flCountBack');
+    check('count: counted today is listed, to-do shrinks', await page.evaluate(() => [document.querySelectorAll('#flDone button').length, document.querySelectorAll('#flShelf button').length, document.querySelectorAll('#flFloorTodo button').length]), [2, 1, 0]);
+    await page.click('#flCountBack');
+    check('count: back to logging, badge says what is left', await page.evaluate(() => [document.getElementById('flApp').hidden, document.getElementById('flCountN').textContent]), [false, '1 to do']);
+    check('count: no horizontal scroll at 390 px', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    check('count: no page errors', page.errors, []);
     await page.context().close();
 
     /* ---- Floor: crew login ran out, reactive ------------------------------------------------- */

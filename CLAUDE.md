@@ -181,6 +181,7 @@ node apps-script/test-speed.js      # submitDay: one Products read, StageLog tai
 node apps-script/test-auth.js       # auth lockout, token expiry, JSONP callback, crew token on submitDay/reverse/ship, today-only undo
 node apps-script/test-dedupe.js     # replay guard: retry racing on the lock, evicted cache (ClientId / ShipLog Key), retry: true
 node apps-script/test-net.js        # net-core.js: JSONP failures, transient vs refusal, Floor queue drain, stable ids, token expiry
+node apps-script/test-floorcount.js # Count on Floor: blind to-do order, refuses negatives, replay-safe count + walk, crew-gated
 node apps-script/test-frontend.js   # both pages in headless Chromium at 390 px against a mock backend; SKIPs without Playwright
 ```
 
@@ -411,6 +412,15 @@ assert on them rather than trusting the parser.
   script's own Intuit OAuth (menu Settings → *Connect QuickBooks…*; `QBO_*` Script Properties; redirect URI = the `/exec` URL, handled at the top of
   `doGet` by `isQboCallback`). `matchVendor` handles legal-suffix differences and refuses ties; items are exact on `QBOItem`, else MaterialName. Unmatched = nothing built.
   Open-PO check asks first (`allowDup=1`). Uses the document lock, not the crew's script lock. `qboKeepAlive` runs from the daily reorder alert
+- **3.11.0 (app + backend): Count on Floor.** Floor mode's *Count stock* button (`#flCount`) walks a
+  to-do from open action `countList` (`getCountList`): shelf = `getInventory` stocktake (never counted /
+  negative) then not counted in `FLOOR_COUNT_STALE_DAYS` (30); floor = active products with >=2 stages and
+  no WipBaseline in `FLOOR_WIP_STALE_DAYS` (14); counted today drops off. **Blind**: no on-hand or estimate
+  reaches the crew (list or reply). Saves queue in `aq_floor_queue` like logs: shelf -> `floorCount`
+  (validates >= 0, then `submitCount` with notes `floor count`), floor -> `wipWalk` for one product.
+  Both are `CREW_WRITE_ACTIONS` (wipWalk newly so; the full app sends a manager token). Replay guard on
+  `submitCount` and `submitWipWalk` by clientId: cache, then new `ClientId` columns on CountLog and
+  WipBaseline (`logHasClientId`). Phone keeps the list in `aq_floor_count`, today's done in `aq_floor_counted`
 - Cloudflare Access / custom domain discussed, not set up
 - `M044` was referenced by the BOM but had no RawMaterials row until 2.10.0,
   so straps were consumed and produced invisibly. `addMissingReferencedMaterials`

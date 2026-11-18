@@ -71,6 +71,33 @@
     </div>
     <p class="fl-note" id="flDup" hidden></p>
     <p class="fl-note" id="flQueue" hidden></p>
+
+    <button id="flCountBtn" class="fl-countbtn" type="button">Count stock <span id="flCountN" class="fl-badge" hidden></span></button>
+  </section>
+
+  <!-- COUNT (3.11.0): the shelf and floor counts nobody had taken, a few at a time. -->
+  <section id="flCount" hidden>
+    <button id="flCountBack" class="fl-back" type="button">&larr; Back to logging</button>
+    <div id="flCountList">
+      <h1 class="fl-h">Count</h1>
+      <p class="fl-sub">Count what is really there. Tap one, count it, save. It goes to the next one by itself.</p>
+      <p class="fl-note" id="flCountMsg" hidden></p>
+      <h2 class="fl-h2">Shelf</h2>
+      <div id="flShelf" class="fl-todo"></div>
+      <h2 class="fl-h2">Floor (work in progress)</h2>
+      <div id="flFloorTodo" class="fl-todo"></div>
+      <h2 class="fl-h2" id="flDoneH" hidden>Counted today (tap to count again)</h2>
+      <div id="flDone" class="fl-todo fl-todo--done"></div>
+    </div>
+    <div id="flCountItem" hidden>
+      <div class="fl-ci__k" id="ciKind"></div>
+      <h1 class="fl-h" id="ciName"></h1>
+      <p class="fl-sub" id="ciWhy"></p>
+      <div id="ciRows"></div>
+      <p class="fl-pinmsg bad" id="ciMsg"></p>
+      <button id="ciSave" class="fl-submit" type="button">Save count</button>
+      <button id="ciSkip" class="fl-link fl-link--big" type="button">Skip for now</button>
+    </div>
   </section>
 </main>
 
